@@ -1,0 +1,20 @@
+{
+  "schema_version": "1.1",
+  "event_id": "manual:dec-run-1:1",
+  "project": "Example-Org/Example-Repo",
+  "source": "manual",
+  "source_ref": {},
+  "kind": "decision",
+  "payload": {
+    "decision_id": "D1",
+    "action": "raised",
+    "question": "Show the milestone table in the default view or behind progressive disclosure?",
+    "options": [
+      "Default view",
+      "Folded details"
+    ],
+    "rationale": "Default view maximizes visibility but risks clutter; folded keeps the summary clean.",
+    "blocks": "M0"
+  },
+  "occurred_at": "2026-06-07T10:00:00Z"
+}

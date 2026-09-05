@@ -1,0 +1,132 @@
+name: AQG Quality Gates (warn-only)
+
+# This self-adoption workflow intentionally stays warn-only. To make AQG
+# blocking, switch to a blocking workflow shape or remove the exit-1 swallow
+# below; changing only quality-gates.json is not enough while this file remains.
+#
+# Tooling-failure caveat: when run_quality_gates.py exits 1 without producing
+# valid JSON, this workflow exits 70 (the step turns red). That is OK if this
+# workflow is NOT a required check in branch protection. If you wire it into
+# branch protection as required, tooling failures will block merges and the
+# warn-only intent is silently broken. Keep this workflow OUT of required
+# checks until the tooling-failure modes are understood.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, edited, ready_for_review]
+  workflow_dispatch:
+
+concurrency:
+  group: aqg-quality-gates-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  # PR top-level comments use the issues comments API.
+  contents: read
+  pull-requests: read
+  issues: write
+
+jobs:
+  quality-gates:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      AQG_TARGET_DIR: target
+      AQG_CONFIG: quality-gates.json
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Check out AQG repository
+        uses: actions/checkout@v6.0.2
+        with:
+          path: ${{ env.AQG_TARGET_DIR }}
+
+      - name: Fetch pull request body
+        id: fetch_pr
+        run: |
+          python3 "$GITHUB_WORKSPACE/$AQG_TARGET_DIR/scripts/fetch_pr_body.py" \
+            --repo "$GITHUB_REPOSITORY" \
+            --output "$RUNNER_TEMP/aqg-pr-body.md"
+
+      - name: Run AQG gates in warn-only mode
+        id: run_gates
+        if: steps.fetch_pr.outputs.skipped != 'true'
+        run: |
+          target_repo="$GITHUB_WORKSPACE/$AQG_TARGET_DIR"
+          config_path="$target_repo/$AQG_CONFIG"
+          if [ ! -f "$config_path" ]; then
+            echo "::error::Missing $AQG_CONFIG in AQG repository."
+            exit 2
+          fi
+
+          set +e
+          python3 "$target_repo/scripts/run_quality_gates.py" \
+            --config "$config_path" \
+            --repo "$target_repo" \
+            --pr-body-file "$RUNNER_TEMP/aqg-pr-body.md" \
+            --output-json "$RUNNER_TEMP/aqg-quality-gates.json"
+          aqg_exit=$?
+          set -e
+
+          echo "exit_code=$aqg_exit" >> "$GITHUB_OUTPUT"
+          if [ "$aqg_exit" -eq 0 ]; then
+            echo "AQG exit 0 recorded."
+            exit 0
+          fi
+          if [ "$aqg_exit" -eq 1 ] && [ -s "$RUNNER_TEMP/aqg-quality-gates.json" ] && python3 -m json.tool "$RUNNER_TEMP/aqg-quality-gates.json" >/dev/null; then
+            echo "AQG gate failure recorded with valid JSON; warn-only workflow does not block the PR."
+            exit 0
+          fi
+          if [ "$aqg_exit" -eq 1 ]; then
+            echo "::error::AQG returned exit 1 without a valid JSON artifact; treating as tooling failure."
+            exit 70
+          fi
+          exit "$aqg_exit"
+
+      - name: Upload redacted AQG JSON
+        if: always() && steps.fetch_pr.outputs.skipped != 'true'
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: aqg-quality-gates-json
+          path: ${{ runner.temp }}/aqg-quality-gates.json
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Render redacted AQG comment
+        if: always() && steps.fetch_pr.outputs.skipped != 'true'
+        run: |
+          target_repo="$GITHUB_WORKSPACE/$AQG_TARGET_DIR"
+          if [ ! -f "$RUNNER_TEMP/aqg-quality-gates.json" ]; then
+            echo "AQG JSON was not produced; skipping comment render."
+            exit 0
+          fi
+          python3 "$target_repo/scripts/render_pr_comment.py" \
+            --input-json "$RUNNER_TEMP/aqg-quality-gates.json" \
+            --output "$RUNNER_TEMP/aqg-pr-comment.md"
+          cat "$RUNNER_TEMP/aqg-pr-comment.md" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Post sticky AQG PR comment
+        if: always() && steps.fetch_pr.outputs.skipped != 'true' && github.event.pull_request.head.repo.fork != true
+        run: |
+          target_repo="$GITHUB_WORKSPACE/$AQG_TARGET_DIR"
+          if [ ! -f "$RUNNER_TEMP/aqg-pr-comment.md" ]; then
+            echo "AQG comment was not rendered; skipping PR comment post."
+            exit 0
+          fi
+          # Best-effort post: an enterprise org's default GITHUB_TOKEN may lack
+          # pull-requests/issues write scope (HTTP 403). The real quality-gate
+          # evaluation already completed back in the 'Run AQG gates' step + the JSON
+          # artifact was uploaded + the step summary was rendered; posting a sticky
+          # comment is only a cosmetic enhancement. On post failure, degrade to a
+          # GitHub warning annotation (yellow UI) rather than failing the whole
+          # workflow (red UI). A real fix requires the Owner to grant the default
+          # GITHUB_TOKEN issues:write scope in org settings — unrelated to the workflow YAML.
+          set +e
+          python3 "$target_repo/scripts/post_pr_comment.py" \
+            --repo "$GITHUB_REPOSITORY" \
+            --body-file "$RUNNER_TEMP/aqg-pr-comment.md"
+          post_exit=$?
+          set -e
+          if [ "$post_exit" -ne 0 ]; then
+            echo "::warning::Post sticky AQG PR comment failed with exit $post_exit (likely enterprise GITHUB_TOKEN scope limitation). Quality gate result available via 'Upload redacted AQG JSON' artifact + 'Render redacted AQG comment' step summary."
+            exit 0
+          fi

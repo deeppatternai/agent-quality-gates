@@ -1,0 +1,191 @@
+# Example Transfer Test Pack v1 run summary — used by tests to confirm
+# validate_transfer_record_v1.py validates a hand-crafted clean summary.
+# Filename prefix `_` marks this as documentation/fixture, not a real
+# emission. CI runs validator against this file in addition to the
+# runner's actual output.
+
+schema_version: 2  # B1: explicit `skipped: bool` field on task records
+run_id: example-2026-05-05-aaaaaaaa
+date: "2026-05-05"
+overall_pass_rate: 1.0
+threshold_strict: 1.0
+threshold_met: true
+task5_advisory: warn  # B1 audit 73619b3e #3: must match Task 5 record's result
+provenance:
+  git_sha: 0123456789abcdef0123456789abcdef01234567
+  repo_url: "https://github.com/deeppatternai/agent-quality-gates"
+  aqg_version: 0.5.0
+  runner_version: 0.1.0
+  os: linux
+  shell: bash
+  python_version: 3.11.4
+  task5_model_id: null
+  task5_provider: null
+  fixture_version: v1.0.0
+  artifact_uri: "local://"
+  metric_event_id: null
+  incident_event_id: null
+
+tasks:
+  - schema_version: 2
+    task_id: 1
+    task_name: fresh_checkout
+    started_at: "2026-05-05T01:00:00+00:00"
+    finished_at: "2026-05-05T01:00:30+00:00"
+    duration_seconds: 30
+    exit_code: 0
+    result: pass
+    required_checks_passed: 4
+    required_checks_total: 4
+    boundary_violations: 0
+    notes: "install.sh --force exit 0; aqg_doctor.py --json exit 0; doctor PASS=47 WARN=0 FAIL=0"
+    provenance:
+      git_sha: 0123456789abcdef0123456789abcdef01234567
+      repo_url: "https://github.com/deeppatternai/agent-quality-gates"
+      aqg_version: 0.5.0
+      runner_version: 0.1.0
+      os: linux
+      shell: bash
+      python_version: 3.11.4
+      task5_model_id: null
+      task5_provider: null
+      fixture_version: v1.0.0
+      artifact_uri: "local://"
+      metric_event_id: null
+      incident_event_id: null
+
+  - schema_version: 2
+    task_id: 2
+    task_name: handoff_schema
+    started_at: "2026-05-05T01:00:30+00:00"
+    finished_at: "2026-05-05T01:00:35+00:00"
+    duration_seconds: 5
+    exit_code: 0
+    result: pass
+    required_checks_passed: 2
+    required_checks_total: 2
+    boundary_violations: 0
+    notes: "handoff_manifest_v1.json validator exit 0; handoff_manifest_v2.json validator exit 0"
+    provenance:
+      git_sha: 0123456789abcdef0123456789abcdef01234567
+      repo_url: "https://github.com/deeppatternai/agent-quality-gates"
+      aqg_version: 0.5.0
+      runner_version: 0.1.0
+      os: linux
+      shell: bash
+      python_version: 3.11.4
+      task5_model_id: null
+      task5_provider: null
+      fixture_version: v1.0.0
+      artifact_uri: "local://"
+      metric_event_id: null
+      incident_event_id: null
+
+  - schema_version: 2
+    task_id: 3
+    task_name: cross_env
+    started_at: "2026-05-05T01:00:35+00:00"
+    finished_at: "2026-05-05T01:00:50+00:00"
+    duration_seconds: 15
+    exit_code: 0
+    result: pass
+    required_checks_passed: 1
+    required_checks_total: 1
+    boundary_violations: 0
+    notes: "aqg_chaos run-all: exit 0"
+    provenance:
+      git_sha: 0123456789abcdef0123456789abcdef01234567
+      repo_url: "https://github.com/deeppatternai/agent-quality-gates"
+      aqg_version: 0.5.0
+      runner_version: 0.1.0
+      os: linux
+      shell: bash
+      python_version: 3.11.4
+      task5_model_id: null
+      task5_provider: null
+      fixture_version: v1.0.0
+      artifact_uri: "local://"
+      metric_event_id: null
+      incident_event_id: null
+
+  - schema_version: 2
+    task_id: 4
+    task_name: behavior_trigger
+    started_at: "2026-05-05T01:00:50+00:00"
+    finished_at: "2026-05-05T01:00:51+00:00"
+    duration_seconds: 1
+    exit_code: 0
+    result: pass
+    required_checks_passed: 5
+    required_checks_total: 5
+    boundary_violations: 0
+    notes: "5 pinned cases: hash match"
+    provenance:
+      git_sha: 0123456789abcdef0123456789abcdef01234567
+      repo_url: "https://github.com/deeppatternai/agent-quality-gates"
+      aqg_version: 0.5.0
+      runner_version: 0.1.0
+      os: linux
+      shell: bash
+      python_version: 3.11.4
+      task5_model_id: null
+      task5_provider: null
+      fixture_version: v1.0.0
+      artifact_uri: "local://"
+      metric_event_id: null
+      incident_event_id: null
+
+  - schema_version: 2
+    task_id: 5
+    task_name: audit_reproducibility
+    started_at: "2026-05-05T01:00:51+00:00"
+    finished_at: "2026-05-05T01:00:51+00:00"
+    duration_seconds: 0
+    exit_code: 0
+    result: warn
+    required_checks_passed: 0
+    required_checks_total: 1
+    boundary_violations: 0
+    notes: "task5 advisory skipped: no audit result placed in tests/transfer/_task5_run_result.json"
+    skipped: true   # B1 v1.1: explicit advisory-skip flag
+    provenance:
+      git_sha: 0123456789abcdef0123456789abcdef01234567
+      repo_url: "https://github.com/deeppatternai/agent-quality-gates"
+      aqg_version: 0.5.0
+      runner_version: 0.1.0
+      os: linux
+      shell: bash
+      python_version: 3.11.4
+      task5_model_id: null
+      task5_provider: null
+      fixture_version: v1.0.0
+      artifact_uri: "local://"
+      metric_event_id: null
+      incident_event_id: null
+
+  - schema_version: 2
+    task_id: 6
+    task_name: owner_cold_transfer
+    started_at: "2026-05-05T01:00:51+00:00"
+    finished_at: "2026-05-05T01:00:52+00:00"
+    duration_seconds: 1
+    exit_code: 0
+    result: pass
+    required_checks_passed: 2
+    required_checks_total: 2
+    boundary_violations: 0
+    notes: "next_action: equal; blockers[] equal (n=2)"
+    provenance:
+      git_sha: 0123456789abcdef0123456789abcdef01234567
+      repo_url: "https://github.com/deeppatternai/agent-quality-gates"
+      aqg_version: 0.5.0
+      runner_version: 0.1.0
+      os: linux
+      shell: bash
+      python_version: 3.11.4
+      task5_model_id: null
+      task5_provider: null
+      fixture_version: v1.0.0
+      artifact_uri: "local://"
+      metric_event_id: null
+      incident_event_id: null

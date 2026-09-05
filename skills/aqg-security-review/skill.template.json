@@ -1,0 +1,91 @@
+{
+  "skill_template_schema": 1,
+  "name": "aqg-security-review",
+  "description": "Review code for OWASP Top 10, CWE Top 25, and secure-by-default library usage in any repository. Use PROACTIVELY when writing authentication or authorization, handling user input or file uploads, working with secrets / credentials / API keys, creating new API endpoints, implementing payment / PII / sensitive-data handling, calling external APIs, modifying cryptography, or adding/modifying dependency manifests (package.json / requirements.txt / Cargo.toml / go.mod / Gemfile / pyproject.toml). Complementary to semgrep SAST and audit-mcp `/audit`; not a substitute. Defaults to the current git root and supports `--repo` override. Does not replace the host built-in /review slash command.",
+  "version": "0.1.0",
+  "wrapper_generated": true,
+  "host_overrides": {
+    "claude": [
+      {
+        "anchor": "python3 \"$script\" --repo \"$(git rev-parse --show-toplevel 2>/dev/null || pwd)\"",
+        "replacement": "python3 \"$script\" --repo \"${CLAUDE_PROJECT_DIR:?CLAUDE_PROJECT_DIR is required}\""
+      }
+    ]
+  },
+  "primary_trigger_keywords": ["security review", "OWASP", "CWE", "secure default", "vulnerability", "auth check", "input validation", "secret", "PII", "payment", "dependency"],
+  "boundary_class": "read-only",
+  "audit_mode_required": "standard",
+  "trigger_grammar": {
+    "keywords": ["security review", "OWASP", "CWE", "secure-by-default", "认证", "授权", "用户输入", "secret", "API endpoint", "payment", "PII", "dependency", "新增依赖", "vulnerability"],
+    "sentence_patterns": [
+      "Run a security review on the auth changes",
+      "OWASP / CWE checklist before I open this PR",
+      "新加了 API endpoint, 走一遍 security review",
+      "改了 secret 处理, 帮我跑 security check",
+      "package.json 加了新 dep, 检查是不是用了 secure-default 库"
+    ]
+  },
+  "entry_script": "skills/aqg-security-review/scripts/aqg_security_review.py",
+  "cli_contract": {
+    "0": "success — checklist printed; closeout-importable skeleton emitted",
+    "1": "reserved — skill surfaces missing surfaces in output, does not raise",
+    "2": "usage error — argparse propagates exit 2 on bad args / unknown --list",
+    "3": "reserved — config or schema error",
+    "70": "reserved — internal error placeholder"
+  },
+  "output_shape": "multi_section_report",
+  "reads_paths": [
+    "skills/aqg-security-review/"
+  ],
+  "writes_paths": [],
+  "forbidden_paths": [
+    "production/",
+    "secrets/",
+    ".env"
+  ],
+  "aqg_agent_gating": false,
+  "owner_only_actions": [
+    "Production / deploy / restart / credential rotation / raw private data / Owner-admin actions remain separate authorization gates; security review never claims them done",
+    "Owner-only 5 items (business direction / strategy / taste / tacit knowledge / cross-long-term + irreversible actions) — escalate, never decide"
+  ],
+  "cases": [
+    {
+      "id": "secrev-desc-001",
+      "style": "description_based",
+      "prompt": "I just added a new auth endpoint — run a security review",
+      "expected_skill": "aqg-security-review",
+      "skill_file_ref": "skills/aqg-security-review/SKILL.md"
+    },
+    {
+      "id": "secrev-desc-002",
+      "style": "description_based",
+      "prompt": "Before I open the PR, walk OWASP / CWE checklist on these payment changes",
+      "expected_skill": "aqg-security-review",
+      "skill_file_ref": "skills/aqg-security-review/SKILL.md"
+    },
+    {
+      "id": "secrev-desc-003",
+      "style": "description_based",
+      "prompt": "Added a new dep to package.json — check whether it uses a secure-default library or a hand-rolled one",
+      "expected_skill": "aqg-security-review",
+      "skill_file_ref": "skills/aqg-security-review/SKILL.md"
+    },
+    {
+      "id": "secrev-desc-004",
+      "style": "description_based",
+      "prompt": "Changed user-input handling + secret loading — run a security checklist before I commit",
+      "expected_skill": "aqg-security-review",
+      "skill_file_ref": "skills/aqg-security-review/SKILL.md"
+    },
+    {
+      "id": "secrev-explicit-001",
+      "style": "explicit_invocation",
+      "prompt": "Please use the /aqg-security-review skill to walk me through OWASP / CWE / secure-defaults",
+      "expected_skill": "aqg-security-review",
+      "skill_file_ref": "skills/aqg-security-review/SKILL.md"
+    }
+  ],
+  "self_test_entrypoint": "skills/aqg-security-review/scripts/self_test.py",
+  "fixed_before_next_task_required_when_findings": true,
+  "numeric_values_quoted": true
+}

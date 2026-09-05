@@ -1,0 +1,86 @@
+{
+  "skill_template_schema": 1,
+  "name": "aqg-skill-validator",
+  "description": "Validate an AQG skill's sidecar manifest, SKILL.md frontmatter, boundary section, and cross-cutting registration before commit; surface violations + advisory warnings. Use when authoring a new skill, backfilling a sidecar for a shipped skill, or checking spec drift.",
+  "version": "0.1.0",
+  "wrapper_generated": true,
+  "primary_trigger_keywords": ["validate", "skill", "sidecar", "spec", "compliance"],
+  "boundary_class": "read-only",
+  "audit_mode_required": "standard",
+  "trigger_grammar": {
+    "keywords": ["validate", "check", "sidecar", "skill template", "spec", "compliance", "drift"],
+    "sentence_patterns": [
+      "Validate the aqg-X skill",
+      "Check if my skill passes the schema",
+      "Run the skill validator on aqg-X",
+      "Is this skill spec compliant?"
+    ]
+  },
+  "entry_script": "scripts/aqg_skill_validator.py",
+  "cli_contract": {
+    "0": "valid (advisory warnings allowed unless --strict)",
+    "1": "violations found",
+    "2": "usage error / sidecar missing / skill dir missing",
+    "3": "config or schema error (reserved; not currently emitted)",
+    "70": "internal error (reserved; not currently emitted)"
+  },
+  "output_shape": "multi_section_report",
+  "reads_paths": [
+    "skills/",
+    "agent-packs/claude-code/skills/",
+    "scripts/aqg_doctor.py",
+    "scripts/install.sh",
+    "agent-packs/claude-code/install.sh",
+    "tests/behavior/fixtures/triggers.yaml"
+  ],
+  "writes_paths": [],
+  "forbidden_paths": [
+    "production/",
+    "secrets/",
+    ".env"
+  ],
+  "aqg_agent_gating": false,
+  "owner_only_actions": [
+    "Modifying boundary policy or sidecar schema requires ADR + Owner approval"
+  ],
+  "cases": [
+    {
+      "id": "skill-validator-desc-001",
+      "style": "description_based",
+      "prompt": "I just finished a new skill — check whether the sidecar and SKILL.md are both correct",
+      "expected_skill": "aqg-skill-validator",
+      "skill_file_ref": "skills/aqg-skill-validator/SKILL.md"
+    },
+    {
+      "id": "skill-validator-desc-002",
+      "style": "description_based",
+      "prompt": "Validate the aqg-foo skill before I commit",
+      "expected_skill": "aqg-skill-validator",
+      "skill_file_ref": "skills/aqg-skill-validator/SKILL.md"
+    },
+    {
+      "id": "skill-validator-desc-003",
+      "style": "description_based",
+      "prompt": "Check if my new skill's sidecar passes the schema",
+      "expected_skill": "aqg-skill-validator",
+      "skill_file_ref": "skills/aqg-skill-validator/SKILL.md"
+    },
+    {
+      "id": "skill-validator-desc-004",
+      "style": "description_based",
+      "prompt": "I want to confirm the skill's frontmatter and boundary section both match the spec",
+      "expected_skill": "aqg-skill-validator",
+      "skill_file_ref": "skills/aqg-skill-validator/SKILL.md"
+    },
+    {
+      "id": "skill-validator-explicit-001",
+      "style": "explicit_invocation",
+      "prompt": "Please use the /aqg-skill-validator skill to validate aqg-incident-recorder",
+      "expected_skill": "aqg-skill-validator",
+      "skill_file_ref": "skills/aqg-skill-validator/SKILL.md"
+    }
+  ],
+  "self_test_entrypoint": "skills/aqg-skill-validator/scripts/self_test.py",
+  "fixed_before_next_task_required_when_findings": true,
+  "numeric_values_quoted": true
+}

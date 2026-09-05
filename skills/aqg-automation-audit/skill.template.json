@@ -1,0 +1,85 @@
+{
+  "skill_template_schema": 1,
+  "name": "aqg-automation-audit",
+  "description": "Inventory automation stack (hooks / MCP / plugins / skills / env) + overlap-check vs AQG workflow + emit structured verdict in any host. Use PROACTIVELY when installing or updating a plugin / marketplace, suspecting a hook is interfering with AQG flow, seeing repeated system-reminder injections (typical noise signal), running monthly automation hygiene, OR before evidence-closeout if the automation stack changed mid-session. Advisory + read-only — it inventories and emits verdicts (keep / migrate / disable / fix); the human applies any change — this skill never modifies hooks, plugins, MCP, or skills. Defaults to current host (`~/.claude`) and supports `--skill-root` override.",
+  "version": "0.1.0",
+  "wrapper_generated": true,
+  "primary_trigger_keywords": ["automation audit", "inventory", "overlap", "hook conflict", "plugin update", "system-reminder noise", "verdict"],
+  "boundary_class": "read-only",
+  "audit_mode_required": "standard",
+  "trigger_grammar": {
+    "keywords": ["automation audit", "inventory", "overlap", "hook conflict", "plugin update", "新装 plugin", "system-reminder", "noise", "撞车", "verdict", "scan stack", "audit stack"],
+    "sentence_patterns": [
+      "Audit my automation stack — what hooks/MCP/plugins are live and which overlap AQG?",
+      "刚装了新 plugin, 检查是不是撞了 AQG 工作流",
+      "更新某个 plugin 后跑一遍 automation audit",
+      "看到反复出现的 system-reminder 注入, 帮我找哪个 hook",
+      "走个月度 automation hygiene"
+    ]
+  },
+  "entry_script": "skills/aqg-automation-audit/scripts/inventory.py",
+  "cli_contract": {
+    "0": "success — inventory captured (or overlap check completed)",
+    "1": "reserved — surfaces missing pieces in output, does not raise",
+    "2": "usage error — argparse propagates exit 2 on bad args",
+    "3": "config or schema error — settings.json or inventory.json malformed",
+    "70": "reserved — internal error placeholder"
+  },
+  "output_shape": "multi_section_report",
+  "reads_paths": [
+    "skills/aqg-automation-audit/"
+  ],
+  "writes_paths": [],
+  "forbidden_paths": [
+    "production/",
+    "secrets/",
+    ".env"
+  ],
+  "aqg_agent_gating": false,
+  "owner_only_actions": [
+    "Production / deploy / restart / credential rotation / raw private data / Owner-admin actions remain separate authorization gates",
+    "Owner-only 5 items (business direction / strategy / taste / tacit knowledge / cross-long-term + irreversible actions) — escalate, never decide",
+    "Advisory only — this skill emits verdicts but never modifies hooks, plugins, MCP configs, or skills directories; the human applies any change"
+  ],
+  "cases": [
+    {
+      "id": "autoaudit-desc-001",
+      "style": "description_based",
+      "prompt": "Just installed the semgrep plugin — run an automation audit to see if it collides with the workflow",
+      "expected_skill": "aqg-automation-audit",
+      "skill_file_ref": "skills/aqg-automation-audit/SKILL.md"
+    },
+    {
+      "id": "autoaudit-desc-002",
+      "style": "description_based",
+      "prompt": "Inventory all hooks / MCP / plugins / skills + check overlap vs AQG workflow",
+      "expected_skill": "aqg-automation-audit",
+      "skill_file_ref": "skills/aqg-automation-audit/SKILL.md"
+    },
+    {
+      "id": "autoaudit-desc-003",
+      "style": "description_based",
+      "prompt": "I keep seeing system-reminder injections — help me find which hook is polluting the context",
+      "expected_skill": "aqg-automation-audit",
+      "skill_file_ref": "skills/aqg-automation-audit/SKILL.md"
+    },
+    {
+      "id": "autoaudit-desc-004",
+      "style": "description_based",
+      "prompt": "After updating a plugin, run an automation hygiene pass + verdict table",
+      "expected_skill": "aqg-automation-audit",
+      "skill_file_ref": "skills/aqg-automation-audit/SKILL.md"
+    },
+    {
+      "id": "autoaudit-explicit-001",
+      "style": "explicit_invocation",
+      "prompt": "Please use the /aqg-automation-audit skill to produce inventory + overlap + verdict",
+      "expected_skill": "aqg-automation-audit",
+      "expected_caller_type": "direct",
+      "skill_file_ref": "skills/aqg-automation-audit/SKILL.md"
+    }
+  ],
+  "self_test_entrypoint": "skills/aqg-automation-audit/scripts/self_test.py",
+  "fixed_before_next_task_required_when_findings": true,
+  "numeric_values_quoted": true
+}

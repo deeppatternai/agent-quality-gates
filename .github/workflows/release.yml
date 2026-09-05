@@ -1,0 +1,138 @@
+name: Release publish (v* tags)
+
+# Triggered on annotated tag push v*. Pipeline:
+#   1. Call transfer-test-pack.yml via workflow_call (is_release_callee=true →
+#      posture=callee; caller-gate semantic per A3 audit b2211ad2 #2).
+#   2. If transfer pack passes, verify tag matches VERSION file + extract the
+#      matching CHANGELOG.md section + create GitHub Release with those notes.
+#
+# Replaces the prior manual `git tag + git push origin <tag>` flow used for
+# v0.5.0 (PR #58→#76 batch). Q-Open-7 sketch §4 + audit b2211ad2 #2 designed
+# transfer-test-pack workflow_call as the structural release-publish gate;
+# this file is its caller.
+#
+# What this workflow does NOT do:
+# - publish to PyPI (AQG is not a pip package)
+# - sign release artifacts (no artifacts; release notes only)
+# - bypass tag-VERSION mismatch (verify step blocks publish on mismatch)
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  # audit a97df300 #2 fix: workflow-level default is contents: read; publish job
+  # explicitly elevates to contents: write only where needed (release create).
+  # Future jobs added to this workflow inherit read-only by default.
+  contents: read
+
+concurrency:
+  # audit a97df300 #1 fix: serialize ALL release publishes regardless of tag.
+  # Prior `release-${{ github.ref }}` keyed by tag ref → v0.6.0 vs v0.6.1 ran
+  # in different groups, allowing concurrent + out-of-order publishes.
+  group: release-publish-${{ github.repository }}
+  cancel-in-progress: false
+
+jobs:
+  # Step 1: gate on transfer-test-pack via workflow_call. Caller-gate semantic:
+  # if this job fails, `needs: transfer-pack-gate` on the publish job blocks publish.
+  transfer-pack-gate:
+    uses: ./.github/workflows/transfer-test-pack.yml
+    with:
+      is_release_callee: true
+      # Release-time runs hermetic by default — audit-mcp not guaranteed in
+      # release env. Owner can flip via tag annotation if needed.
+      skip_task5: 'true'
+    permissions:
+      contents: read
+
+  publish:
+    needs: transfer-pack-gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      # audit a97df300 #2 fix: contents: write scoped to this job only
+      # (required by softprops/action-gh-release for `gh release create`).
+      # Workflow-level default is contents: read; future-added jobs do NOT
+      # inherit write access.
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6.0.2
+        with:
+          # fetch-depth: 0 needed if we ever auto-generate notes from git log;
+          # currently we extract from CHANGELOG.md so depth=1 is enough, but
+          # keep 0 for future flexibility.
+          fetch-depth: 0
+
+      - name: Verify VERSION file matches tag
+        run: |
+          set -euo pipefail
+          tag_version="${GITHUB_REF_NAME#v}"
+          repo_version="$(cat VERSION | tr -d '[:space:]')"
+          if [ "$tag_version" != "$repo_version" ]; then
+            echo "::error::Tag ${GITHUB_REF_NAME} (version=${tag_version}) does not match VERSION file (${repo_version}). Bump VERSION in same PR before tagging." >&2
+            exit 1
+          fi
+          echo "Tag matches VERSION: ${repo_version}"
+
+      - name: Extract CHANGELOG section for this version
+        id: changelog
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          # audit a97df300 #4 fix: literal string match via Python `.find()` instead of
+          # awk regex (SemVer `.` and `+` are regex metacharacters; awk would match
+          # `v1.2.3` against `v1X2X3` etc.). audit #3 fix: require at least one
+          # non-blank line after the heading — `[ -s file ]` passes for heading-only.
+          python3 - "$version" <<'PY' > release-notes.md
+          import sys
+
+          version = sys.argv[1]
+          with open("CHANGELOG.md", encoding="utf-8") as f:
+              content = f.read()
+
+          target = f"## [{version}]"
+          start = content.find(target)
+          if start == -1:
+              sys.exit(
+                  f"::error::No CHANGELOG entry found for v{version}. "
+                  f"Add a '## [{version}] - YYYY-MM-DD' section before tagging."
+              )
+
+          # Find next version heading after our start (literal "\n## [" prefix);
+          # if none, this version is the last (oldest section in file is unusual,
+          # but handle it gracefully).
+          next_section = content.find("\n## [", start + 1)
+          section = content[start:] if next_section == -1 else content[start:next_section]
+
+          # audit a97df300 #3 fix: require at least one non-blank content line
+          # after the heading. Otherwise heading-only sections silently publish
+          # an empty release.
+          lines = section.splitlines()
+          non_heading_content = [l for l in lines[1:] if l.strip()]
+          if not non_heading_content:
+              sys.exit(
+                  f"::error::CHANGELOG section for v{version} is empty "
+                  f"(heading-only). Add release notes before tagging."
+              )
+
+          sys.stdout.write(section)
+          PY
+          echo "::notice::Extracted release notes for v${version}:"
+          cat release-notes.md
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda # v3.0.0 (node24 runtime — v2.6.2 was node20, deprecated; #239: pin third-party action to full SHA)
+        with:
+          name: AQG ${{ github.ref_name }}
+          body_path: release-notes.md
+          # audit a97df300 #5 fix: any hyphen suffix → prerelease per SemVer spec
+          # (covers -rc / -beta / -alpha / -preview / -dev / -nightly / etc.;
+          # no need to maintain an allowlist that misses obscure suffixes).
+          # Final releases like v0.6.0 / v1.0.0 contain no hyphen → full release.
+          draft: false
+          prerelease: ${{ contains(github.ref_name, '-') }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

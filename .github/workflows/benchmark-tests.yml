@@ -1,0 +1,36 @@
+name: AQG Public Benchmark Smoke Tests
+
+on:
+  pull_request:
+    paths:
+      - 'benchmarks/aqg-workflow/**'
+      - '.github/workflows/benchmark-tests.yml'
+    types: [opened, synchronize, reopened, ready_for_review]
+  schedule:
+    - cron: '0 14 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: aqg-public-benchmark-tests-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  public-benchmark-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout AQG
+        uses: actions/checkout@v6.0.2
+
+      - name: Verify task instruments
+        run: python3 benchmarks/aqg-workflow/selftest.py
+
+      - name: Verify the public exploratory plan
+        run: |
+          python3 benchmarks/aqg-workflow/run.py \
+            --tasks parse-positive-int \
+            --arms baseline aqg-full claude-md-lite \
+            --runs 1

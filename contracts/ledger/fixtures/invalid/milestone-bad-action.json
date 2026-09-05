@@ -1,0 +1,13 @@
+{
+  "schema_version": "1.1",
+  "event_id": "manual:wp-run-1:1",
+  "project": "Example-Org/Example-Repo",
+  "source": "manual",
+  "source_ref": {},
+  "kind": "milestone",
+  "payload": {
+    "milestone_id": "M0",
+    "action": "frobnicate"
+  },
+  "occurred_at": "2026-06-07T10:00:00Z"
+}

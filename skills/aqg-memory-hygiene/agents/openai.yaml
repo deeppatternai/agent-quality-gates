@@ -1,0 +1,4 @@
+interface:
+  display_name: "AQG Memory Hygiene"
+  short_description: "Scan agent memory for frontmatter schema drift + stale volatile entries — signal-only, read-only"
+  default_prompt: "Validate the memory frontmatter schema, then list stale volatile memories needing re-verification."

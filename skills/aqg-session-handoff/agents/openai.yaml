@@ -1,0 +1,4 @@
+interface:
+  display_name: "AQG Session Handoff"
+  short_description: "Paste-ready cross-session handoff skeleton (new) + stdin gate (validate) for next-session LLM cold-start on a generic project"
+  default_prompt: "Generate a paste-ready cross-session handoff for a generic project so a next-session LLM can cold-start; `new` prints an 8-section skeleton, `validate` gates the filled handoff from stdin before paste. For EAF engine runs use eaf-session-handoff instead."

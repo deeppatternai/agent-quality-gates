@@ -1,0 +1,4 @@
+interface:
+  display_name: "AQG Automation Audit"
+  short_description: "Inventory hooks / MCP / plugins and flag overlap vs AQG"
+  default_prompt: "Inventory the automation stack (hooks, MCP servers, plugins, skills) and flag overlap or noise versus the AQG workflow."

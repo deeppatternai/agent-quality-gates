@@ -1,0 +1,68 @@
+name: AQG Construction Check (warn-only)
+
+# Per sketch a1 audit D4 fix: CI backstop running checker on PR base diff.
+# Per PR-B audit gpt #5 fix: run unconditionally (not gated on .aqg/current_ledger.md
+# presence — `.aqg/` is gitignored so it would never appear in PR). exit 3
+# (no ledger) is treated as warning, not failure, since this is warn-only initially.
+#
+# Per gemini #1 fix (option c): CI sets AQG_AGENT=ci-rerun (an enforcing
+# value), so the checker actually runs against the PR diff. Warn-only initially
+# means workflow never fails — switch `exit 0` to `exit $rc` after rollout.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+  workflow_dispatch:
+
+concurrency:
+  group: aqg-construction-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  construction-check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      AQG_AGENT: ci-rerun  # gemini #1: ci-rerun is in ENFORCING_AGENTS set
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6.0.2
+        with:
+          fetch-depth: 0  # full history needed for --mode=base diff against origin/main
+
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.10"
+
+      - name: Run AQG construction checker (warn-only, unconditional)
+        run: |
+          # PR-B audit gpt #5 fix: do NOT gate on .aqg/current_ledger.md presence.
+          # `.aqg/` is gitignored so it never appears in CI checkout. Run the
+          # checker unconditionally and treat exit 3 (no ledger) as a warning.
+          set +e
+          python3 skills/aqg-code-construction/scripts/aqg_construction_check.py \
+            --mode base \
+            --base origin/main \
+            --cwd . 2>&1
+          rc=$?
+          set -e
+
+          if [ "$rc" -eq 0 ]; then
+            echo "AQG construction check PASS"
+          elif [ "$rc" -eq 3 ]; then
+            echo "::notice::No .aqg/current_ledger.md found in PR (expected during rollout — warn-only)."
+          elif [ "$rc" -eq 2 ]; then
+            echo "::warning::AQG construction check exit 2 — secret pattern detected in ledger (CRITICAL — would block in enforcing mode)"
+          else
+            echo "::warning::AQG construction check exit $rc (warn-only initially; would block in enforcing mode)"
+          fi
+
+          # Warn-only: never fail the workflow during initial rollout per audit D4.
+          # When ready to enforce, change to: exit $rc
+          exit 0

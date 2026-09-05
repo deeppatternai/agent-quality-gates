@@ -1,0 +1,29 @@
+# AQG skill roster manifest — the version-controlled baseline for the
+# check_fixture_mix.py I6 deletion-guard floor. One skill name per line;
+# '#' comments and blank lines are ignored.
+#
+# It is a SEPARATE committed file (not a live `ls skills/aqg-*`) on purpose: the
+# guard checks each listed name still has a dir, so a deletion can't quietly
+# vanish. If the check derived its baseline from the live tree it guards, a
+# deletion would just shrink both sides and never fire.
+#
+# Policy (SKILL_AUTHORING_GUIDE §4.4): ADDING a skill needs no edit here (the
+# roster grows above the floor and still passes). REMOVING a skill is an
+# Owner-approved major change and MUST also delete its line here — that reviewed
+# diff is what authorizes lowering the floor. Keep sorted.
+aqg-audit-adjudication
+aqg-automation-audit
+aqg-code-construction
+aqg-decision-capture
+aqg-evidence-closeout
+aqg-memory-hygiene
+aqg-multi-review
+aqg-phase-transition
+aqg-project-status
+aqg-re-anchor
+aqg-security-review
+aqg-session-handoff
+aqg-skill-validator
+aqg-startup-preflight
+aqg-systematic-debugging
+aqg-test-quality-review

@@ -1,0 +1,11 @@
+# WS-7 B-port follow-up deep-audit adjudication
+
+Audit ID: `def17cf3` (deep follow-up, five independent external voices)
+
+| finding | decision | action | verification |
+|---|---|---|---|
+| A permission-denied out-of-boundary file attempt was blanked by the runner but rejected by the analyzer as an invalid empty stream. | accepted | Persist a parseable stream with only the denied path replaced by `REDACTED_DENIED_FILE_PATH`; retain denial text with host paths redacted. The analyzer re-derives the denied count from the sentinel plus the matching denial result. | `test_run_cell_keeps_a_permission_denied_external_read_as_redacted_diagnostic` and `test_denied_external_file_attempt_is_rederived_without_host_path_in_ledger` pass together. |
+| The earlier adjudication incorrectly said the empty runner artifact could be re-derived by the analyzer. | accepted | This supersedes the corresponding rejection in `2026-07-14-ws-7-b-port-adjudication.md`; its verification fixture now uses the same stream-redaction function as runner persistence. | Focused `test_run.py` and `test_analyze.py` pass with no retained `/Users/example/private` path. |
+| The B identity test prohibited ordinary exploratory smoke JSONL files and could block the required B smoke. | accepted | Narrowed the scan to predecessor study/result identifiers; the future primary directory remains protected by the empty-directory preflight. | `test_b_port.py` and `test_primary_evidence_preflight_rejects_foreign_artifact_without_reserving_marker` pass. |
+| The preregistration did not describe atomic blocks, their digest/receipts, or their invalidation rule. | accepted | Added the atomic matched-block collection and validity-gate contract to `PREREGISTRATION.md`. | `test_protocol.py`, `test_run.py`, and `test_analyze.py` cover the block contract. |
+| Atomic-analysis enforcement and new B preflight wiring lacked dedicated regression locks. | accepted | Removed analyzer's historical no-collection fallback; factored the primary check list and AQG skill-source assertion into testable helpers; locked ECC distribution/source fields. | `test_primary_preflight_checks_include_b_port_identity_suite`, `test_aqg_skill_source_requires_a_named_aqg_directory`, and `test_protocol.py` pass. |

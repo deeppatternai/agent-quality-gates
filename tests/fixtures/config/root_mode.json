@@ -1,0 +1,22 @@
+{
+  "version": 1,
+  "mode": "blocking",
+  "project": {
+    "name": "fixture-project",
+    "required_context_files": [
+      "AGENTS.md"
+    ]
+  },
+  "gates": {},
+  "boundaries": {
+    "production": {
+      "require_explicit_statement": true
+    },
+    "secrets": {
+      "require_explicit_statement": true
+    },
+    "raw_private_data": {
+      "require_explicit_statement": true
+    }
+  }
+}

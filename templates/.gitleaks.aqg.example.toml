@@ -1,0 +1,50 @@
+# AQG-recommended Gitleaks allowlist sample (3-audit gpt-5.5 #9 + gemini #4).
+#
+# Why this file: Gitleaks ships with sensible default rules. False positives
+# happen mostly on test fixtures, dummy hashes, example configs, and
+# generated files. WITHOUT a sanctioned allowlist mechanism, blocked devs
+# tend to bypass with `SKIP=gitleaks` or `git commit --no-verify`, which
+# defeats the security gate (3-audit gemini #4 accepted).
+#
+# Copy this to `.gitleaks.toml` in your repo root and edit. Reference:
+#   https://github.com/gitleaks/gitleaks/blob/master/config/gitleaks.toml
+#
+# Activate by editing your `.pre-commit-config.yaml`:
+#   - id: gitleaks
+#     args: ['--config=.gitleaks.toml']
+
+# CRITICAL (post-impl dual-auditor gpt-5.5 #1 critical): keep [extend] useDefault=true
+# below. Without it, Gitleaks treats this file as the FULL rule set and
+# DISABLES built-in secret detection — real secrets pass through silently.
+[extend]
+useDefault = true
+
+[allowlist]
+description = "AQG default allowlist — narrow exemptions only"
+
+# Paths that are NEVER scanned (e.g., test fixtures with dummy creds)
+paths = [
+    # Example: test fixtures intentionally containing fake tokens
+    # '''tests/fixtures/.*\.json$''',
+    # '''docs/examples/.*\.md$''',
+]
+
+# Regexes whose matches are ignored even when a rule fires
+regexes = [
+    # Example: AKIAEXAMPLE / EXAMPLE / 12345 / sha256_first8 placeholders
+    # '''(?i)example''',
+    # '''(?i)dummy''',
+    # '''AKIAIOSFODNN7EXAMPLE''',  # Documented AWS docs example creds
+]
+
+# Specific commits to skip (e.g., known-historical leak already rotated)
+commits = [
+    # '''abcd1234abcd1234abcd1234abcd1234abcd1234''',
+]
+
+# How to use:
+# 1. Audit the false positive — confirm it's NOT a real secret
+# 2. Rotate the credential if it ever was real
+# 3. Add the narrowest possible exception (path > regex > commit)
+# 4. Document why in a comment near each entry
+# 5. Re-run `pre-commit run gitleaks --all-files` to verify

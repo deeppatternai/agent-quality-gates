@@ -1,0 +1,13 @@
+{
+  "schema_version": "1.0",
+  "event_id": "manual:adhoc-1:1",
+  "project": "Example-Org/Example-Repo",
+  "source": "manual",
+  "source_ref": {},
+  "kind": "progress",
+  "payload": {
+    "phase_event": "started",
+    "title": "Run started"
+  },
+  "occurred_at": "2026-05-29T10:00:00Z"
+}

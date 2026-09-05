@@ -1,0 +1,118 @@
+name: AQG Quality Gates (blocking example)
+
+on:
+  # Keep this on pull_request for code-safety. Do not switch to
+  # pull_request_target just to post comments unless you have a separate
+  # security review for fork checkout behavior.
+  pull_request:
+    types: [opened, synchronize, reopened, edited, ready_for_review]
+  workflow_dispatch:
+
+concurrency:
+  group: aqg-quality-gates-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: read
+  issues: write
+
+jobs:
+  quality-gates:
+    runs-on: ubuntu-latest
+    env:
+      AQG_TARGET_DIR: target
+      AQG_TOOL_DIR: aqg-tooling
+      # For real rollout, pin this to a reviewed commit SHA or signed tag.
+      AQG_TOOL_REF: main
+      AQG_CONFIG: quality-gates.json
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Check out target repository
+        uses: actions/checkout@v6.0.2
+        with:
+          path: ${{ env.AQG_TARGET_DIR }}
+
+      # This example is intentionally separate from the default warn-only
+      # workflow. Enable it only after warn-only rollout evidence shows the
+      # selected gates are stable enough to block merges.
+      #
+      # AQG's public tooling repository clones with the workflow's default token, so
+      # AQG_PRIVATE_READ_TOKEN is OPTIONAL and used only for the checkout below. Leave
+      # it unset for the normal (public) case: the checkout falls back to github.token.
+      # Under this template's `pull_request` trigger a fork PR gets a read-only
+      # github.token and no repository secrets; that token can clone a public repo
+      # cross-org but CANNOT read OTHER private repos — so the fallback works only while
+      # the AQG tooling repo is public. Copy this template after AQG is public, and keep
+      # the `pull_request` trigger (see the note on the `on:` block above).
+      #
+      # Set AQG_PRIVATE_READ_TOKEN only if you repoint `repository:` below at a PRIVATE
+      # tooling fork (a ref cannot select a different repo). External fork PRs never
+      # receive the secret, so they cannot read a private fork and will fail this
+      # checkout (a blocking gate then blocks that PR) — private tooling is incompatible
+      # with external-fork gating. Scope a fine-grained PAT to contents:read on that
+      # fork, record the owner, and rotate it (if a set token is stale, unset it to fall
+      # back to github.token); a deploy key may be used instead by replacing token with
+      # ssh-key.
+      - name: Check out AQG tooling repository
+        uses: actions/checkout@v6.0.2
+        with:
+          repository: deeppatternai/agent-quality-gates
+          ref: ${{ env.AQG_TOOL_REF }}
+          path: ${{ env.AQG_TOOL_DIR }}
+          token: ${{ secrets.AQG_PRIVATE_READ_TOKEN || github.token }}
+
+      - name: Fetch pull request body
+        id: fetch_pr
+        run: |
+          python3 "$AQG_TOOL_DIR/scripts/fetch_pr_body.py" \
+            --repo "$GITHUB_REPOSITORY" \
+            --output "$RUNNER_TEMP/aqg-pr-body.md"
+
+      - name: Run AQG gates in blocking workflow mode
+        if: steps.fetch_pr.outputs.skipped != 'true'
+        run: |
+          target_repo="$GITHUB_WORKSPACE/$AQG_TARGET_DIR"
+          config_path="$target_repo/$AQG_CONFIG"
+          if [ ! -f "$config_path" ]; then
+            echo "::error::Missing $AQG_CONFIG in target repository."
+            exit 2
+          fi
+
+          python3 "$AQG_TOOL_DIR/scripts/run_quality_gates.py" \
+            --config "$config_path" \
+            --repo "$target_repo" \
+            --pr-body-file "$RUNNER_TEMP/aqg-pr-body.md" \
+            --output-json "$RUNNER_TEMP/aqg-quality-gates.json"
+
+      - name: Upload redacted AQG JSON
+        if: always() && steps.fetch_pr.outputs.skipped != 'true'
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: aqg-quality-gates-json
+          path: ${{ runner.temp }}/aqg-quality-gates.json
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Render redacted AQG comment
+        if: always() && steps.fetch_pr.outputs.skipped != 'true'
+        run: |
+          if [ ! -f "$RUNNER_TEMP/aqg-quality-gates.json" ]; then
+            echo "AQG JSON was not produced; skipping comment render."
+            exit 0
+          fi
+          python3 "$AQG_TOOL_DIR/scripts/render_pr_comment.py" \
+            --input-json "$RUNNER_TEMP/aqg-quality-gates.json" \
+            --output "$RUNNER_TEMP/aqg-pr-comment.md"
+          cat "$RUNNER_TEMP/aqg-pr-comment.md" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Post sticky AQG PR comment
+        if: always() && steps.fetch_pr.outputs.skipped != 'true' && github.event.pull_request.head.repo.fork != true
+        run: |
+          if [ ! -f "$RUNNER_TEMP/aqg-pr-comment.md" ]; then
+            echo "AQG comment was not rendered; skipping PR comment post."
+            exit 0
+          fi
+          python3 "$AQG_TOOL_DIR/scripts/post_pr_comment.py" \
+            --repo "$GITHUB_REPOSITORY" \
+            --body-file "$RUNNER_TEMP/aqg-pr-comment.md"

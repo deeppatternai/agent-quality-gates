@@ -1,0 +1,24 @@
+.DS_Store
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+venv/
+tmp/
+
+# WS-7 benchmark evidence is local-only; the result PR rule permits only a
+# redaction-safe analyzer summary, never ledgers, markers, raw streams, or solutions.
+benchmarks/aqg-workflow/results/
+benchmarks/aqg-workflow/results-*/
+benchmarks/aqg-workflow/.ws-7-*-denial-smoke-attempt.json
+
+# AQG code construction workspace (per Wave 3 aqg-code-construction skill)
+# Holds ledger files (.aqg/code-construction/*.md), local hooks (.aqg/hooks/),
+# and current task pointer (.aqg/current_ledger.md). Ephemeral session state
+# — durable record lives in PR/commit messages.
+.aqg/
+
+# Claude Code local agent state: per-session worktrees (.claude/worktrees/),
+# local-only settings (settings.local.json), scheduled-task lockfile, etc.
+# Entirely local — 0 tracked files here, never shared/durable.
+.claude/

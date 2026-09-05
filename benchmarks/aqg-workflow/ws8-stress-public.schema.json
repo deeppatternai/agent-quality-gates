@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "WS-8 redaction-safe exploratory stress report",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["study_id", "protocol_sha256", "validity", "stress"],
+  "properties": {
+    "study_id": {"type": "string", "pattern": "^ws-8-"},
+    "protocol_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "validity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["valid", "reasons"],
+      "properties": {
+        "valid": {"type": "boolean"},
+        "reasons": {"type": "array", "items": {"type": "string"}}
+      }
+    },
+    "stress": {
+      "type": "array",
+      "minItems": 6,
+      "maxItems": 6,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["host", "tier", "contrast", "defect_rate_delta_pp", "confidence_interval_pp", "inference", "reasons"],
+        "properties": {
+          "host": {"enum": ["claude", "codex"]},
+          "tier": {"const": "stress"},
+          "contrast": {"type": "array", "minItems": 2, "maxItems": 2, "items": {"enum": ["baseline", "lite", "aqg-full"]}},
+          "defect_rate_delta_pp": {"type": "number"},
+          "confidence_interval_pp": {"type": "array", "minItems": 2, "maxItems": 2, "items": {"type": "number"}},
+          "inference": {"const": "descriptive_only"},
+          "reasons": {"type": "array", "items": {"type": "string"}}
+        }
+      }
+    }
+  }
+}

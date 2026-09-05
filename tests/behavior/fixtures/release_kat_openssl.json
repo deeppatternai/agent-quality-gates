@@ -1,0 +1,16 @@
+{
+  "_comment": "Known-answer vector. The signature was produced by LibreSSL 3.3.6 (openssl dgst -sha256 -sign), an implementation independent of this codebase, over canonical_bytes(manifest). Its private key was generated for this one signature and discarded -- it is not in the repository and signs nothing else. Its purpose is to catch a construction bug shared between the verifier and the in-suite test signer, which no self-signed test can detect.",
+  "algorithm": "rsa-pkcs1v15-sha256",
+  "exponent": 65537,
+  "key_id": "kat-openssl-vector",
+  "manifest": {
+    "channel": "stable",
+    "commit": "0f1e2d3c4b5a69788796a5b4c3d2e1f001234567",
+    "key_id": "kat-openssl-vector",
+    "release_sequence": 8,
+    "schema": 1,
+    "version": "0.16.0"
+  },
+  "modulus_hex": "b5461e12f6265db8ee9033113f2e839f4e6b7f3d51d43c3e4fc98914b8f20800a6c8d9d11d2d6c5a361f5b0690fde2d9d8afd4440cbec8cf1f0af13fd0af02b451dd272b2bdad9cdb511fde80f1d1c113f444e812425876a55e74ceb0460b32953855e450b385c583c1d91c0100a77c45148958ee6a8e0a5cd5f27557cee05b78698ccdd5aa44c01c9df2bc447aba062bc53dc734da4a64da951cddd4e4fe269e766aa3e2c8d53d1148dfea81930cb215e1957a150ac825e05fc1e652e14d52cc374bdf1f51c617918f7e70a1b3d847fd86e7701b19f7b06a78ea7ab36762678acf207dd74662514610e47f58b9b9c06f4d0527d47280f83d2b4ecb3627ee671",
+  "signature": "YlxpDiuCg14NDX01wS/OY4l1qr6ucBOpNWIOlnS6Ck5ZS5Ql0gocCFTjax8sIjPvqf4e0G//vw1/3s0VWt7VgPkoZFPnreH1I3XEtaLuabDYsBOcDQdME9elBqet6hO4gKbtU3o3tB/rp2yqFJMuv3fnFeENuaE0ibjyop8o3rsWivc45ReEG4oYS0PQXf4c7WvQNHevSs2seq2/OMeoxsbhYxcQEtfGq23MgdTJyqijA9E2jX+OY8empSs1D/P+ZkdAhZqo1nk01OiILcLRhVOKmUxBXtnLIVeBy6YsivJBCSeDKeatqaAo8K2JRs1wy28YMJQ1cd+GwhDfSMmr4g=="
+}

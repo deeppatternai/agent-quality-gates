@@ -1,0 +1,4 @@
+interface:
+  display_name: "AQG Systematic Debugging"
+  short_description: "Root-cause debugging for project failures"
+  default_prompt: "Use systematic debugging for this project failure and produce evidence before proposing a fix."

@@ -1,0 +1,19 @@
+{
+  "schema_version": "1.1",
+  "event_id": "manual:wp-run-1:1",
+  "project": "Example-Org/Example-Repo",
+  "source": "manual",
+  "source_ref": {},
+  "kind": "milestone",
+  "payload": {
+    "milestone_id": "M0",
+    "action": "planned",
+    "title": "Project ledger milestone contract",
+    "summary": "Add milestone and decision events to the project ledger so the status report can show business progress.",
+    "key_outcome": "The status report renders a progressive-disclosure milestone table.",
+    "estimated_size": "~2 person-weeks (human-team baseline); M",
+    "planned_start": "2026-06-10",
+    "target_date": "2026-06-24"
+  },
+  "occurred_at": "2026-06-07T10:00:00Z"
+}

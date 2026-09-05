@@ -1,0 +1,4 @@
+interface:
+  display_name: "AQG Project Status"
+  short_description: "Render a project's ledger as a human progress / Bug / handbook report"
+  default_prompt: "Render the AQG project ledger for the current repo as a human-readable status report (progress, open defects, delivery handbooks)."

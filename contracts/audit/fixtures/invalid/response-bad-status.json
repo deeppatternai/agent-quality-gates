@@ -1,0 +1,1 @@
+{"schema_version": "1.0", "event_type": "audit_response", "payload": {"audit_id": "x", "status": "done"}}

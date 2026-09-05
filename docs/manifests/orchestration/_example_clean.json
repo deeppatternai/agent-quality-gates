@@ -1,0 +1,40 @@
+{
+  "schema_version": 1,
+  "name": "review-implement-audit",
+  "description": "Multi-step LLM workflow:\n1. claude reviews PR for design issues\n2. codex implements approved changes\n3. gpt-5.5 audits final diff for regressions\nAQG validates this schema only; project uses Claude/Codex builtin spawn.",
+  "steps": [
+    {
+      "id": "review",
+      "actor": "claude",
+      "intent": "review PR for design issues and consistency with framework",
+      "inputs": [],
+      "timeout_seconds": 600,
+      "retry_max": 0,
+      "on_fail": "abort",
+      "prompt_ref": "docs/prompts/review.md"
+    },
+    {
+      "id": "implement",
+      "actor": "codex",
+      "intent": "implement review-approved changes per accepted findings",
+      "inputs": ["review"],
+      "timeout_seconds": 1800,
+      "retry_max": 1,
+      "on_fail": "abort",
+      "prompt_ref": "docs/prompts/implement.md"
+    },
+    {
+      "id": "audit",
+      "actor": "gpt-5.5",
+      "intent": "audit final diff for regressions before merge",
+      "inputs": ["implement"],
+      "timeout_seconds": 300,
+      "retry_max": 0,
+      "on_fail": "continue",
+      "prompt_ref": "docs/prompts/audit.md"
+    }
+  ],
+  "boundaries": "AQG validates schema only; project uses Claude/Codex builtin spawn; no production write; no auto-merge",
+  "actor": "human",
+  "marker": "orchestration-helper-manifest"
+}

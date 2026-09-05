@@ -1,0 +1,82 @@
+{
+  "_doc": "Example AQG skill template sidecar manifest. Demonstrates the schema fields validated by scripts/_skill_template_schema.py + scripts/aqg_skill_validator.py. Copy this file to skills/<your-skill>/skill.template.json and fill in the values; SKILL.md frontmatter stays canonical-fixed (name + description only).",
+
+  "skill_template_schema": 1,
+
+  "name": "aqg-example-template",
+  "description": "Example skill template demonstrating the sidecar manifest schema for engineers writing a new AQG skill; runs a no-op example check that always succeeds. Use when a new author needs a structured starting point. Not for production work; not registered in install/doctor.",
+  "version": "0.1.0",
+  "primary_trigger_keywords": ["example", "template", "demo"],
+  "boundary_class": "read-only",
+  "audit_mode_required": "standard",
+
+  "trigger_grammar": {
+    "keywords": ["example", "template", "demonstrate", "starting point"],
+    "sentence_patterns": [
+      "Show me an example skill",
+      "Demonstrate the skill template structure"
+    ]
+  },
+  "entry_script": "skills/aqg-example-template/scripts/run.py",
+  "cli_contract": {
+    "0": "success",
+    "1": "expected check failure",
+    "2": "usage / path resolution misuse",
+    "3": "config or schema error",
+    "70": "internal error"
+  },
+  "output_shape": "markdown_table",
+
+  "reads_paths": [
+    "skills/aqg-example-template/"
+  ],
+  "writes_paths": [],
+  "forbidden_paths": [
+    "production/",
+    "secrets/",
+    ".env"
+  ],
+  "aqg_agent_gating": false,
+  "owner_only_actions": [],
+
+  "cases": [
+    {
+      "id": "example-desc-001",
+      "style": "description_based",
+      "prompt": "Show me an example skill structure",
+      "expected_skill": "aqg-example-template",
+      "skill_file_ref": "skills/aqg-example-template/SKILL.md"
+    },
+    {
+      "id": "example-desc-002",
+      "style": "description_based",
+      "prompt": "Demonstrate how a skill is wired up",
+      "expected_skill": "aqg-example-template",
+      "skill_file_ref": "skills/aqg-example-template/SKILL.md"
+    },
+    {
+      "id": "example-desc-003",
+      "style": "description_based",
+      "prompt": "Walk me through the template skill",
+      "expected_skill": "aqg-example-template",
+      "skill_file_ref": "skills/aqg-example-template/SKILL.md"
+    },
+    {
+      "id": "example-desc-004",
+      "style": "description_based",
+      "prompt": "Open the example skill for reference",
+      "expected_skill": "aqg-example-template",
+      "skill_file_ref": "skills/aqg-example-template/SKILL.md"
+    },
+    {
+      "id": "example-explicit-001",
+      "style": "explicit_invocation",
+      "prompt": "Run aqg-example-template",
+      "expected_skill": "aqg-example-template",
+      "skill_file_ref": "skills/aqg-example-template/SKILL.md"
+    }
+  ],
+  "self_test_entrypoint": "skills/aqg-example-template/scripts/self_test.py",
+  "fixed_before_next_task_required_when_findings": true,
+  "numeric_values_quoted": true
+}

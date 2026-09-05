@@ -1,0 +1,154 @@
+{
+  "_doc": "AQG Hook 强化 — managed hook 集把 CLAUDE.md rule 落到强制执行点. 复制 hooks block 到 ~/.claude/settings.json (用户级, 跨所有项目) 或 .claude/settings.json (项目级). 需要 export AQG_ROOT=/path/to/agent-quality-gates 才生效; 未设则 silent skip 不阻塞 Claude. 推荐使用 scripts/install_aqg_hooks.py --apply 自动合并而非手动复制. POSIX (macOS/Linux) only.",
+  "_blocking_contract": "AQG blocking contract: per-command `_blocking: true` marks intentionally blocking entries (PreToolUse Bash skill-validator + PreToolUse Edit|Write|MultiEdit memory-write-guard). validate_agent_pack.py honors this marker to skip warn-only checks for just those commands; all other hooks in this file remain validated as warn-only. File-level `_warn_only: false` is REJECTED to prevent contract drift (per audit gpt-5.5 #3).",
+  "_layers": {
+    "PreToolUse(Bash)": "BLOCKING: skill-validator gate; staged 或 -a/git-add 阶段 含 skills/aqg-* 改动则跑 validator; 失败 exit 2 阻 commit (PreToolUse deny code; exit 1 非阻塞) (AQG_AGENT=human-opt-in 可降级 warn)",
+    "PreToolUse(Edit|Write|MultiEdit)": "BLOCKING: memory→repo write guard; 目标在 ~/.claude/projects/*/memory/ 且新内容含代码-形状信号 (fenced code / def/class/function 声明) 则 exit 2 reject (PreToolUse deny code; exit 1 非阻塞); machine-local memory 不是工程知识的家 (bug 修复+守卫应进仓库 code/test/docs/hooks) (AQG_AGENT=human-opt-in 可降级 warn)",
+    "PreToolUse(Edit|Write|MultiEdit) tamper-guard": "BLOCKING (D3 默认装): 从 AQG checkout 之外编辑 AQG 门文件 (agent-packs/*/hooks/*.sh / _secret_patterns.py / *_redaction.py / aqg_dangerous_guard.py) 则 exit 2 refuse; 威胁模型=跨项目 blast-radius (别的 repo 里的 agent 篡改 AQG 门), 非 agent 自防 (shell-capable agent 总能写自己 env); cwd 在 AQG_ROOT 内=自研放行 (AQG_AGENT=human-opt-in 可降级 warn)",
+    "PostToolUse(Bash, error)": "WARN: Bash 命令失败 (is_error=true) 后提示 aqg-systematic-debugging 6 步: symptom→reproduce→boundary→hypothesis→fix→verify",
+    "PostToolUse(Edit|Write|MultiEdit, skills/aqg-*/)": "WARN: skill edit 后提示 commit 前调 aqg-skill-validator",
+    "PostToolUse(Edit|Write|MultiEdit, code files)": "WARN: code edit 后提示 aqg-code-construction 6 步 (Phase 1 warn-only; Phase 2 升级为 enforce)",
+    "PostToolUse(Edit|Write|MultiEdit, test files)": "WARN: test edit 后提示 aqg-test-quality-review: BEHAVIOR vs SHAPE / horizontal-slicing / test_suppression / flaky 反模式",
+    "PostToolUse(Edit|Write|MultiEdit, security-sensitive)": "WARN: 安全敏感 code edit (路径关键词 OR 内容 OWASP 模式) 后提示 aqg-security-review (OWASP Top 10 + CWE Top 25); 普通 code edit 不触发",
+    "PreCompact + Stop": "WARN: 提示 aqg-evidence-closeout 6 问已答否 + aqg-session-handoff (任务未完则给下一棒留 paste-ready 交接); wip_checkpoint_save 把当前 worktree 改动(含 untracked)快照到 refs/aqg-wip/<session> (零碰工作树/index/分支, 本地不外向)",
+    "SessionStart": "INFO: 自动跑 aqg-startup-preflight (20s timeout 防 hang) + 打印 worktree/GH 摘要; wip_checkpoint_recover 提示未恢复的 checkpoint (只提示不自动改工作树); 与 wip_save/recover 信标互补 (信标存计数, checkpoint 存代码)",
+    "UserPromptSubmit": "INJECT (warn-only, never blocks): 用户 prompt 含 handoff 意图 (handoff / 交接 / 下个 session / next session) 时注入 additionalContext 强制调 aqg-session-handoff skill (禁止自由发挥写 handoff); 非 handoff prompt 静默不注入 (反 noise)"
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "_blocking": true,
+            "command": "if [ -z \"${AQG_ROOT:-}\" ]; then exit 0; fi; CLAUDE_PROJECT_DIR=\"${CLAUDE_PROJECT_DIR:-}\" bash \"$AQG_ROOT/agent-packs/claude-code/hooks/pretooluse_bash_skill_validator.sh\""
+          }
+        ]
+      },
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "_blocking": true,
+            "command": "if [ -z \"${AQG_ROOT:-}\" ]; then exit 0; fi; CLAUDE_PROJECT_DIR=\"${CLAUDE_PROJECT_DIR:-}\" bash \"$AQG_ROOT/agent-packs/claude-code/hooks/pretooluse_memory_write_guard.sh\""
+          }
+        ]
+      },
+      {
+        "matcher": "Bash|Edit|Write|MultiEdit|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "_blocking": true,
+            "command": "if [ -z \"${AQG_ROOT:-}\" ]; then exit 0; fi; CLAUDE_PROJECT_DIR=\"${CLAUDE_PROJECT_DIR:-}\" bash \"$AQG_ROOT/agent-packs/claude-code/hooks/pretooluse_secret_scan.sh\""
+          }
+        ]
+      },
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "_blocking": true,
+            "command": "if [ -z \"${AQG_ROOT:-}\" ]; then exit 0; fi; CLAUDE_PROJECT_DIR=\"${CLAUDE_PROJECT_DIR:-}\" bash \"$AQG_ROOT/agent-packs/claude-code/hooks/pretooluse_aqg_tamper_guard.sh\""
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "if [ -z \"${AQG_ROOT:-}\" ]; then exit 0; fi; CLAUDE_PROJECT_DIR=\"${CLAUDE_PROJECT_DIR:-}\" bash \"$AQG_ROOT/agent-packs/claude-code/hooks/posttooluse_bash_error_debugging_reminder.sh\" || true"
+          }
+        ]
+      },
+      {
+        "matcher": "Bash|Edit|Write|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "if [ -z \"${AQG_ROOT:-}\" ]; then exit 0; fi; CLAUDE_PROJECT_DIR=\"${CLAUDE_PROJECT_DIR:-}\" bash \"$AQG_ROOT/agent-packs/claude-code/hooks/posttooluse_code_construction_reminder.sh\" || true"
+          }
+        ]
+      },
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "if [ -z \"${AQG_ROOT:-}\" ]; then exit 0; fi; CLAUDE_PROJECT_DIR=\"${CLAUDE_PROJECT_DIR:-}\" bash \"$AQG_ROOT/agent-packs/claude-code/hooks/posttooluse_skill_edit_reminder.sh\" || true"
+          },
+          {
+            "type": "command",
+            "command": "if [ -z \"${AQG_ROOT:-}\" ]; then exit 0; fi; CLAUDE_PROJECT_DIR=\"${CLAUDE_PROJECT_DIR:-}\" bash \"$AQG_ROOT/agent-packs/claude-code/hooks/posttooluse_test_quality_reminder.sh\" || true"
+          },
+          {
+            "type": "command",
+            "command": "if [ -z \"${AQG_ROOT:-}\" ]; then exit 0; fi; CLAUDE_PROJECT_DIR=\"${CLAUDE_PROJECT_DIR:-}\" bash \"$AQG_ROOT/agent-packs/claude-code/hooks/posttooluse_security_review_reminder.sh\" || true"
+          }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "if [ -z \"${AQG_ROOT:-}\" ]; then exit 0; fi; CLAUDE_PROJECT_DIR=\"${CLAUDE_PROJECT_DIR:-}\" bash \"$AQG_ROOT/agent-packs/claude-code/hooks/precompact_closeout_reminder.sh\" || true"
+          },
+          {
+            "type": "command",
+            "command": "if [ -z \"${AQG_ROOT:-}\" ]; then exit 0; fi; CLAUDE_PROJECT_DIR=\"${CLAUDE_PROJECT_DIR:-}\" bash \"$AQG_ROOT/agent-packs/claude-code/hooks/wip_checkpoint_save.sh\" \"${CLAUDE_PROJECT_DIR:-}\" || true"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "if [ -z \"${AQG_ROOT:-}\" ]; then exit 0; fi; CLAUDE_PROJECT_DIR=\"${CLAUDE_PROJECT_DIR:-}\" bash \"$AQG_ROOT/agent-packs/claude-code/hooks/wip_checkpoint_save.sh\" \"${CLAUDE_PROJECT_DIR:-}\" || true"
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "if [ -z \"${AQG_ROOT:-}\" ]; then exit 0; fi; bash \"$AQG_ROOT/agent-packs/claude-code/hooks/sessionstart_preflight.sh\" \"${CLAUDE_PROJECT_DIR:-}\" || true"
+          },
+          {
+            "type": "command",
+            "command": "if [ -z \"${AQG_ROOT:-}\" ]; then exit 0; fi; bash \"$AQG_ROOT/agent-packs/claude-code/hooks/wip_checkpoint_recover.sh\" \"${CLAUDE_PROJECT_DIR:-}\" || true"
+          },
+          {
+            "type": "command",
+            "command": "if [ -z \"${AQG_ROOT:-}\" ]; then exit 0; fi; CLAUDE_PROJECT_DIR=\"${CLAUDE_PROJECT_DIR:-}\" bash \"$AQG_ROOT/agent-packs/claude-code/hooks/sessionstart_update_check.sh\" || true"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "if [ -z \"${AQG_ROOT:-}\" ]; then exit 0; fi; CLAUDE_PROJECT_DIR=\"${CLAUDE_PROJECT_DIR:-}\" bash \"$AQG_ROOT/agent-packs/claude-code/hooks/userpromptsubmit_handoff_mandate.sh\" || true"
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,234 @@
+name: Transfer Test Pack v1
+
+# §1.2 north-star invariant operationalized. Gating model (A3 PR; see
+# tests/transfer/README.md "Gating model" for full rationale):
+#
+#   pull_request (VERSION/transfer change)  → posture=pr_block      → required pre-merge check
+#   workflow_call (from release/*)          → posture=callee        → caller decides
+#   schedule (nightly cron)                 → posture=warn          → annotate, never fail
+#   push (tag v*)                           → posture=tag_visibility → fail-on-threshold for visibility,
+#                                                                     NOT a true release block (post-event)
+#   workflow_dispatch (manual)              → posture=manual        → exit code is the gate
+#
+# Threshold: §5.4 strict-all-hard. Tasks 1-4+6 must pass strictly; Task 5 is
+# advisory. boundary_violations == 0 is zero-tolerance.
+#
+# Task 5 is hermetic-friendly: when audit-mcp / external auditor not available
+# (e.g. nightly without API quota), the workflow runs runner with --skip-task5
+# which yields task5_advisory=warn (does not block threshold).
+
+on:
+  schedule:
+    - cron: '0 13 * * *'  # nightly UTC 13:00 (1h before behavior nightly per §7)
+  push:
+    tags:
+      - 'v*'  # tag visibility (post-event; structural block via PR pre-merge)
+  pull_request:
+    # A3: PR-time pre-merge gate. Mark as required check via repo branch
+    # protection settings to actually block merge on failure. This is the
+    # structural fix per audit 297dccac gpt #3 (tag-push is post-event;
+    # PR-time is the real block).
+    #
+    # Audit b2211ad2 #1: NO `paths:` filter. GitHub treats path-skipped
+    # required checks as stuck-Pending, which would block unrelated PRs
+    # that never touch transfer pack code. The trade-off is ~3-5 min CI
+    # cost per PR; acceptable until the cost becomes a real bottleneck.
+  workflow_call:
+    # A3: reusable from a future release/publish workflow. Caller can require
+    # this job to succeed before its own publish step runs — that is the real
+    # "block release publish" path (vs the post-event tag-push trigger above).
+    inputs:
+      skip_task5:
+        description: 'Skip Task 5 (audit reproducibility) when caller knows audit-mcp is unavailable'
+        required: false
+        default: 'true'
+        type: string
+      is_release_callee:
+        description: |
+          A3 audit b2211ad2 #2: reliable callee discriminator. Set to true by
+          a release/publish workflow that calls this via `uses:` so the
+          callee runs in `posture=callee` (failure gates the caller's
+          publish step). github.event_name is unreliable inside a reusable
+          workflow (it reflects the caller's event), so we use this explicit
+          input instead.
+        required: false
+        default: false
+        type: boolean
+  workflow_dispatch:
+    inputs:
+      skip_task5:
+        description: 'Skip Task 5 (audit reproducibility) — use when audit-mcp unavailable'
+        required: false
+        default: 'true'
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: transfer-test-pack-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  run-pack:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # Nightly schedule honors the same Owner-toggle pattern as behavior-nightly:
+    # repo variable AQG_TRANSFER_NIGHTLY_ENABLED must be 'true' for cron to fire.
+    # All non-schedule events always run.
+    if: |
+      github.event_name == 'workflow_dispatch' ||
+      github.event_name == 'workflow_call' ||
+      github.event_name == 'pull_request' ||
+      github.event_name == 'push' ||
+      (github.event_name == 'schedule' && vars.AQG_TRANSFER_NIGHTLY_ENABLED == 'true')
+
+    env:
+      SKIP_TASK5: ${{ inputs.skip_task5 || github.event.inputs.skip_task5 || 'true' }}
+      # Distinguish posture for downstream steps:
+      # - workflow_call w/ is_release_callee=true → posture=callee     (caller decides; gates publish)
+      # - pull_request                            → posture=pr_block   (required check via branch protection)
+      # - tag push                                → posture=tag_visibility (fail-on-threshold for visibility, not a true block)
+      # - schedule                                → posture=warn       (annotate, never fail)
+      # - manual / fallback                       → posture=manual     (exit code is the gate)
+      #
+      # Audit b2211ad2 #2: callee detection uses inputs.is_release_callee
+      # (explicit input passed by the caller) NOT github.event_name, because
+      # github.event_name in a reusable workflow reflects the caller's event,
+      # not 'workflow_call'. Reliable channel: the input itself.
+      POSTURE: >-
+        ${{
+          inputs.is_release_callee == true && 'callee'
+          || github.event_name == 'pull_request' && 'pr_block'
+          || github.event_name == 'push' && 'tag_visibility'
+          || github.event_name == 'schedule' && 'warn'
+          || 'manual'
+        }}
+
+    steps:
+      - name: Checkout AQG
+        uses: actions/checkout@v6.0.2
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+
+      - name: Install minimal deps (PyYAML for YAML output)
+        run: |
+          python3 -m pip install --upgrade pip
+          python3 -m pip install -r requirements.txt
+
+      # Task 1 doctor checks BOTH Codex (~/.codex/skills) and Claude
+      # (~/.claude/skills) skill roots; missing-root produces a WARN
+      # which fails Task 1 (audit b2211ad2 dogfood: A3 PR's first run
+      # surfaced this as the previous workflow only installed Codex pack).
+      - name: Install AQG skill symlinks (Task 1 prerequisite)
+        run: |
+          bash scripts/install.sh --force
+          bash agent-packs/claude-code/install.sh --force
+
+      # Audit 297dccac gemini #1 (critical): runner step uses
+      # continue-on-error so artifact upload + posture annotation always
+      # execute even on threshold failure. Final gating step manually
+      # evaluates the captured exit code.
+      - name: Run Transfer Test Pack
+        id: run
+        continue-on-error: true
+        run: |
+          set +e
+          extra=""
+          if [ "$SKIP_TASK5" = "true" ]; then
+            extra="--skip-task5"
+          fi
+          python3 tests/transfer/runner.py $extra --output run_summary.yaml
+          rc=$?
+          echo "RUNNER_EXIT=$rc" >> "$GITHUB_OUTPUT"
+          # Do not propagate rc here; final gating step decides.
+          exit 0
+        shell: bash
+
+      - name: Validate run summary against §4 schema
+        if: always()
+        continue-on-error: true
+        run: |
+          test -f run_summary.yaml || { echo "no run_summary.yaml emitted; skip" >&2; exit 0; }
+          python3 tests/transfer/validate_transfer_record_v1.py \
+            run_summary.yaml --kind summary
+
+      - name: Validate _example_run_summary.yaml (CI validate-path coverage)
+        if: always()
+        run: |
+          python3 tests/transfer/validate_transfer_record_v1.py \
+            tests/transfer/_example_run_summary.yaml --kind summary
+
+      - name: Upload run summary artifact (90d retention per §8 Q6)
+        if: always()
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: transfer-test-pack-summary-${{ github.run_id }}
+          path: run_summary.yaml
+          retention-days: 90
+          if-no-files-found: warn
+
+      - name: Annotate run for warn posture
+        if: always() && env.POSTURE == 'warn'
+        run: |
+          echo "Transfer Test Pack nightly result: exit=${{ steps.run.outputs.RUNNER_EXIT }} (warn-only; not blocking)"
+          echo "Owner: review run_summary.yaml artifact + open issue if threshold not met"
+
+      - name: Annotate run for manual posture
+        if: always() && env.POSTURE == 'manual'
+        run: |
+          echo "Transfer Test Pack manual run: exit=${{ steps.run.outputs.RUNNER_EXIT }}"
+          echo "Owner: review run_summary.yaml artifact"
+
+      # A3: PR-time pre-merge gate. Failure here is the real release block —
+      # GitHub branch protection should require this check to pass before
+      # the PR can be merged. By the time a tag exists post-merge, the pack
+      # has already been validated against the merged code.
+      - name: Gate on threshold (PR pre-merge block)
+        if: always() && env.POSTURE == 'pr_block'
+        run: |
+          if [ "${{ steps.run.outputs.RUNNER_EXIT }}" != "0" ]; then
+            echo "Transfer Test Pack threshold not met on PR (exit=${{ steps.run.outputs.RUNNER_EXIT }}); failing PR check" >&2
+            echo "Owner: investigate run_summary.yaml artifact; do not bypass via admin merge unless intentional fixture rotation" >&2
+            exit 1
+          fi
+
+      # A3: workflow_call gating — caller workflow (e.g. release.yml in future)
+      # checks this job's success before its own publish step. We surface
+      # the exit code as a job-level failure so caller's `needs:` semantic works.
+      - name: Gate on threshold (workflow_call callee)
+        if: always() && env.POSTURE == 'callee'
+        run: |
+          if [ "${{ steps.run.outputs.RUNNER_EXIT }}" != "0" ]; then
+            echo "Transfer Test Pack threshold not met (exit=${{ steps.run.outputs.RUNNER_EXIT }}); caller should NOT proceed with downstream publish" >&2
+            exit 1
+          fi
+
+      # tag-push posture: failure here is a visibility signal AFTER the tag
+      # already exists. Real "block release publish" requires the
+      # release/publish workflow to depend on this via workflow_call (see
+      # POSTURE=callee branch above). README documents the structural model.
+      - name: Gate on threshold (tag-push visibility)
+        if: always() && env.POSTURE == 'tag_visibility'
+        run: |
+          if [ "${{ steps.run.outputs.RUNNER_EXIT }}" != "0" ]; then
+            echo "Transfer Test Pack threshold not met on tag push (exit=${{ steps.run.outputs.RUNNER_EXIT }}); failing this workflow as a visibility signal" >&2
+            echo "NOTE: this workflow runs AFTER the tag is pushed (post-event). The structural block is via:" >&2
+            echo "  1. pull_request pre-merge gate (this workflow's pr_block posture, required check)" >&2
+            echo "  2. workflow_call from release/publish workflow (callee posture; caller's publish step waits)" >&2
+            echo "Owner: confirm a release publish workflow exists and depends on this via workflow_call before relying on tag-push as a real block." >&2
+            exit 1
+          fi
+
+      # Even non-block posture should fail if RUNNER_EXIT was a non-threshold
+      # internal error (exit code 70 = INTERNAL ERROR per task module spec).
+      - name: Catch internal errors regardless of posture
+        if: always()
+        run: |
+          if [ "${{ steps.run.outputs.RUNNER_EXIT }}" = "70" ]; then
+            echo "Runner internal error (exit 70); failing workflow regardless of posture" >&2
+            exit 1
+          fi

@@ -1,0 +1,16 @@
+{
+  "schema_version": "1.0",
+  "event_id": "eaf:run-abc123:",
+  "project": "example-org/example-repo",
+  "source": "eaf",
+  "source_ref": {
+    "run_id": "run-abc123",
+    "work_packet_id": "wp-1"
+  },
+  "kind": "progress",
+  "payload": {
+    "phase_event": "started",
+    "title": "Run started"
+  },
+  "occurred_at": "2026-05-29T10:00:00Z"
+}

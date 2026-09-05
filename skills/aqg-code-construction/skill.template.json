@@ -1,0 +1,88 @@
+{
+  "skill_template_schema": 1,
+  "name": "aqg-code-construction",
+  "description": "Invoke this before writing, modifying, refactoring, or implementing code in any repository \u2014 the entry point for a coding task, not a review after one. Runs the 6-step code construction workflow (Pattern Mining, Behavior Lock, Thin Slice, Construction Rules, Local Verification, Self Review) with anti-pattern blockers, reviewer-objection prediction, and an evidence ledger; Behavior Lock is a RED/GREEN/REFACTOR TDD cycle, and the audit-before-commit gate sits at the end.",
+  "version": "0.1.0",
+  "wrapper_generated": true,
+  "primary_trigger_keywords": ["code construction", "ledger", "anti-pattern", "thin slice", "behavior lock", "self review"],
+  "boundary_class": "read-only",
+  "audit_mode_required": "standard",
+  "trigger_grammar": {
+    "keywords": ["code construction", "ledger", "anti-pattern", "thin slice", "behavior lock", "self review", "objection prediction", "6-step"],
+    "sentence_patterns": [
+      "Run construction checks before I push",
+      "Validate the construction ledger and predicted objections",
+      "走一遍 6-step code construction 流程",
+      "Check the anti-pattern + objection block before commit"
+    ]
+  },
+  "entry_script": "skills/aqg-code-construction/scripts/aqg_construction_check.py",
+  "cli_contract": {
+    "0": "success or silent pass when AQG_AGENT is not set",
+    "1": "generic check failure (e.g., subprocess error; D5 fail-closed)",
+    "2": "secret pattern detected in ledger (D8 critical) — also propagated by argparse on bad CLI args; distinguish via stderr",
+    "3": "ledger missing or malformed (D9 / C1)",
+    "4": "size mismatch (declared path doesn't match actual diff; D9)",
+    "5": "anti-pattern hard block (D3 / D11 / v2-C1)",
+    "6": "objection malformed (C2 / D10)",
+    "70": "reserved usage error (currently unused; argparse exits 2 instead)"
+  },
+  "output_shape": "multi_section_report",
+  "reads_paths": [
+    "skills/aqg-code-construction/",
+    ".aqg/code-construction/",
+    ".aqg/current_ledger.md",
+    ".",
+    ".git/"
+  ],
+  "writes_paths": [],
+  "forbidden_paths": [
+    "production/",
+    "secrets/",
+    ".env"
+  ],
+  "aqg_agent_gating": true,
+  "owner_only_actions": [
+    "Production / branch protection / Owner-admin actions remain separate authorization gates"
+  ],
+  "cases": [
+    {
+      "id": "construction-desc-001",
+      "style": "description_based",
+      "prompt": "I'm about to start writing a new feature — first follow the 6-step construction discipline",
+      "expected_skill": "aqg-code-construction",
+      "skill_file_ref": "skills/aqg-code-construction/SKILL.md"
+    },
+    {
+      "id": "construction-desc-002",
+      "style": "description_based",
+      "prompt": "Before I refactor this module, lock the behavior and predict reviewer objections",
+      "expected_skill": "aqg-code-construction",
+      "skill_file_ref": "skills/aqg-code-construction/SKILL.md"
+    },
+    {
+      "id": "construction-desc-003",
+      "style": "description_based",
+      "prompt": "Changing code on the prod path — first write up the anti-pattern + thin slice ledger",
+      "expected_skill": "aqg-code-construction",
+      "skill_file_ref": "skills/aqg-code-construction/SKILL.md"
+    },
+    {
+      "id": "construction-desc-004",
+      "style": "description_based",
+      "prompt": "Validate my construction ledger before commit — pattern mining + local verification",
+      "expected_skill": "aqg-code-construction",
+      "skill_file_ref": "skills/aqg-code-construction/SKILL.md"
+    },
+    {
+      "id": "construction-explicit-001",
+      "style": "explicit_invocation",
+      "prompt": "Use /aqg-code-construction to run a ledger check",
+      "expected_skill": "aqg-code-construction",
+      "skill_file_ref": "skills/aqg-code-construction/SKILL.md"
+    }
+  ],
+  "self_test_entrypoint": "skills/aqg-code-construction/scripts/self_test.py",
+  "fixed_before_next_task_required_when_findings": true,
+  "numeric_values_quoted": true
+}

@@ -1,0 +1,47 @@
+{
+  "version": 1,
+  "project": {
+    "name": "agent-quality-gates",
+    "required_context_files": [
+      "README.md",
+      "docs/ENGINEERING_FRAMEWORK.md",
+      "docs/DOCUMENTATION_OPERATING_MODEL.md"
+    ]
+  },
+  "gates": {
+    "audit_adjudication": {
+      "enabled": true,
+      "mode": "warn",
+      "audit_skip_allowed": [
+        "docs-only",
+        "typo",
+        "template-only",
+        "dependency-bump"
+      ]
+    },
+    "evidence_closeout": {
+      "enabled": true,
+      "mode": "warn"
+    },
+    "worktree": {
+      "enabled": true,
+      "mode": "warn",
+      "ci_mode": true
+    },
+    "required_context": {
+      "enabled": true,
+      "mode": "warn"
+    }
+  },
+  "boundaries": {
+    "production": {
+      "require_explicit_statement": true
+    },
+    "secrets": {
+      "require_explicit_statement": true
+    },
+    "raw_private_data": {
+      "require_explicit_statement": true
+    }
+  }
+}

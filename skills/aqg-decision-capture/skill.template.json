@@ -1,0 +1,86 @@
+{
+  "skill_template_schema": 1,
+  "name": "aqg-decision-capture",
+  "description": "Capture, commit, and query durable project decisions (Owner rulings, agent autonomous choices, agent-via-audit adjudications) as one-line redaction-safe entries in docs/decisions/LOG.md, fighting 'why did we decide this' amnesia across long/multi-session work. commit appends a decision line through the same grammar + secret-scan gate as format (fail-closed, append-only) so the caller records automatically instead of hand-pasting; query greps the log (read-time redacted, fenced as untrusted data). Does NOT force capture or inject context — whether to record stays caller-discipline-driven. Sibling to aqg-audit-adjudication (whose verdicts it records) and aqg-evidence-closeout. Use when a durable decision is made or to look one up; NOT for impl detail recoverable from code/commits.",
+  "version": "0.1.0",
+  "wrapper_generated": true,
+  "primary_trigger_keywords": ["decision log", "决策账本", "decision capture", "记一笔决策", "why did we decide", "为什么这么定", "查决策", "log this decision"],
+  "boundary_class": "writes-evidence",
+  "audit_mode_required": "standard",
+  "trigger_grammar": {
+    "keywords": ["决策账本", "decision log", "记决策", "捕获决策", "查决策", "为什么这么定", "外审裁决记一笔", "log this decision", "decision capture", "记一笔"],
+    "sentence_patterns": [
+      "Owner 刚拍板了一个决策, 帮我按格式记一笔进决策账本",
+      "这轮外审裁决要不要记进 LOG, 怎么记",
+      "之前我们为什么决定用 X 不用 Y, 查一下既往决策",
+      "把这串拍板按 6 字段格式记到 docs/decisions/LOG.md",
+      "Run aqg-decision-capture format to emit a decision line"
+    ]
+  },
+  "entry_script": "skills/aqg-decision-capture/scripts/aqg_decision_capture.py",
+  "cli_contract": {
+    "0": "success — format emits a line / commit appends it to LOG.md / query prints fenced hits / validate passes",
+    "1": "reserved — surfacing findings in output, not exit code",
+    "2": "usage error or validation failure (bad args, malformed candidate line, lint violation)",
+    "3": "reserved — config or schema error",
+    "70": "reserved — internal error placeholder"
+  },
+  "output_shape": "ledger_block",
+  "reads_paths": [
+    "skills/aqg-decision-capture/",
+    "docs/decisions/LOG.md",
+    "docs/decisions/archive/"
+  ],
+  "writes_paths": [
+    "docs/decisions/LOG.md"
+  ],
+  "forbidden_paths": [
+    "production/",
+    "secrets/",
+    ".env"
+  ],
+  "aqg_agent_gating": false,
+  "owner_only_actions": [
+    "commit APPENDS one validated line to docs/decisions/LOG.md (append-only, never rewrites history) through the same grammar + secret-scan gate as format, fail-closed on a leak; format/validate emit/report to stdout, query reads. Writes ONLY docs/decisions/LOG.md — never production / secrets / .env / Owner-admin"
+  ],
+  "cases": [
+    {
+      "id": "decision-capture-desc-001",
+      "style": "description_based",
+      "prompt": "The Owner just ruled on a decision — help me record it in the decision log per the format",
+      "expected_skill": "aqg-decision-capture",
+      "skill_file_ref": "skills/aqg-decision-capture/SKILL.md"
+    },
+    {
+      "id": "decision-capture-desc-002",
+      "style": "description_based",
+      "prompt": "Should this round's audit adjudication go into the LOG, and how do I record a line for it",
+      "expected_skill": "aqg-decision-capture",
+      "skill_file_ref": "skills/aqg-decision-capture/SKILL.md"
+    },
+    {
+      "id": "decision-capture-desc-003",
+      "style": "description_based",
+      "prompt": "Why did we decide on X over Y earlier — look up the prior decision",
+      "expected_skill": "aqg-decision-capture",
+      "skill_file_ref": "skills/aqg-decision-capture/SKILL.md"
+    },
+    {
+      "id": "decision-capture-desc-004",
+      "style": "description_based",
+      "prompt": "Record this ruling into docs/decisions/LOG.md in the 6-field format",
+      "expected_skill": "aqg-decision-capture",
+      "skill_file_ref": "skills/aqg-decision-capture/SKILL.md"
+    },
+    {
+      "id": "decision-capture-explicit-001",
+      "style": "explicit_invocation",
+      "prompt": "Please use /aqg-decision-capture format to generate a decision line",
+      "expected_skill": "aqg-decision-capture",
+      "skill_file_ref": "skills/aqg-decision-capture/SKILL.md"
+    }
+  ],
+  "self_test_entrypoint": "skills/aqg-decision-capture/scripts/self_test.py",
+  "fixed_before_next_task_required_when_findings": true,
+  "numeric_values_quoted": true
+}

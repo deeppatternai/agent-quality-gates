@@ -1,0 +1,203 @@
+name: AQG Agent Pack Behavior Tests (unit tests)
+
+# PR-2 scope: mock-subprocess unit tests only.
+# Real claude CLI nightly invocation (with cost guard + isolated workspace +
+# pinned Claude Code CLI install + SHA256 verify) is split to future PR-2b
+# per sketch v3 §5 to keep PR-2 supply-chain surface minimal.
+#
+# Per sketch v3 §5 dependency map: this workflow runs when behavior-test code,
+# fixtures, AGENT skill descriptions, static validator, or shared Python config
+# change. Other paths rely on the broader quality-gates-warn workflow.
+
+on:
+  pull_request:
+    paths:
+      # Defensive future-proof: include common Python config even if not yet present.
+      - 'tests/behavior/**'
+      - 'tests/conftest.py'
+      - 'tests/ledger/**'                 # ledger contract + v2 hook-writer suites (run step below)
+      - 'contracts/ledger/**'             # ledger contract package under test
+      - 'contracts/audit/**'              # de_audit interface contract (behavior lock: tests/behavior/test_audit_contract.py)
+      - 'scripts/ledger_hook_writer.py'   # v2 non-EAF hook capture writer
+      - 'agent-packs/**/SKILL.md'
+      - 'agent-packs/claude-code/hooks/**'  # hook scripts exercised by tests/behavior/test_aqg_hooks.py
+      - 'skills/**'                       # skill helpers + self_tests (gated by run_skill_self_tests.sh below)
+      - 'scripts/run_skill_self_tests.sh'
+      - 'scripts/validate_agent_pack.py'
+      - 'scripts/install_aqg_hooks.py'    # installer exercised by that hook regression suite
+      - 'scripts/install_aqg.sh'          # one-shot installer; behavior lock is tests/behavior/test_install_aqg.py
+      - 'scripts/aqg_skill_validator.py'  # run by pretooluse_bash_skill_validator.sh in that suite
+      - 'scripts/_aqg_wrapper_overlay.py' # imported by aqg_skill_validator.py (is_managed_skill)
+      # self-computing fixture gate + its skills.list roster manifest + negative-test
+      # battery — the gate must trigger on the very files it validates, else a
+      # check_fixture_mix / skills.list change ships without the gate ever running
+      # (audit ae59c0a9 f2; same lesson as the template / redaction / carve paths).
+      - 'scripts/check_fixture_mix.py'
+      - 'skills.list'
+      - 'tests/test_check_fixture_mix.py'
+      # Shipped CI integration templates — guarded by
+      # tests/behavior/test_ci_template_regression.py (YAML well-formedness + embedded-shell
+      # shellcheck). Without these paths, editing a template would not trigger this workflow,
+      # so the guard would never run on the very change it exists to catch.
+      - 'examples/github-actions/**'
+      - 'examples/gitlab-ci/**'
+      # L1 security-core redaction / leak-scan engine (audit 4f0c48c0 three-auditor +
+      # dfd025c8 dual-auditor — these guards + their top-level tests had ZERO PR-CI
+      # coverage before this; 20 false-negative bypasses were found here).
+      - 'scripts/_redaction_common.py'
+      - 'scripts/_secret_patterns.py'
+      - 'scripts/_overclaim_terms.py'   # WS-4 overclaim wordlist (behavior lock: tests/behavior/test_scan_overclaim.py)
+      - 'scripts/scan_overclaim.py'     # outward-narrative overclaim gate (D4×D5)
+      - 'scripts/aqg_dangerous_guard.py'
+      - 'scripts/*_redaction.py'
+      - 'tests/test_*redaction*.py'
+      - 'tests/test_aqg_dangerous_guard.py'
+      - 'tests/test_secret_scan_hygiene.py'
+      # quality-gates adapter (PR-body fetch + gate runner) — its UNIT suite had ZERO
+      # PR CI coverage; only the live quality-gates-warn gate ran on PRs (2026-06-11).
+      - 'scripts/fetch_pr_body.py'
+      - 'scripts/run_quality_gates.py'
+      - 'tests/test_run_quality_gates.py'
+      # adjudication validator (merged engine + converter) — its UNIT suite had
+      # ZERO PR CI coverage after the #307 validator merge; only tests/behavior/
+      # ran on PRs. The engine backs the pre-commit adjudication gate.
+      - 'scripts/validate_audit_adjudication.py'
+      - 'scripts/audit_to_adjudication_table.py'
+      - 'tests/test_validate_audit_adjudication.py'
+      - '.github/workflows/behavior-tests.yml'
+      - 'pyproject.toml'
+      - 'pytest.ini'
+      - 'setup.cfg'
+      - 'requirements*.txt'
+      - 'conftest.py'
+    types: [opened, synchronize, reopened, edited, ready_for_review]
+  schedule:
+    - cron: '0 14 * * *'  # nightly UTC 14:00
+  workflow_dispatch:
+
+# Least-privilege per sketch v3 §5 (audit 32f288ca finding #5):
+# Unit-test CI does not write to repo / PR / check API. No PR API call either.
+# Reports persist as workflow artifacts only (uses default workflow run perms).
+permissions:
+  contents: read
+
+concurrency:
+  group: aqg-behavior-tests-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  behavior-unit-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout AQG
+        uses: actions/checkout@v6.0.2
+
+      - name: Wrapper generated-artifact gate (regen → no diff/untracked + no orphans)
+        # SKILL.md-from-source overlay (spec 2026-05-31 §5): the Claude wrapper
+        # agent-packs/claude-code/skills/<X>/SKILL.md is generated from the source
+        # skills/<X>/SKILL.md + sidecar host_overrides. This step regenerates every
+        # managed wrapper and fails if the working tree changes (drift OR untracked)
+        # or an orphan wrapper (no matching source dir) exists. stdlib-only — runs
+        # before the pip install step (the git-diff job must not need third-party deps).
+        run: |
+          python3 scripts/aqg_skill_gen.py regen --all
+          # 1. regen must leave no change and no untracked file (porcelain catches both)
+          if [ -n "$(git status --porcelain -- skills/ agent-packs/claude-code/skills/)" ]; then
+            echo "::error::wrapper out of sync with source — run 'aqg_skill_gen.py regen --all' and commit."
+            git status --porcelain -- skills/ agent-packs/claude-code/skills/; exit 1
+          fi
+          # 2. every wrapper dir must have a matching source dir (no orphan wrappers)
+          python3 scripts/aqg_skill_gen.py regen --check --orphans
+
+      - name: Install pytest + pyyaml (system python3)
+        run: |
+          python3 -m pip install --user pytest -r requirements.txt
+
+      - name: Run behavior unit tests
+        run: |
+          python3 -m pytest tests/behavior/ -v --tb=short
+
+      - name: Run ledger contract + v2 hook-writer suites
+        # The append-only ledger read side (store / projection / render /
+        # conformance / paths / project_id) and the v2 non-EAF hook capture
+        # writer. tests/ledger/conftest.py self-injects contracts/ + scripts/ on
+        # sys.path. The hook-writer suite is the convergence gate for the R2
+        # redesign (each finding → a failing-before/passing-after assertion).
+        run: |
+          python3 -m pytest tests/ledger/ -v --tb=short
+
+      - name: Verify fixture mix + schema_version (self-computing gate)
+        # Self-computing:
+        # invariants are derived from the skills/aqg-*/ roster — NO hardcoded case
+        # counts to bump when a skill is added (the old gate's forgettable touchpoint).
+        # Logic + negative-test battery: scripts/check_fixture_mix.py +
+        # tests/test_check_fixture_mix.py.
+        run: python3 scripts/check_fixture_mix.py
+
+      - name: Run fixture-mix negative-test battery (guard regression net)
+        # tests/test_check_fixture_mix.py lives in top-level tests/ (NOT collected by
+        # `pytest tests/behavior/`), so its I6 deletion-guard / fail-closed / name-subset
+        # negative paths never gated a PR — a logic regression in check_fixture_mix could
+        # ship green while the real-repo run above still passes (audit ae59c0a9 f2).
+        run: python3 -m pytest tests/test_check_fixture_mix.py -v --tb=short
+
+      - name: Run skill self-tests (standalone — gates per-skill coverage)
+        # Each skill ships scripts/self_test.py; pytest cannot collect them as a
+        # suite (duplicate `self_test` basename → import file mismatch), so this
+        # runs each standalone. These existed + passed locally but NO CI ran them
+        # until now (production-readiness gap A, 2026-05-26).
+        run: bash scripts/run_skill_self_tests.sh
+
+      - name: Run skill-local pytest suites (router + test-quality logic)
+        # Skills that ship a tests/ dir (phase-transition, multi-review,
+        # test-quality-review) carry rich logic suites — router decision +
+        # safety-floor + dedup, NLJ ledger validation, test-quality detection —
+        # that scripts/self_test.py smoke does NOT cover. These were NOT run in
+        # CI until now (production-readiness Batch-3 gap, 2026-05-26). Each test
+        # file self-injects its scripts/ dir on sys.path; targeting */tests/
+        # avoids the duplicate self_test.py basename collision.
+        run: python3 -m pytest skills/*/tests/ -v --tb=short
+
+      - name: Run L1 redaction-engine guard suites (security-core)
+        # The redaction / leak-scan guards (_redaction_common + the 6 module
+        # guards + dangerous_guard + secret_patterns) are AQG's L1 security core.
+        # Their tests lived in top-level tests/ and were NEVER run by any PR
+        # workflow until now — the pre-release audit (4f0c48c0 three-auditor + dfd025c8
+        # dual-auditor) found 20 false-negative bypasses here; test_l1_redaction_regression
+        # locks every one. Each test file self-injects scripts/ on sys.path.
+        run: |
+          python3 -m pytest \
+            tests/test_l1_redaction_regression.py \
+            tests/test_bugfix_redaction.py tests/test_incident_redaction.py \
+            tests/test_orchestration_redaction.py tests/test_simulation_redaction.py \
+            tests/test_surface_redaction.py tests/test_wip_redaction.py \
+            tests/test_metrics_redaction.py \
+            tests/test_aqg_dangerous_guard.py tests/test_secret_scan_hygiene.py \
+            tests/test_aqg_metrics.py tests/test_bugfix_record.py \
+            -v --tb=short
+
+      - name: Run quality-gates adapter suite (run_quality_gates + fetch_pr_body)
+        # The PR-body adapter + gate runner (scripts/fetch_pr_body.py,
+        # scripts/run_quality_gates.py) feed the quality-gates-warn workflow, but their
+        # UNIT suite (tests/test_run_quality_gates.py) had NO PR CI — only the live gate
+        # ran on PRs. 2026-06-11: a fetch_pr_body graceful-skip fix (#290) was verified
+        # locally only because no PR workflow ran this suite.
+        run: python3 -m pytest tests/test_run_quality_gates.py -v --tb=short
+
+      - name: Run adjudication validator unit suite (merged engine + converter)
+        # tests/test_validate_audit_adjudication.py exercises the merged engine
+        # (validate_text / parse_tables / needs_user_detail) that backs the
+        # pre-commit adjudication gate; it self-injects scripts/ on sys.path so
+        # it needs no PYTHONPATH. Had ZERO PR CI coverage until #306 CF-1.
+        run: python3 -m pytest tests/test_validate_audit_adjudication.py -v --tb=short
+
+      - name: Upload test report (on failure)
+        if: failure()
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: behavior-test-report
+          path: |
+            tests/behavior/reports/
+          if-no-files-found: ignore
+          retention-days: 7

@@ -1,0 +1,4 @@
+interface:
+  display_name: "AQG Startup Preflight"
+  short_description: "Live startup preflight for project sessions"
+  default_prompt: "Run the project startup preflight from the current git root and report blockers before making changes."

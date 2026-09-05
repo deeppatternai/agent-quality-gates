@@ -1,0 +1,26 @@
+{
+  "version": 1,
+  "project": {
+    "name": "fixture-required-context-present",
+    "required_context_files": [
+      "README.md"
+    ]
+  },
+  "gates": {
+    "required_context": {
+      "enabled": true,
+      "mode": "warn"
+    }
+  },
+  "boundaries": {
+    "production": {
+      "require_explicit_statement": false
+    },
+    "secrets": {
+      "require_explicit_statement": false
+    },
+    "raw_private_data": {
+      "require_explicit_statement": false
+    }
+  }
+}

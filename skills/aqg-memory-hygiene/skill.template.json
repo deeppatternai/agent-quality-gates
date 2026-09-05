@@ -1,0 +1,83 @@
+{
+  "skill_template_schema": 1,
+  "name": "aqg-memory-hygiene",
+  "description": "Scan machine-local agent memory files for frontmatter schema compliance and staleness — the at-rest layer of memory hygiene, signal-only and read-only. The validate subcommand is a strict gate over each memory node's metadata frontmatter (type / status / volatility / last_verified enums, no node_type residue, superseded-pointer integrity); the staleness subcommand surfaces volatile memories whose last_verified is past a configurable horizon (default 90 days, env AQG_MEMORY_STALE_DAYS). Emits a structured report plus an exit-code gate; never mutates memory, calls audit-mcp, or touches the network — fixing stays the caller's action. Use to catch memory schema drift, an invalid or future-dated last_verified, a broken superseded pointer, or stale volatile memories needing re-verification. Complements the write-time memory-write-guard hook and the memory-hygiene discipline. Not a memory editor or coverage gate.",
+  "version": "0.1.0",
+  "wrapper_generated": true,
+  "primary_trigger_keywords": ["memory hygiene", "memory schema", "frontmatter validate", "staleness", "stale volatile memory", "superseded", "last_verified"],
+  "boundary_class": "read-only",
+  "audit_mode_required": "standard",
+  "trigger_grammar": {
+    "keywords": ["memory hygiene", "memory schema drift", "frontmatter", "staleness", "stale memory", "volatile", "superseded", "last_verified", "node_type", "memory lifecycle", "validate memory"],
+    "sentence_patterns": [
+      "validate my memory files' frontmatter schema",
+      "is my agent memory schema-compliant or has it drifted?",
+      "which volatile memories are stale and need re-verification?",
+      "check the memory dir for an invalid or future-dated last_verified",
+      "did any superseded memory lose its superseded_by pointer?",
+      "run aqg-memory-hygiene validate on my project memory"
+    ]
+  },
+  "entry_script": "skills/aqg-memory-hygiene/scripts/aqg_memory_hygiene.py",
+  "cli_contract": {
+    "0": "success — validate all-compliant / no memory dir / empty dir; staleness always exits 0",
+    "1": "validation failure — validate found at least one schema violation",
+    "2": "usage error — bad args / unknown subcommand, OR PyYAML (declared dep) unavailable",
+    "3": "reserved — config or schema error (not currently emitted)",
+    "70": "reserved — internal error placeholder for future use"
+  },
+  "output_shape": "multi_section_report",
+  "reads_paths": [
+    "skills/aqg-memory-hygiene/"
+  ],
+  "writes_paths": [],
+  "forbidden_paths": [
+    "production/",
+    "secrets/",
+    ".env"
+  ],
+  "aqg_agent_gating": false,
+  "owner_only_actions": [
+    "This skill is read-only / signal-only: it parses a memory dir and emits a schema + staleness report, never modifies / normalizes / supersedes / deletes any memory file (zero-write invariant test), never calls audit-mcp, never touches the network. Normalizing or superseding is the caller's action. Production / secrets / raw private data / branch protection / Owner-admin actions remain separate authorization gates."
+  ],
+  "cases": [
+    {
+      "id": "mhyg-desc-001",
+      "style": "description_based",
+      "prompt": "validate my agent memory files — has the frontmatter schema drifted?",
+      "expected_skill": "aqg-memory-hygiene",
+      "skill_file_ref": "skills/aqg-memory-hygiene/SKILL.md"
+    },
+    {
+      "id": "mhyg-desc-002",
+      "style": "description_based",
+      "prompt": "which volatile memories are stale and need re-verification?",
+      "expected_skill": "aqg-memory-hygiene",
+      "skill_file_ref": "skills/aqg-memory-hygiene/SKILL.md"
+    },
+    {
+      "id": "mhyg-desc-003",
+      "style": "description_based",
+      "prompt": "check the memory dir for an invalid or future-dated last_verified",
+      "expected_skill": "aqg-memory-hygiene",
+      "skill_file_ref": "skills/aqg-memory-hygiene/SKILL.md"
+    },
+    {
+      "id": "mhyg-desc-004",
+      "style": "description_based",
+      "prompt": "did any superseded memory lose its superseded_by pointer or keep a node_type residue?",
+      "expected_skill": "aqg-memory-hygiene",
+      "skill_file_ref": "skills/aqg-memory-hygiene/SKILL.md"
+    },
+    {
+      "id": "mhyg-explicit-001",
+      "style": "explicit_invocation",
+      "prompt": "run /aqg-memory-hygiene validate on my project memory and show the schema report",
+      "expected_skill": "aqg-memory-hygiene",
+      "skill_file_ref": "skills/aqg-memory-hygiene/SKILL.md"
+    }
+  ],
+  "self_test_entrypoint": "skills/aqg-memory-hygiene/scripts/self_test.py",
+  "fixed_before_next_task_required_when_findings": true,
+  "numeric_values_quoted": true
+}

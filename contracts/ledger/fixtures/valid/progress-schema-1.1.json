@@ -1,0 +1,15 @@
+{
+  "schema_version": "1.1",
+  "event_id": "eaf:run-x:1",
+  "project": "Example-Org/Example-Repo",
+  "source": "eaf",
+  "source_ref": {
+    "run_id": "run-x"
+  },
+  "kind": "progress",
+  "payload": {
+    "phase_event": "started",
+    "title": "Run started under 1.1"
+  },
+  "occurred_at": "2026-06-07T10:00:00Z"
+}

@@ -1,0 +1,46 @@
+# AQG-recommended pre-commit configuration (default).
+#
+# Goal: secret-leak guard + minimum sanity check, with NO mutating hooks
+# enabled by default (3-audit gpt-5.5 #5 accepted: by default install only the
+# hooks that BLOCK a commit, not file-mutating hooks like trailing-whitespace /
+# EOF fixer, to avoid mixing with the PR's own changes).
+#
+# Tag-based `rev:` pins keep CI reproducible against current upstream tags.
+# For stronger immutability, run `pre-commit autoupdate --freeze` to convert
+# tags to SHA pins (3-audit gpt-5.5 #8 accepted).
+#
+# Customize: copy this to your repo's .pre-commit-config.yaml (or run
+# `python3 scripts/install_pre_commit.py` from AQG checkout) and edit freely.
+# False positives in Gitleaks → see templates/.gitleaks.aqg.example.toml for
+# allowlist sample (3-audit gpt-5.5 #9 + gemini #4 accepted).
+
+repos:
+  # === Secret-leak guard (PRIMARY) ===
+  # NOTE: Gitleaks pre-commit hook uses language: golang. Pre-commit will
+  # try to compile Gitleaks from source on first install. If you don't have
+  # Go installed, either (a) `brew install go` / `apt install golang-go`,
+  # or (b) install gitleaks binary system-wide and switch to gitleaks-system
+  # (3-audit gpt-5.5 #4 + gemini #3 accepted).
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.21.2
+    hooks:
+      - id: gitleaks
+
+  # === Minimal guard-only sanity hooks (DEFAULT-ON) ===
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: detect-private-key
+      - id: check-merge-conflict
+      - id: check-added-large-files
+        args: ['--maxkb=1024']
+
+  # === Mutating hooks (OPT-IN — uncomment to enable) ===
+  # These rewrite files during commits. Useful for cleanup but may produce
+  # noisy diffs in PR review. Enable per-project taste.
+  #
+  # - repo: https://github.com/pre-commit/pre-commit-hooks
+  #   rev: v5.0.0
+  #   hooks:
+  #     - id: trailing-whitespace
+  #     - id: end-of-file-fixer

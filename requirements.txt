@@ -1,0 +1,16 @@
+# AQG runtime dependencies — single source of truth.
+#
+# PyYAML parses AQG's YAML metadata:
+#   - tests/behavior/fixtures/triggers.yaml (skill trigger fixtures)
+#   - each skill's agents/openai.yaml (Codex picker `interface.display_name`)
+#   - SKILL.md YAML frontmatter
+# Required by scripts/aqg_skill_validator.py and several skill scripts
+# (aqg-memory-hygiene, aqg-multi-review, aqg-test-quality-review,
+# aqg-evidence-closeout, check_fixture_mix, validate_handoff_manifest, …).
+# NOT in the Python stdlib. The installed skill FILES do not need it; it is
+# required to RUN the validator or a skill's YAML-parsing path. aqg_doctor.py
+# reports a WARN when it is missing.
+#
+# pytest (the test runner) is a CI/dev tool, not a runtime dependency, so the
+# CI workflows install it separately rather than pinning it here.
+PyYAML>=6.0

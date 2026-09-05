@@ -1,0 +1,84 @@
+{
+  "skill_template_schema": 1,
+  "name": "aqg-audit-adjudication",
+  "description": "Decide accept / reject / needs-user-decision for each Claude Opus, Gemini 3.1, o3, Codex internal-review, or local-audit finding and produce a structured adjudication table for AI team project work. Use AFTER any audit / review / second-opinion returns with a list of issues to integrate before fixing code, especially for production-adjacent scripts, ADRs, decision packets, CI failures, or evidence artifacts.",
+  "version": "0.1.0",
+  "wrapper_generated": true,
+  "primary_trigger_keywords": ["adjudicate", "audit", "review", "second opinion", "findings"],
+  "boundary_class": "writes-evidence",
+  "audit_mode_required": "standard",
+  "trigger_grammar": {
+    "keywords": ["adjudicate", "audit", "review", "second opinion", "findings", "accept", "reject", "needs-user-decision"],
+    "sentence_patterns": [
+      "Adjudicate this audit's findings",
+      "I have a list of review issues — accept/reject each one",
+      "走 audit adjudication 流程, 整合 findings",
+      "Decide what to do with the gpt-5.5 + gemini findings"
+    ]
+  },
+  "entry_script": "scripts/validate_audit_adjudication.py",
+  "cli_contract": {
+    "0": "success — adjudication table parsed and shape valid",
+    "1": "validation failed — missing/extra columns, malformed decision values, or row mismatch",
+    "2": "usage error — argparse propagates exit 2 on bad args",
+    "3": "reserved — config or schema error",
+    "70": "reserved — internal error placeholder"
+  },
+  "output_shape": "markdown_table",
+  "reads_paths": [
+    "skills/aqg-audit-adjudication/"
+  ],
+  "writes_paths": [
+    "docs/decisions/",
+    "docs/incidents/"
+  ],
+  "forbidden_paths": [
+    "production/",
+    "secrets/",
+    ".env"
+  ],
+  "aqg_agent_gating": false,
+  "owner_only_actions": [
+    "Production / branch protection / Owner-admin actions remain separate authorization gates"
+  ],
+  "cases": [
+    {
+      "id": "adjudication-desc-001",
+      "style": "description_based",
+      "prompt": "Just finished a /audit standard review — 8 findings to integrate before I fix",
+      "expected_skill": "aqg-audit-adjudication",
+      "skill_file_ref": "skills/aqg-audit-adjudication/SKILL.md"
+    },
+    {
+      "id": "adjudication-desc-002",
+      "style": "description_based",
+      "prompt": "Code review came back with 12 issues — decide accept/reject for each",
+      "expected_skill": "aqg-audit-adjudication",
+      "skill_file_ref": "skills/aqg-audit-adjudication/SKILL.md"
+    },
+    {
+      "id": "adjudication-desc-003",
+      "style": "description_based",
+      "prompt": "The deep review gave me its reasoning — I need an adjudication table to decide which fixes to land",
+      "expected_skill": "aqg-audit-adjudication",
+      "skill_file_ref": "skills/aqg-audit-adjudication/SKILL.md"
+    },
+    {
+      "id": "adjudication-desc-004",
+      "style": "description_based",
+      "prompt": "Second-opinion review just landed — produce the structured decision table",
+      "expected_skill": "aqg-audit-adjudication",
+      "skill_file_ref": "skills/aqg-audit-adjudication/SKILL.md"
+    },
+    {
+      "id": "adjudication-explicit-001",
+      "style": "explicit_invocation",
+      "prompt": "Use /aqg-audit-adjudication to integrate this round's audit findings",
+      "expected_skill": "aqg-audit-adjudication",
+      "skill_file_ref": "skills/aqg-audit-adjudication/SKILL.md"
+    }
+  ],
+  "self_test_entrypoint": "skills/aqg-audit-adjudication/scripts/self_test.py",
+  "fixed_before_next_task_required_when_findings": true,
+  "numeric_values_quoted": true
+}

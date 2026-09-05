@@ -1,0 +1,100 @@
+{
+  "skill_template_schema": 1,
+  "name": "aqg-re-anchor",
+  "description": "Emit a compact re-anchor restatement (goal + active discipline gates + progress markers) at a step / subtask / WorkPacket boundary in a long orchestrating agent session, to fight goal-drift + attention decay. Emit-only — returns minimal-text restatement, does NOT call audit-mcp, mutate state, or self-inject; the caller owns invocation cadence + injection. Sibling to aqg-phase-transition (phase boundaries) and aqg-evidence-closeout (closeout). Use at long-session step boundaries, NOT inside a one-shot bounded worker.",
+  "version": "0.1.0",
+  "wrapper_generated": true,
+  "primary_trigger_keywords": [
+    "re-anchor",
+    "restate",
+    "重述",
+    "防跑偏",
+    "stay on track",
+    "re-state goal"
+  ],
+  "boundary_class": "read-only",
+  "audit_mode_required": "standard",
+  "trigger_grammar": {
+    "keywords": [
+      "re-anchor",
+      "restate",
+      "重述",
+      "防跑偏",
+      "stay on track",
+      "re-state goal",
+      "锚定目标",
+      "长任务跑偏",
+      "step boundary restate",
+      "working memory"
+    ],
+    "sentence_patterns": [
+      "长 session 跑了好几步, 帮我重述一下 goal + 进度别跑偏",
+      "WorkPacket 边界 re-anchor 一下当前在哪 / 还剩什么",
+      "这个长任务我有点忘了目标, restate 一下纪律和进度",
+      "stay on track — re-state the goal and what's done / remaining",
+      "Run aqg-re-anchor to emit a compact restatement at this step boundary"
+    ]
+  },
+  "entry_script": "skills/aqg-re-anchor/scripts/aqg_re_anchor.py",
+  "cli_contract": {
+    "0": "success — compact restatement block printed to stdout",
+    "1": "reserved — not currently emitted (sparse/empty input degrades in-output, not via exit code)",
+    "2": "usage error — bad args or unparseable input JSON",
+    "3": "reserved — config error (not currently emitted)",
+    "70": "reserved — internal error placeholder (not currently emitted)"
+  },
+  "output_shape": "multi_section_report",
+  "reads_paths": [
+    "skills/aqg-re-anchor/"
+  ],
+  "writes_paths": [],
+  "forbidden_paths": [
+    "production/",
+    "secrets/",
+    ".env"
+  ],
+  "aqg_agent_gating": false,
+  "owner_only_actions": [
+    "emit-only: never calls /audit, never mutates state, never self-injects; the caller owns invocation cadence (step/WP boundary) + injection of the output (per AQG skill-distribution boundary 2026-05-08 §5)"
+  ],
+  "cases": [
+    {
+      "id": "reanchor-desc-001",
+      "style": "description_based",
+      "prompt": "This long session has run several steps — help me restate the goal + progress so I don't drift",
+      "expected_skill": "aqg-re-anchor",
+      "skill_file_ref": "skills/aqg-re-anchor/SKILL.md"
+    },
+    {
+      "id": "reanchor-desc-002",
+      "style": "description_based",
+      "prompt": "At this WorkPacket boundary, re-anchor on where we are now / what's left",
+      "expected_skill": "aqg-re-anchor",
+      "skill_file_ref": "skills/aqg-re-anchor/SKILL.md"
+    },
+    {
+      "id": "reanchor-desc-003",
+      "style": "description_based",
+      "prompt": "I've lost track of the goal on this long task — restate the discipline and progress",
+      "expected_skill": "aqg-re-anchor",
+      "skill_file_ref": "skills/aqg-re-anchor/SKILL.md"
+    },
+    {
+      "id": "reanchor-desc-004",
+      "style": "description_based",
+      "prompt": "stay on track — re-state the goal and what's done / remaining",
+      "expected_skill": "aqg-re-anchor",
+      "skill_file_ref": "skills/aqg-re-anchor/SKILL.md"
+    },
+    {
+      "id": "reanchor-explicit-001",
+      "style": "explicit_invocation",
+      "prompt": "Please use /aqg-re-anchor to emit a compact restatement block (goal + discipline + progress)",
+      "expected_skill": "aqg-re-anchor",
+      "skill_file_ref": "skills/aqg-re-anchor/SKILL.md"
+    }
+  ],
+  "self_test_entrypoint": "skills/aqg-re-anchor/scripts/self_test.py",
+  "fixed_before_next_task_required_when_findings": true,
+  "numeric_values_quoted": true
+}

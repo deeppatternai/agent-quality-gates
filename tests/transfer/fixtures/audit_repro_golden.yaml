@@ -1,0 +1,33 @@
+# Task 5 — Audit reproducibility golden expected finding set (v1.0.0).
+#
+# Pinned at v1 release. Bumps require Owner sign-off + concurrent bump of
+# audit_repro_artifact.md (fixture_version coupled). Until bumped, any rerun
+# of gpt_audit against the artifact must produce a result whose findings
+# (canonical_keys per Task 5 stem rule) cover every entry below.
+
+schema_version: 1
+fixture_version: v1.0.0
+audit_repro_artifact_sha256: 497e0992a85b9fbf7c74e6567e2d1d1694598814791b29619802a88d0dd4874d
+panel: single
+auditor: gpt-5.5
+auditor_version: pinned-at-v1-release
+prompt_template_version: pinned-at-v1-release
+
+expected_min_findings:
+  - canonical_key: missing-input-validation-on
+    severity: [major, high, critical]
+  - canonical_key: no-rate-limit-on
+    severity: [minor, medium, major, high]
+
+# Canonical finding keys are computed by Task 5 from the auditor's `issue`
+# string per the rule:
+#   lowercase + collapse non-alphanum to delimiter + token split
+#   + take first 4 tokens + hyphen-join.
+#
+# Examples (artifact-aligned):
+#   "Missing input validation on /search endpoint" → "missing-input-validation-on"
+#   "No rate limit on /login endpoint" → "no-rate-limit-on"
+#
+# Extra findings beyond expected_min_findings (e.g. SQL injection, hardcoded
+# credentials, debug=True) are tolerated and do not block.
+ignored_findings: []

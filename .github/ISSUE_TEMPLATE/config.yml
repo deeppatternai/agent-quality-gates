@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: 🔒 Security vulnerability (private — do NOT open a public issue)
+    url: https://github.com/deeppatternai/agent-quality-gates/security/advisories/new
+    about: Report vulnerabilities privately via GitHub Security advisories. See SECURITY.md — never post security details in a public issue.
+  - name: 💬 Question / idea / discussion
+    url: https://github.com/deeppatternai/agent-quality-gates/discussions
+    about: For open-ended questions and ideas, start a discussion. This repo is a read-only mirror of a private source repo — pull requests are not accepted; bugs and ideas are welcome as issues/discussions.

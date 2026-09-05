@@ -1,0 +1,1 @@
+{"schema_version": "1.0", "event_type": "audit_request", "payload": {"artifact": "SELECT * FROM users WHERE id = ?", "context": "review the query builder change; acceptance: no SQL injection", "focus": "security only \u2014 OWASP injection", "mode": "deep", "stakes": "high", "caller_family": "example-agent"}}

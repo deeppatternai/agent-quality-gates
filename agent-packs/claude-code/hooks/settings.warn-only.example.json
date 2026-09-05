@@ -1,0 +1,15 @@
+{
+  "hooks": {
+    "Stop": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "if [ -z \"${AQG_ROOT:-}\" ]; then printf '[aqg warn-only hook] skip: AQG_ROOT is not set; export it to your agent-quality-gates checkout to enable the warn-only hook\\n' >&2; exit 0; fi; bash \"$AQG_ROOT/agent-packs/claude-code/hooks/run_warn_only.sh\" \"${CLAUDE_PROJECT_DIR:-}\" || true"
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,4 @@
+interface:
+  display_name: "AQG Audit Adjudication"
+  short_description: "Classify and act on multi-model audit findings"
+  default_prompt: "Turn audit findings into accepted/rejected/needs-user-decision actions and verification."

@@ -1,0 +1,15 @@
+{
+  "schema_version": "1.1",
+  "event_id": "eaf:run-m0:3",
+  "project": "Example-Org/Example-Repo",
+  "source": "eaf",
+  "source_ref": {
+    "run_id": "run-m0"
+  },
+  "kind": "milestone",
+  "payload": {
+    "milestone_id": "M0",
+    "action": "completed"
+  },
+  "occurred_at": "2026-06-07T10:00:00Z"
+}

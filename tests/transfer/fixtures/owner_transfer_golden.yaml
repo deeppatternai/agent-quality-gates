@@ -1,0 +1,9 @@
+# Task 6 — Owner cold-transfer golden expected next-action + blockers (v1.0.0).
+#
+# Pinned at v1 release. Owner curates; regen rule = explicit Owner statement
+# in PR (no AI auto-update) per §8 Q9 default.
+
+next_action: "merge feat/foo PR after CI green and run install.sh --force on operator workstation"
+blockers:
+  - "PR review pending Owner approval"
+  - "operator workstation symlinks stale; reinstall required"

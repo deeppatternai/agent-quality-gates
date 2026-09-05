@@ -1,0 +1,147 @@
+name: AQG Behavior Tests Nightly (real claude CLI)
+
+# PR-2b scope: real claude -p invocation against AQG skills via sampled trigger
+# cases (started at 4 skills in PR-2b; the live count tracks the trigger fixtures,
+# not pinned in this comment).
+# Manual + nightly schedule; per-run + per-nightly cost guards.
+#
+# Prerequisites (Owner setup):
+# 1. Add repo secret ANTHROPIC_API_KEY (used by claude CLI in CI)
+# 2. Optional: set repo variable AQG_NIGHTLY_ENABLED=true to actually run on cron
+#    (defaults to manual-only; prevents surprise nightly cost before Owner ready)
+#
+# Cost: D-tier ~$0.135/run × default 5 case sample = ~$0.68/nightly
+# Annual estimate (if cron enabled 365 nights): ~$250
+
+on:
+  schedule:
+    - cron: '0 14 * * *'  # nightly UTC 14:00
+  workflow_dispatch:
+    inputs:
+      sample_size:
+        description: 'Number of trigger cases to sample (default 5)'
+        required: false
+        default: '5'
+        type: string
+      rng_seed:
+        description: 'Random seed for case sampling (default 42)'
+        required: false
+        default: '42'
+        type: string
+
+# Least-privilege per sketch v3 §5: nightly does not write repo / PR / check.
+permissions:
+  contents: read
+
+concurrency:
+  group: aqg-behavior-nightly
+  cancel-in-progress: false  # finish in-flight nightly even if new one queued
+
+jobs:
+  nightly-trigger:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    # Gate: only run on schedule if Owner explicitly enabled via repo variable
+    # (manual workflow_dispatch always runs)
+    if: |
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'schedule' && vars.AQG_NIGHTLY_ENABLED == 'true')
+    env:
+      # Hard pin to spike-tested Claude Code CLI version (sketch v3 §3.1 baseline)
+      CLAUDE_CODE_VERSION: '2.1.119'
+
+    steps:
+      - name: Checkout AQG
+        uses: actions/checkout@v6.0.2
+
+      - name: Verify ANTHROPIC_API_KEY secret available
+        env:
+          KEY_LEN: ${{ secrets.ANTHROPIC_API_KEY != '' && 'set' || 'missing' }}
+        run: |
+          if [ "$KEY_LEN" = "missing" ]; then
+            echo "::error::ANTHROPIC_API_KEY repo secret not set; aborting nightly"
+            echo "Owner action: Settings → Secrets and variables → Actions → New repository secret"
+            exit 1
+          fi
+          echo "ANTHROPIC_API_KEY secret available"
+
+      - name: Setup Node.js (for npm install of Claude Code CLI)
+        # v6: node24 runtime (was v4=node20, deprecated; GH removes node20
+        # runners 2026-09-16). v4 was latest GA at PR-2b ship — audit 0b5cc864 gemini #2.
+        uses: actions/setup-node@v6
+        with:
+          node-version: '20'
+
+      - name: Install pinned Claude Code CLI (with hardening)
+        run: |
+          # Pin to exact version (audit 717918e8 #12 supply-chain hardening)
+          # --no-audit / --no-fund: skip side-channel network calls
+          # NOT using --ignore-scripts: @anthropic-ai/claude-code postinstall
+          # downloads the platform-native binary; --ignore-scripts breaks install
+          # (verified in PR-2b first run #25278848168). Vendor trust = same
+          # trust we extend by handing the API key; npm registry signature is
+          # the current verification surface.
+          # SHA256 verify deferred to PR-2c (audit 0b5cc864 gpt-5.5 #1 acknowledged)
+          npm install -g --no-audit --no-fund \
+            "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}"
+          installed_version=$(claude --version 2>&1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+          if [ "$installed_version" != "${CLAUDE_CODE_VERSION}" ]; then
+            echo "::error::installed Claude Code version='${installed_version}' != pinned '${CLAUDE_CODE_VERSION}'"
+            echo "Full claude --version output:"
+            claude --version 2>&1 || echo "(claude binary not found)"
+            exit 1
+          fi
+          echo "Claude Code CLI v${CLAUDE_CODE_VERSION} installed"
+
+      - name: Setup Python (pinned for sampling determinism)
+        # Pinned Python 3.9 ensures random.Random.sample() reproducibility
+        # across CI runner image updates (audit 0b5cc864 convergent finding)
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.9'
+
+      - name: Install Python dependencies
+        run: |
+          python3 -m pip install --upgrade pip
+          python3 -m pip install pytest -r requirements.txt
+
+      - name: Install AQG skills into ~/.claude/skills/ (hermetic test env)
+        # PR-2b first nightly run #25278958394 evidence: CI ubuntu didn't have
+        # AQG skills installed → Claude triggered everything-claude-code's
+        # security-review instead of aqg-audit-adjudication. Behavior tests
+        # require the AQG SKILL.md files be Claude-discoverable.
+        # We copy (not symlink) to avoid plugin-discovery edge cases.
+        run: |
+          mkdir -p ~/.claude/skills
+          for skill in agent-packs/claude-code/skills/aqg-*; do
+            skill_name=$(basename "$skill")
+            cp -r "$skill" "$HOME/.claude/skills/$skill_name"
+            echo "installed: $skill_name"
+          done
+          ls -la ~/.claude/skills/
+
+      - name: Run nightly real-trigger tests
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          SAMPLE_SIZE: ${{ inputs.sample_size || '5' }}
+          RNG_SEED: ${{ inputs.rng_seed || '42' }}
+          # PYTHONPATH = repo root so `from tests.behavior.X import Y` resolves
+          # (pytest auto-handles this locally; direct `python3 script.py` does not)
+          PYTHONPATH: ${{ github.workspace }}
+        run: |
+          mkdir -p reports
+          python3 tests/behavior/nightly_runner.py \
+            --sample-size "${SAMPLE_SIZE}" \
+            --rng-seed "${RNG_SEED}" \
+            --per-run-budget-usd 0.50 \
+            --per-nightly-budget-usd 5.0 \
+            --output "reports/nightly-$(date -u +%Y-%m-%dT%H-%M-%SZ).json"
+
+      - name: Upload nightly report
+        if: always()
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: aqg-behavior-nightly-${{ github.run_id }}
+          path: reports/
+          if-no-files-found: warn
+          retention-days: 30

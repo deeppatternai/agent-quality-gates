@@ -1,0 +1,4 @@
+# Agent Quality Gates: local hook / working directory
+# `.aqg/pr-body.md` is the warn-only hook's local PR-body input; it may contain secrets.
+# Add this snippet to your target project .gitignore:
+.aqg/

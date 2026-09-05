@@ -1,0 +1,99 @@
+{
+  "skill_template_schema": 1,
+  "name": "aqg-project-status",
+  "description": "Render a project's AQG ledger as a human-facing status report — a business progress overview (milestone stage table, completion bar, rule-based health light, pending-decision open-decision list) plus the engineering detail (progress timeline, open defect ledger / Bug ledger, delivery-handbook index), aggregated per target repo from the local append-only events.jsonl. Repo-read-only (drains the local ledger on view; --no-drain to skip); default HTML (also markdown / text / json). Use when asked how a project is progressing, to view its business milestones or Bug ledger, or to produce a project status / progress report.",
+  "version": "0.1.0",
+  "wrapper_generated": true,
+  "primary_trigger_keywords": [
+    "project status",
+    "project progress",
+    "bug ledger",
+    "ledger report"
+  ],
+  "boundary_class": "writes-evidence",
+  "audit_mode_required": "standard",
+  "trigger_grammar": {
+    "keywords": [
+      "project status",
+      "project progress",
+      "progress report",
+      "bug ledger",
+      "defect ledger",
+      "ledger report",
+      "events.jsonl",
+      "where is this project"
+    ],
+    "sentence_patterns": [
+      "What's the status / progress of this project?",
+      "Show me the open bugs (defect ledger) for this repo",
+      "Render a project status report (progress + handbooks)",
+      "这个项目做到哪了, 给我一份进度报告"
+    ]
+  },
+  "entry_script": "skills/aqg-project-status/scripts/aqg_project_status.py",
+  "cli_contract": {
+    "0": "success — report rendered to stdout (an empty / missing ledger is a successful empty report)",
+    "1": "reserved — ledger state is surfaced in the report, not via the exit code",
+    "2": "usage error — argparse exit 2 on bad args, incl. --json combined with --format; also the How-To-Run wrapper's exit when it cannot source _aqg_context.sh",
+    "3": "config error — cannot resolve the AQG contracts (AQG_ROOT / partial checkout) or the project_id",
+    "70": "backstop — unexpected internal error while building the report"
+  },
+  "output_shape": "multi_section_report",
+  "reads_paths": [
+    "skills/aqg-project-status/",
+    "contracts/ledger/",
+    "${XDG_DATA_HOME:-$HOME/.aqg}/aqg/ledger/<project_id>/events.jsonl"
+  ],
+  "writes_paths": [
+    "${XDG_DATA_HOME:-$HOME/.aqg}/aqg/ledger/<project_id>/events.jsonl"
+  ],
+  "forbidden_paths": [
+    "production/",
+    "secrets/",
+    ".env"
+  ],
+  "aqg_agent_gating": false,
+  "owner_only_actions": [
+    "Production / secrets / branch protection / Owner-admin actions remain separate authorization gates"
+  ],
+  "cases": [
+    {
+      "id": "project-status-desc-001",
+      "style": "description_based",
+      "prompt": "How far along is this project? Give me a progress report",
+      "expected_skill": "aqg-project-status",
+      "skill_file_ref": "skills/aqg-project-status/SKILL.md"
+    },
+    {
+      "id": "project-status-desc-002",
+      "style": "description_based",
+      "prompt": "Show me the open bugs / defect ledger for this repo",
+      "expected_skill": "aqg-project-status",
+      "skill_file_ref": "skills/aqg-project-status/SKILL.md"
+    },
+    {
+      "id": "project-status-desc-003",
+      "style": "description_based",
+      "prompt": "Generate a project status report — progress timeline plus delivery handbooks",
+      "expected_skill": "aqg-project-status",
+      "skill_file_ref": "skills/aqg-project-status/SKILL.md"
+    },
+    {
+      "id": "project-status-desc-004",
+      "style": "description_based",
+      "prompt": "What's the progress on this project, and what bugs are still open?",
+      "expected_skill": "aqg-project-status",
+      "skill_file_ref": "skills/aqg-project-status/SKILL.md"
+    },
+    {
+      "id": "project-status-explicit-001",
+      "style": "explicit_invocation",
+      "prompt": "Use /aqg-project-status to render this project's ledger",
+      "expected_skill": "aqg-project-status",
+      "skill_file_ref": "skills/aqg-project-status/SKILL.md"
+    }
+  ],
+  "self_test_entrypoint": "skills/aqg-project-status/scripts/self_test.py",
+  "fixed_before_next_task_required_when_findings": false,
+  "numeric_values_quoted": true
+}

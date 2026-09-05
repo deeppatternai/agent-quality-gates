@@ -1,0 +1,83 @@
+{
+  "skill_template_schema": 1,
+  "name": "aqg-test-quality-review",
+  "description": "Use when reviewing whether a PR's tests assert BEHAVIOR (output / side-effects / errors) or only SHAPE (types / structure / key presence), when checking whether a diff weakened, deleted or skipped tests, for coverage gaps where source changed with no paired test, for flaky patterns (sleep / wall-clock / unseeded random / live network), or for anti-horizontal-slicing review. Reviews test-QUALITY of a git diff, not coverage %. Signal only — emits a structured test-quality ledger, per-concern focus prompts, and a `needs_llm_judgement` signal; the caller runs `/audit` per concern at the depth `docs/policies/audit-trigger.md` selects. Complements aqg-multi-review (deeper than its edge_cases dimension) and aqg-code-construction (construction-side TDD). Not a test runner or coverage-percentage gate. Does not replace the host built-in /review slash command.",
+  "version": "0.1.0",
+  "wrapper_generated": true,
+  "primary_trigger_keywords": ["test quality", "behavioral vs shape", "test coverage quality", "flaky tests", "weakened tests", "skipped tests", "PR test review"],
+  "boundary_class": "read-only",
+  "audit_mode_required": "standard",
+  "trigger_grammar": {
+    "keywords": ["test quality", "test coverage quality", "behavioral", "shape", "testing the shape", "coverage gap", "flaky test", "weakened test", "deleted assertion", "skipped test", "anti-horizontal", "meaningful tests", "PR tests"],
+    "sentence_patterns": [
+      "review the test quality of this PR / diff",
+      "are these tests actually testing behavior or just the shape of the data structures?",
+      "did this diff weaken / delete / skip any tests?",
+      "check this PR for flaky tests and coverage gaps",
+      "is this test just asserting isinstance instead of real behavior?",
+      "run aqg-test-quality-review on my branch diff"
+    ]
+  },
+  "entry_script": "skills/aqg-test-quality-review/scripts/aqg_test_quality_review.py",
+  "cli_contract": {
+    "0": "success — `analyze` printed ledger OR `validate` ledger valid",
+    "1": "validation failure — `validate` found schema / disposition violations in ledger",
+    "2": "usage error — argparse propagates exit 2 on bad args / unknown subcommand / missing --file",
+    "3": "reserved — config or schema error (not currently emitted)",
+    "70": "reserved — internal error placeholder for future use"
+  },
+  "output_shape": "multi_section_report",
+  "reads_paths": [
+    "skills/aqg-test-quality-review/"
+  ],
+  "writes_paths": [],
+  "forbidden_paths": [
+    "production/",
+    "secrets/",
+    ".env"
+  ],
+  "aqg_agent_gating": false,
+  "owner_only_actions": [
+    "Production / branch protection / Owner-admin actions remain separate authorization gates; this skill is read-only — it parses a diff and emits a test-quality ledger + focus prompts, never modifies tests/source, never runs the suite, and never calls audit-mcp (the caller runs /audit per ADR 2026-05-08-aqg-skill-distribution-boundary-a1.md §5)"
+  ],
+  "cases": [
+    {
+      "id": "tqr-desc-001",
+      "style": "description_based",
+      "prompt": "review the test quality of this PR — are the tests testing behavior or just the shape of the data?",
+      "expected_skill": "aqg-test-quality-review",
+      "skill_file_ref": "skills/aqg-test-quality-review/SKILL.md"
+    },
+    {
+      "id": "tqr-desc-002",
+      "style": "description_based",
+      "prompt": "did this diff weaken, delete, or skip any tests to make CI green?",
+      "expected_skill": "aqg-test-quality-review",
+      "skill_file_ref": "skills/aqg-test-quality-review/SKILL.md"
+    },
+    {
+      "id": "tqr-desc-003",
+      "style": "description_based",
+      "prompt": "check this PR for flaky tests and coverage gaps before I merge",
+      "expected_skill": "aqg-test-quality-review",
+      "skill_file_ref": "skills/aqg-test-quality-review/SKILL.md"
+    },
+    {
+      "id": "tqr-desc-004",
+      "style": "description_based",
+      "prompt": "this test just asserts isinstance(result, dict) — is it really testing behavior?",
+      "expected_skill": "aqg-test-quality-review",
+      "skill_file_ref": "skills/aqg-test-quality-review/SKILL.md"
+    },
+    {
+      "id": "tqr-explicit-001",
+      "style": "explicit_invocation",
+      "prompt": "run /aqg-test-quality-review analyze on my branch diff and give me the ledger + focus prompts",
+      "expected_skill": "aqg-test-quality-review",
+      "skill_file_ref": "skills/aqg-test-quality-review/SKILL.md"
+    }
+  ],
+  "self_test_entrypoint": "skills/aqg-test-quality-review/scripts/self_test.py",
+  "fixed_before_next_task_required_when_findings": true,
+  "numeric_values_quoted": true
+}

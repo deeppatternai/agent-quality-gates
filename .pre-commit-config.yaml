@@ -1,0 +1,16 @@
+# AQG self-dogfood pre-commit config (Wave 1 #1, framework v2.1 §7 #1).
+#
+# Minimal config — Gitleaks only, no mutating hooks (avoids PR-review noise).
+# Install in one step with `python3 scripts/install_pre_commit.py --target-repo .`
+# (or `python3 -m pre_commit install --install-hooks` if pre-commit is already installed).
+#
+# Note: the Gitleaks pre-commit hook uses `language: golang`, so the first
+# `install-hooks` triggers a Go build. Install Go first with `brew install go` (macOS)
+# or `apt install golang-go` (Linux). If Go is missing, hook install fails, but this
+# config file itself does not block commits.
+
+repos:
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.21.2
+    hooks:
+      - id: gitleaks

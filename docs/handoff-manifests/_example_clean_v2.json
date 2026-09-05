@@ -1,0 +1,58 @@
+{
+  "_doc": "Example clean handoff manifest v2. Filename prefix '_' marks it as documentation, not a real handoff record. CI validates this in PRs to prove the v2 validate-path works.",
+  "schema_version": 2,
+  "aqg_context": {
+    "actor": "claude",
+    "parent_session_id": "session-example-v2-0001",
+    "task": "example clean v2 manifest with aqg_review for CI validate-path coverage"
+  },
+  "aqg_plan": {
+    "intended_action": "demonstrate v2 schema with aqg_review node",
+    "scope": "docs only"
+  },
+  "aqg_confirm": {
+    "command_line": "python3 scripts/validate_handoff_manifest.py docs/handoff-manifests/_example_clean_v2.json --no-remote-check",
+    "tool_version": "0.4.0",
+    "env_fingerprint": {
+      "claude_settings_json": {
+        "exists": true,
+        "size_bytes": 1024,
+        "sha256_first8": "00000000",
+        "hooks_count": 0
+      },
+      "path_dirs_count": 12
+    },
+    "ci_run_id": 0,
+    "artifact_uri": "https://example.invalid/example",
+    "log_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "seeds": [],
+    "scenario_ids": []
+  },
+  "aqg_trace": {
+    "exit_code": 0,
+    "result": "pass",
+    "blockers": []
+  },
+  "aqg_review": {
+    "implementation": {
+      "status": "done",
+      "implementer_model": "claude-opus-4-7",
+      "commit_shas": ["deadbeefdeadbeefdeadbeef"]
+    },
+    "spec_review": {
+      "status": "passed",
+      "reviewer_model": "gpt-5.5",
+      "findings_count": 0,
+      "loop_iter": 0
+    },
+    "quality_review": {
+      "status": "passed",
+      "reviewer_model": "gemini-3.1-pro-preview",
+      "findings_count": 0,
+      "loop_iter": 0
+    },
+    "review_loop_count": 0,
+    "accepted_findings": [],
+    "fixed_before_next_task": true
+  }
+}

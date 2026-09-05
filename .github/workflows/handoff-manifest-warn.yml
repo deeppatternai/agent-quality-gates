@@ -1,0 +1,101 @@
+name: AQG Handoff Manifest (warn-only)
+
+# Wave 1-0 P0 follow-up — option D: wire scripts/validate_handoff_manifest.py +
+# scripts/_surface_redaction.py into CI. warn-only semantics:
+#
+#   - validator self-test failure = tooling broken (workflow red, but since it is
+#     not a branch-protection required check, it does not block PR merge)
+#   - manifest validate failure = warning annotation (workflow stays green)
+#
+# Companion convention: docs/handoff-manifests/**/*.{json,yaml,yml} is the manifest
+# directory; no files = silent skip (avoids an empty directory painting green).
+#
+# IMPORTANT: do not add this workflow to the branch-protection required checks,
+# otherwise the warn-only semantics get silently broken (same caveat as quality-gates-warn.yml).
+#
+# The cross-remote check (gh api reverse-lookup of ci_run_id × commit_sha × workflow_name)
+# does not run at PR-time — that requires the main agent to run it locally at handoff time
+# with a real expected_commit_sha. Here we only enforce schema + redaction.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+  workflow_dispatch:
+
+concurrency:
+  group: aqg-handoff-manifest-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  validate-handoff-manifests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check out
+        uses: actions/checkout@v6.0.2
+
+      - name: Validator self-test (tooling health)
+        # Uses set -e: a self-test failure = AQG itself is broken, and should be
+        # visible (workflow red). Since the workflow is not a required check, it still
+        # does not block PR merge — but the owner can see the tooling problem in the PR
+        # check tab and go fix the validator rather than blame the PR.
+        run: |
+          set -e
+          python3 scripts/_surface_redaction.py
+          python3 scripts/validate_handoff_manifest.py --self-test
+
+      - name: Discover handoff manifests
+        id: discover
+        run: |
+          set -e
+          mkdir -p docs/handoff-manifests
+          manifests_file="$RUNNER_TEMP/aqg-manifests.txt"
+          # find output is sorted for reproducible logs; write to a file to avoid
+          # mapfile (a bash 4+ only feature) so local sh / older bash can reproduce it
+          find docs/handoff-manifests -type f \
+            \( -name '*.json' -o -name '*.yaml' -o -name '*.yml' \) \
+            | sort > "$manifests_file"
+          found_count=$(wc -l < "$manifests_file" | tr -d ' ')
+          echo "found_count=$found_count" >> "$GITHUB_OUTPUT"
+          if [ "$found_count" -eq 0 ]; then
+            echo "No handoff manifests found at docs/handoff-manifests/. Skipping validation step."
+          else
+            echo "Found $found_count manifest(s):"
+            sed 's/^/  - /' "$manifests_file"
+          fi
+
+      - name: Validate handoff manifests (warn-only)
+        if: steps.discover.outputs.found_count != '0'
+        run: |
+          # Note: set +e — any single manifest failure must not turn the whole workflow red.
+          # warn-only semantics are guaranteed jointly by ::warning:: annotations + a trailing exit 0.
+          set +e
+          fail_count=0
+          total=0
+          while IFS= read -r m; do
+            total=$((total + 1))
+            echo "::group::Validating $m"
+            python3 scripts/validate_handoff_manifest.py "$m" --no-remote-check
+            rc=$?
+            echo "::endgroup::"
+            if [ "$rc" -ne 0 ]; then
+              echo "::warning file=$m::Manifest validation failed (rc=$rc). Warn-only — not blocking PR merge."
+              fail_count=$((fail_count + 1))
+            fi
+          done < "$RUNNER_TEMP/aqg-manifests.txt"
+          {
+            echo "## AQG Handoff Manifest Validation"
+            echo ""
+            echo "- manifests scanned: $total"
+            echo "- failures: $fail_count"
+            echo "- mode: warn-only (--no-remote-check)"
+            if [ "$fail_count" -gt 0 ]; then
+              echo ""
+              echo ":warning: $fail_count manifest(s) failed validation. See per-file warnings above."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+          # warn-only — never block a PR
+          exit 0

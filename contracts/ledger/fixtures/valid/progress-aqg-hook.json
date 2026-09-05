@@ -1,0 +1,15 @@
+{
+  "schema_version": "1.0",
+  "event_id": "aqg-hook:sess-xyz:1",
+  "project": "Example-Org/Example-Repo",
+  "source": "aqg-hook",
+  "source_ref": {
+    "session_id": "sess-xyz"
+  },
+  "kind": "progress",
+  "payload": {
+    "phase_event": "started",
+    "title": "Run started"
+  },
+  "occurred_at": "2026-05-29T10:00:00Z"
+}

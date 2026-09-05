@@ -1,0 +1,124 @@
+# AQG Quality Gates — GitLab CI template (warn-only)
+#
+# The GitLab-CI sibling of examples/github-actions/quality-gates-warn.yml. AQG ships this
+# CONFIG; GitLab's runner EXECUTES it — AQG is NOT the runner (a platform-agnostic
+# quality-discipline layer, not a CI/CD platform). The same pattern ports to
+# CircleCI / Jenkins / any CI: clone the AQG tooling repo, run run_quality_gates.py,
+# treat exit 0/1 as warn-only, surface the JSON.
+#
+# ⚠️ REFERENCE TEMPLATE — not tested on a live GitLab instance. Run `gitlab-ci lint` and a
+# real merge-request pipeline before relying on it. Several behaviors below are GitLab
+# version / project-setting dependent (Protected-variable exposure on MR pipelines, the
+# fork-MR-pipeline policy, masked-variable character rules) — confirm them for your instance.
+#
+# Setup:
+#   1. COPY this job into your project's TOP-LEVEL .gitlab-ci.yml. Do NOT rely on
+#      `include:` alone — GitLab creates merge-request pipelines only from rules in the
+#      top-level config, so an included-only job may not run on MRs.
+#   2. Add a CI/CD variable AQG_PRIVATE_READ_TOKEN = a GitHub read token (contents:read on
+#      deeppatternai/agent-quality-gates):
+#        - Mark it **Protected** — this is the ACCESS BOUNDARY for a long-lived GitHub PAT.
+#          Protected keeps it off every non-protected-branch / fork pipeline; GitLab then
+#          only exposes it where the source branch (and target) are protected.
+#        - Also mark it Masked. **Masking is log-redaction only, NOT access control** — a
+#          Masked-but-not-Protected variable is readable by ANY same-project member's
+#          branch pipeline (they control its `.gitlab-ci.yml`). Do not treat Masked as a
+#          boundary. (Some GitLab versions reject masking a token containing `_` like
+#          `ghp_`/`github_pat_`; rely on Protected + the rules-gating then.)
+#        - Rotate at least every 90 days.
+#   3. Commit quality-gates.json to your repo root.
+#
+# Security model: the job is gated to SAME-PROJECT merge requests (the `rules:` below), so
+# the token is never offered to a fork's pipeline; keep "run fork MR pipelines in the
+# parent project" DISABLED. When the token is withheld (Protected var not exposed to this
+# pipeline) or unset, the job SKIPS warn-only and never clones — nothing to leak. All git
+# state (config + credential + tooling checkout) is job-scoped temp removed on every exit.
+#
+# Warn-only scope: only AQG gate FINDINGS are warn-only — AQG exit 0 (clean) / 1 (findings)
+# never fail the pipeline. A genuine SETUP error (missing quality-gates.json -> exit 2)
+# DOES fail loudly, same as the GitHub Actions template; that is not a "block on findings".
+# To make findings BLOCKING too, delete the `aqg_exit in (0,1) -> exit 0` carve-out — and
+# only after a warn-only rollout shows the gates are stable.
+#
+# MR-note posting: the GitHub PR-comment scripts (fetch_pr_body.py / post_pr_comment.py)
+# are GitHub-API-specific and are intentionally NOT used here. Posting a GitLab MR note is
+# an optional extension via the GitLab API
+# ("$CI_API_V4_URL/projects/$CI_PROJECT_ID/merge_requests/$CI_MERGE_REQUEST_IID/notes").
+
+aqg_quality_gates:
+  stage: test
+  image: python:3.12-slim
+  # Same-project merge requests only (never a fork's pipeline), plus manual web runs
+  # (gated by Protected: a web run on a non-protected ref has no token -> skips below).
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event" && $CI_MERGE_REQUEST_SOURCE_PROJECT_ID == $CI_PROJECT_ID'
+    - if: '$CI_PIPELINE_SOURCE == "web"'
+  variables:
+    # Pin to a reviewed commit SHA or signed tag for real rollout (the fetch below is
+    # SHA-capable — unlike `git clone --branch`, which rejects a raw SHA).
+    AQG_TOOL_REF: "main"
+    AQG_CONFIG: "quality-gates.json"
+  script:
+    - |
+      set -euo pipefail
+
+      # Warn-only credential gate: if the token is withheld (Protected var not exposed to
+      # this pipeline) or unset, SKIP without blocking — and without cloning, so there is
+      # nothing to leak. This is the fork-MR / unprotected-branch safe path.
+      if [ -z "${AQG_PRIVATE_READ_TOKEN:-}" ]; then
+        echo "AQG: AQG_PRIVATE_READ_TOKEN not available to this pipeline; skipping gate (warn-only, non-blocking)."
+        exit 0
+      fi
+      if [ ! -f "$CI_PROJECT_DIR/$AQG_CONFIG" ]; then
+        echo "ERROR: missing $AQG_CONFIG in the repo root (setup error)." >&2
+        exit 2
+      fi
+
+      apt-get update -qq && apt-get install -y -qq git >/dev/null
+
+      # Job-scoped, isolated git state: a temp global config + credential file + tooling
+      # dir, so nothing touches the runner's shared $HOME/.gitconfig or races a concurrent
+      # job. The token never lands in a clone URL or process args. All temps are removed on
+      # ANY exit (trap), including an apt-get / fetch failure or a hard error.
+      _cred="$(mktemp)"; _gitcfg="$(mktemp)"; AQG_TOOL_DIR="$(mktemp -d)"
+      trap 'rm -rf "$_cred" "$_gitcfg" "$AQG_TOOL_DIR"' EXIT
+      export GIT_CONFIG_GLOBAL="$_gitcfg"
+      git config --global credential.helper "store --file=$_cred"
+      printf 'https://x-access-token:%s@github.com\n' "$AQG_PRIVATE_READ_TOKEN" > "$_cred"
+      chmod 600 "$_cred"
+
+      # SHA-capable checkout (a raw commit SHA is not a ref, so `git clone --branch` cannot
+      # take one; fetch + checkout can — GitHub allows fetching a reachable SHA).
+      git init -q "$AQG_TOOL_DIR"
+      git -C "$AQG_TOOL_DIR" remote add origin https://github.com/deeppatternai/agent-quality-gates.git
+      git -C "$AQG_TOOL_DIR" fetch -q --depth 1 origin "$AQG_TOOL_REF"
+      git -C "$AQG_TOOL_DIR" checkout -q --detach FETCH_HEAD
+
+      # GitLab's MR description is the AQG "PR body"; empty fallback on non-MR runs. GitLab
+      # caps this predefined var (~2700 chars) and flags truncation — warn so the gate is
+      # not silently fed partial evidence (fetch the full body via the GitLab API to fix).
+      printf '%s' "${CI_MERGE_REQUEST_DESCRIPTION:-}" > "$CI_PROJECT_DIR/aqg-pr-body.md"
+      if [ "${CI_MERGE_REQUEST_DESCRIPTION_IS_TRUNCATED:-false}" = "true" ]; then
+        echo "AQG: WARNING — CI_MERGE_REQUEST_DESCRIPTION is truncated by GitLab; the gate sees only the first ~2700 chars." >&2
+      fi
+
+      set +e
+      python3 "$AQG_TOOL_DIR/scripts/run_quality_gates.py" \
+        --config "$CI_PROJECT_DIR/$AQG_CONFIG" \
+        --repo "$CI_PROJECT_DIR" \
+        --pr-body-file "$CI_PROJECT_DIR/aqg-pr-body.md" \
+        --output-json "$CI_PROJECT_DIR/aqg-quality-gates.json"
+      aqg_exit=$?
+      set -e
+
+      # warn-only: clean (0) / findings (1) do not fail the pipeline.
+      if [ "$aqg_exit" -eq 0 ] || [ "$aqg_exit" -eq 1 ]; then
+        echo "AQG exit $aqg_exit recorded; warn-only does not block the pipeline."
+        exit 0
+      fi
+      exit "$aqg_exit"
+  artifacts:
+    when: always
+    paths:
+      - aqg-quality-gates.json
+    expire_in: 7 days

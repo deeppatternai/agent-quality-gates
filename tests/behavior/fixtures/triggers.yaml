@@ -1,0 +1,711 @@
+# AQG behavior tests trigger fixture v0
+#
+# Sketch v3 §3.2 mix: 70% description-based + 30% explicit invocation
+# Sample: 5 case/skill × 11 skill = 55 case (extended past sketch v3 §3.3 D 档
+# budget as new skills landed in Wave 3 / Sprint 11+ / 11.5 / 13 / 15 / 17.1)
+# Distribution (42 desc + 13 explicit; ~76/24):
+#   - aqg-startup-preflight:    3 desc + 2 explicit
+#   - aqg-systematic-debugging: 4 desc + 1 explicit
+#   - aqg-audit-adjudication:   3 desc + 2 explicit
+#   - aqg-evidence-closeout:    4 desc + 1 explicit
+#   - aqg-code-construction:    4 desc + 1 explicit (PR-C added per Wave 3)
+#   - aqg-skill-validator:      4 desc + 1 explicit (Sprint 15)
+#   - aqg-security-review:      4 desc + 1 explicit (Sprint 10)
+#   - aqg-automation-audit:     4 desc + 1 explicit (Sprint 13)
+#   - aqg-phase-transition:     4 desc + 1 explicit (Sprint 11; Claude wrapper added in #114 fix v0.8.1)
+#   - aqg-multi-review:         4 desc + 1 explicit (Sprint 11.5; Claude wrapper added in #114 fix v0.8.1)
+#   - aqg-test-quality-review:  4 desc + 1 explicit (2026-05-26; review-side test-quality skill)
+# Per-case 1 run nightly (no N=5 majority vote at v0 — Wilson computed over 4-week
+# accumulation per sketch v3 §4)
+#
+# NB (2026-05-31 PR-3): the SKILL.md drift-hash mechanism was retired once the
+# overlay migration reached 13/13 managed skills. The M2 hash fields
+# (description_sha256_first8 / trigger_section_sha256_first8) are now always
+# null — kept (not deleted) because check_fixture_mix.py I7 asserts the
+# `managed ⟺ M2-null` invariant from them. They are no longer drift baselines;
+# the committed wrapper is guarded by the CI regen→git-status gate instead.
+schema_version: 1
+runner:
+  primary: claude_p
+  model: claude-sonnet-4-6
+  per_run_budget_usd: 0.50
+  per_nightly_budget_usd: 5.0
+  timeout_s: 240
+  permission_mode: default
+
+cases:
+  # ===== aqg-startup-preflight (5 cases: 3 description + 2 explicit) =====
+  - id: preflight-desc-001
+    style: description_based
+    prompt: "我刚 clone 这个项目, 准备改东西"
+    expected_skill: aqg-startup-preflight
+    skill_file_ref: agent-packs/claude-code/skills/aqg-startup-preflight/SKILL.md
+    description_sha256_first8: null
+    trigger_section_sha256_first8: null
+
+  - id: preflight-desc-002
+    style: description_based
+    prompt: "切到 main 上看下 git 状态"
+    expected_skill: aqg-startup-preflight
+    skill_file_ref: agent-packs/claude-code/skills/aqg-startup-preflight/SKILL.md
+    description_sha256_first8: null
+    trigger_section_sha256_first8: null
+
+  - id: preflight-desc-003
+    style: description_based
+    prompt: "我离开几天了, 帮我看下 repo 现在啥状态"
+    expected_skill: aqg-startup-preflight
+    skill_file_ref: agent-packs/claude-code/skills/aqg-startup-preflight/SKILL.md
+    description_sha256_first8: null
+    trigger_section_sha256_first8: null
+
+  - id: preflight-explicit-001
+    style: explicit_invocation
+    prompt: "请用 /aqg-startup-preflight skill 帮我检查 worktree 状态"
+    expected_skill: aqg-startup-preflight
+    expected_caller_type: direct
+    skill_file_ref: agent-packs/claude-code/skills/aqg-startup-preflight/SKILL.md
+    description_sha256_first8: null
+    trigger_section_sha256_first8: null
+
+  - id: preflight-explicit-002
+    style: explicit_invocation
+    prompt: "动手前先 invoke /aqg-startup-preflight 确认 worktree 干净"
+    expected_skill: aqg-startup-preflight
+    expected_caller_type: direct
+    skill_file_ref: agent-packs/claude-code/skills/aqg-startup-preflight/SKILL.md
+    description_sha256_first8: null
+    trigger_section_sha256_first8: null
+
+  # ===== aqg-systematic-debugging (5 cases: 4 description + 1 explicit) =====
+  - id: debug-desc-001
+    style: description_based
+    prompt: "测试 fail 了, exit code 1, log 显示 timeout"
+    expected_skill: aqg-systematic-debugging
+    skill_file_ref: agent-packs/claude-code/skills/aqg-systematic-debugging/SKILL.md
+    description_sha256_first8: null
+    trigger_section_sha256_first8: null
+
+  - id: debug-desc-002
+    style: description_based
+    prompt: "CI build 失败 3 次了, 帮我看看怎么回事"
+    expected_skill: aqg-systematic-debugging
+    skill_file_ref: agent-packs/claude-code/skills/aqg-systematic-debugging/SKILL.md
+    description_sha256_first8: null
+    trigger_section_sha256_first8: null
+
+  - id: debug-desc-003
+    style: description_based
+    prompt: "这个 bug 我搞了两天死活找不到 root cause"
+    expected_skill: aqg-systematic-debugging
+    skill_file_ref: agent-packs/claude-code/skills/aqg-systematic-debugging/SKILL.md
+    description_sha256_first8: null
+    trigger_section_sha256_first8: null
+
+  - id: debug-desc-004
+    style: description_based
+    prompt: "代码看起来对的, 但跑出来结果不对, evidence 跟 source drift"
+    expected_skill: aqg-systematic-debugging
+    skill_file_ref: agent-packs/claude-code/skills/aqg-systematic-debugging/SKILL.md
+    description_sha256_first8: null
+    trigger_section_sha256_first8: null
+
+  - id: debug-explicit-001
+    style: explicit_invocation
+    prompt: "请用 /aqg-systematic-debugging skill 帮我定位测试 fail 的 root cause"
+    expected_skill: aqg-systematic-debugging
+    expected_caller_type: direct
+    skill_file_ref: agent-packs/claude-code/skills/aqg-systematic-debugging/SKILL.md
+    description_sha256_first8: null
+    trigger_section_sha256_first8: null
+
+  # ===== aqg-audit-adjudication (5 cases: 3 description + 2 explicit) =====
+  - id: adjudicate-desc-001
+    style: description_based
+    prompt: "audit 返回 5 个 finding, 帮我做 accept/reject 决定"
+    expected_skill: aqg-audit-adjudication
+    skill_file_ref: agent-packs/claude-code/skills/aqg-audit-adjudication/SKILL.md
+    description_sha256_first8: null
+    trigger_section_sha256_first8: null
+
+  - id: adjudicate-desc-002
+    style: description_based
+    prompt: "code reviewer 提了一些意见, 帮我做 accept/reject 决定哪些要 fix"
+    expected_skill: aqg-audit-adjudication
+    skill_file_ref: agent-packs/claude-code/skills/aqg-audit-adjudication/SKILL.md
+    description_sha256_first8: null
+    trigger_section_sha256_first8: null
+
+  - id: adjudicate-desc-003
+    style: description_based
+    prompt: "三审输出 12 个 issue, 帮我做 adjudication accept/reject 区分 convergent/divergent"
+    expected_skill: aqg-audit-adjudication
+    skill_file_ref: agent-packs/claude-code/skills/aqg-audit-adjudication/SKILL.md
+    description_sha256_first8: null
+    trigger_section_sha256_first8: null
+
+  - id: adjudicate-explicit-001
+    style: explicit_invocation
+    prompt: "请用 /aqg-audit-adjudication skill 处理这批 audit findings"
+    expected_skill: aqg-audit-adjudication
+    expected_caller_type: direct
+    skill_file_ref: agent-packs/claude-code/skills/aqg-audit-adjudication/SKILL.md
+    description_sha256_first8: null
+    trigger_section_sha256_first8: null
+
+  - id: adjudicate-explicit-002
+    style: explicit_invocation
+    prompt: "请用 /aqg-audit-adjudication skill 帮我把这次三审的 finding 整合成 4 列表 accept/reject 决定"
+    expected_skill: aqg-audit-adjudication
+    expected_caller_type: direct
+    skill_file_ref: agent-packs/claude-code/skills/aqg-audit-adjudication/SKILL.md
+    description_sha256_first8: null
+    trigger_section_sha256_first8: null
+
+  # ===== aqg-evidence-closeout (5 cases: 4 description + 1 explicit) =====
+  - id: closeout-desc-001
+    style: description_based
+    prompt: "我搞完了, 准备 push"
+    expected_skill: aqg-evidence-closeout
+    skill_file_ref: agent-packs/claude-code/skills/aqg-evidence-closeout/SKILL.md
+    description_sha256_first8: null
+    trigger_section_sha256_first8: null
+
+  - id: closeout-desc-002
+    style: description_based
+    prompt: "这个 PR 可以 merge 了吗?"
+    expected_skill: aqg-evidence-closeout
+    skill_file_ref: agent-packs/claude-code/skills/aqg-evidence-closeout/SKILL.md
+    description_sha256_first8: null
+    trigger_section_sha256_first8: null
+
+  - id: closeout-desc-003
+    style: description_based
+    prompt: "完工前最后再过一遍"
+    expected_skill: aqg-evidence-closeout
+    skill_file_ref: agent-packs/claude-code/skills/aqg-evidence-closeout/SKILL.md
+    description_sha256_first8: null
+    trigger_section_sha256_first8: null
+
+  - id: closeout-desc-004
+    style: description_based
+    prompt: "handoff 给下一个 agent 之前, 帮我出 evidence ledger 做 closeout"
+    expected_skill: aqg-evidence-closeout
+    skill_file_ref: agent-packs/claude-code/skills/aqg-evidence-closeout/SKILL.md
+    description_sha256_first8: null
+    trigger_section_sha256_first8: null
+
+  - id: closeout-explicit-001
+    style: explicit_invocation
+    prompt: "请用 /aqg-evidence-closeout skill 帮我出 evidence ledger"
+    expected_skill: aqg-evidence-closeout
+    expected_caller_type: direct
+    skill_file_ref: agent-packs/claude-code/skills/aqg-evidence-closeout/SKILL.md
+    description_sha256_first8: null
+    trigger_section_sha256_first8: null
+
+  # ===== aqg-code-construction (5 cases: 4 description + 1 explicit) — PR-C added per Wave 3 =====
+  - id: construction-desc-001
+    style: description_based
+    prompt: "我要给 scripts/foo.py 加一个新的 retry 函数"
+    expected_skill: aqg-code-construction
+    skill_file_ref: agent-packs/claude-code/skills/aqg-code-construction/SKILL.md
+    description_sha256_first8: null
+    trigger_section_sha256_first8: null
+
+  - id: construction-desc-002
+    style: description_based
+    prompt: "重构这个 helper, 把公共部分抽出来"
+    expected_skill: aqg-code-construction
+    skill_file_ref: agent-packs/claude-code/skills/aqg-code-construction/SKILL.md
+    description_sha256_first8: null
+    trigger_section_sha256_first8: null
+
+  - id: construction-desc-003
+    style: description_based
+    prompt: "新写一个 Python 脚本, 处理 PR body 的 metadata"
+    expected_skill: aqg-code-construction
+    skill_file_ref: agent-packs/claude-code/skills/aqg-code-construction/SKILL.md
+    description_sha256_first8: null
+    trigger_section_sha256_first8: null
+
+  - id: construction-desc-004
+    style: description_based
+    prompt: "我要开始写代码了, 帮我建 code construction ledger + 走 6 步流程"
+    expected_skill: aqg-code-construction
+    skill_file_ref: agent-packs/claude-code/skills/aqg-code-construction/SKILL.md
+    description_sha256_first8: null
+    trigger_section_sha256_first8: null
+
+  - id: construction-explicit-001
+    style: explicit_invocation
+    prompt: "请用 /aqg-code-construction skill 帮我走完 6 步构造流程"
+    expected_skill: aqg-code-construction
+    expected_caller_type: direct
+    skill_file_ref: agent-packs/claude-code/skills/aqg-code-construction/SKILL.md
+    description_sha256_first8: null
+    trigger_section_sha256_first8: null
+
+  # ===== aqg-skill-validator (5 cases: 4 description + 1 explicit) =====
+  - id: skill-validator-desc-001
+    style: description_based
+    prompt: "我刚写完一个新 skill, 帮我看下 sidecar 和 SKILL.md 是不是都对"
+    expected_skill: aqg-skill-validator
+    skill_file_ref: agent-packs/claude-code/skills/aqg-skill-validator/SKILL.md
+    description_sha256_first8: null
+    trigger_section_sha256_first8: null
+
+  - id: skill-validator-desc-002
+    style: description_based
+    prompt: "Validate the aqg-foo skill before I commit"
+    expected_skill: aqg-skill-validator
+    skill_file_ref: agent-packs/claude-code/skills/aqg-skill-validator/SKILL.md
+    description_sha256_first8: null
+    trigger_section_sha256_first8: null
+
+  - id: skill-validator-desc-003
+    style: description_based
+    prompt: "Check if my new skill's sidecar passes the schema"
+    expected_skill: aqg-skill-validator
+    skill_file_ref: agent-packs/claude-code/skills/aqg-skill-validator/SKILL.md
+    description_sha256_first8: null
+    trigger_section_sha256_first8: null
+
+  - id: skill-validator-desc-004
+    style: description_based
+    prompt: "我想确认 skill 的 frontmatter 和 boundary section 都对得上 spec"
+    expected_skill: aqg-skill-validator
+    skill_file_ref: agent-packs/claude-code/skills/aqg-skill-validator/SKILL.md
+    description_sha256_first8: null
+    trigger_section_sha256_first8: null
+
+  - id: skill-validator-explicit-001
+    style: explicit_invocation
+    prompt: "请用 /aqg-skill-validator skill 验证 aqg-incident-recorder"
+    expected_skill: aqg-skill-validator
+    expected_caller_type: direct
+    skill_file_ref: agent-packs/claude-code/skills/aqg-skill-validator/SKILL.md
+    description_sha256_first8: null
+    trigger_section_sha256_first8: null
+
+  # ===== aqg-security-review (5 cases: 4 description + 1 explicit) =====
+  - id: secrev-desc-001
+    style: description_based
+    prompt: "我刚加了个新 auth endpoint, 跑一遍 security review"
+    expected_skill: aqg-security-review
+    skill_file_ref: agent-packs/claude-code/skills/aqg-security-review/SKILL.md
+    description_sha256_first8: null
+    trigger_section_sha256_first8: null
+
+  - id: secrev-desc-002
+    style: description_based
+    prompt: "Before I open the PR, walk OWASP / CWE checklist on these payment changes"
+    expected_skill: aqg-security-review
+    skill_file_ref: agent-packs/claude-code/skills/aqg-security-review/SKILL.md
+    description_sha256_first8: null
+    trigger_section_sha256_first8: null
+
+  - id: secrev-desc-003
+    style: description_based
+    prompt: "package.json 新加了 dep, 检查是不是用了 secure-default 库还是自己实现的"
+    expected_skill: aqg-security-review
+    skill_file_ref: agent-packs/claude-code/skills/aqg-security-review/SKILL.md
+    description_sha256_first8: null
+    trigger_section_sha256_first8: null
+
+  - id: secrev-desc-004
+    style: description_based
+    prompt: "改了 user input 处理 + secret 加载, 走个 security checklist 再 commit"
+    expected_skill: aqg-security-review
+    skill_file_ref: agent-packs/claude-code/skills/aqg-security-review/SKILL.md
+    description_sha256_first8: null
+    trigger_section_sha256_first8: null
+
+  - id: secrev-explicit-001
+    style: explicit_invocation
+    prompt: "请用 /aqg-security-review skill 帮我过一遍 OWASP / CWE / secure-defaults"
+    expected_skill: aqg-security-review
+    expected_caller_type: direct
+    skill_file_ref: agent-packs/claude-code/skills/aqg-security-review/SKILL.md
+    description_sha256_first8: null
+    trigger_section_sha256_first8: null
+
+  # ===== aqg-automation-audit (5 cases: 4 description + 1 explicit) =====
+  - id: autoaudit-desc-001
+    style: description_based
+    prompt: "刚装了 semgrep plugin, 跑一遍 automation audit 看是不是撞工作流"
+    expected_skill: aqg-automation-audit
+    skill_file_ref: agent-packs/claude-code/skills/aqg-automation-audit/SKILL.md
+    description_sha256_first8: null
+    trigger_section_sha256_first8: null
+
+  - id: autoaudit-desc-002
+    style: description_based
+    prompt: "Inventory all hooks / MCP / plugins / skills + check overlap vs AQG workflow"
+    expected_skill: aqg-automation-audit
+    skill_file_ref: agent-packs/claude-code/skills/aqg-automation-audit/SKILL.md
+    description_sha256_first8: null
+    trigger_section_sha256_first8: null
+
+  - id: autoaudit-desc-003
+    style: description_based
+    prompt: "看到反复 system-reminder 注入, 帮我找哪个 hook 在污染 context"
+    expected_skill: aqg-automation-audit
+    skill_file_ref: agent-packs/claude-code/skills/aqg-automation-audit/SKILL.md
+    description_sha256_first8: null
+    trigger_section_sha256_first8: null
+
+  - id: autoaudit-desc-004
+    style: description_based
+    prompt: "ECC plugin update 后, 走一遍 automation hygiene + verdict 表"
+    expected_skill: aqg-automation-audit
+    skill_file_ref: agent-packs/claude-code/skills/aqg-automation-audit/SKILL.md
+    description_sha256_first8: null
+    trigger_section_sha256_first8: null
+
+  - id: autoaudit-explicit-001
+    style: explicit_invocation
+    prompt: "请用 /aqg-automation-audit skill 出 inventory + overlap + verdict"
+    expected_skill: aqg-automation-audit
+    expected_caller_type: direct
+    skill_file_ref: agent-packs/claude-code/skills/aqg-automation-audit/SKILL.md
+    description_sha256_first8: null
+    trigger_section_sha256_first8: null
+
+  # ===== aqg-phase-transition (5 cases: 4 description + 1 explicit) =====
+  # Issue #114 fix: Claude wrapper added; previously source-only skill not pickable.
+  - id: phase-desc-001
+    style: description_based
+    prompt: "我刚写完 plan / sketch, 进 impl 前帮我看看要不要 audit"
+    expected_skill: aqg-phase-transition
+    skill_file_ref: agent-packs/claude-code/skills/aqg-phase-transition/SKILL.md
+    description_sha256_first8: null
+    trigger_section_sha256_first8: null
+
+  - id: phase-desc-002
+    style: description_based
+    prompt: "implementation done, 跑 review 之前问要不要外审"
+    expected_skill: aqg-phase-transition
+    skill_file_ref: agent-packs/claude-code/skills/aqg-phase-transition/SKILL.md
+    description_sha256_first8: null
+    trigger_section_sha256_first8: null
+
+  - id: phase-desc-003
+    style: description_based
+    prompt: "tests 写完, 跑测试前要不要先过一遍 audit"
+    expected_skill: aqg-phase-transition
+    skill_file_ref: agent-packs/claude-code/skills/aqg-phase-transition/SKILL.md
+    description_sha256_first8: null
+    trigger_section_sha256_first8: null
+
+  - id: phase-desc-004
+    style: description_based
+    prompt: "我刚 plan_done, 这次改动是 prod migration 高 stakes 不可逆"
+    expected_skill: aqg-phase-transition
+    skill_file_ref: agent-packs/claude-code/skills/aqg-phase-transition/SKILL.md
+    description_sha256_first8: null
+    trigger_section_sha256_first8: null
+
+  - id: phase-explicit-001
+    style: explicit_invocation
+    prompt: "请用 /aqg-phase-transition emit phase signal 拿 recommended_audit_mode"
+    expected_skill: aqg-phase-transition
+    expected_caller_type: direct
+    skill_file_ref: agent-packs/claude-code/skills/aqg-phase-transition/SKILL.md
+    description_sha256_first8: null
+    trigger_section_sha256_first8: null
+
+  # ===== aqg-multi-review (5 cases: 4 description + 1 explicit) =====
+  # Issue #114 fix: Claude wrapper added; previously source-only skill not pickable.
+  - id: multireview-desc-001
+    style: description_based
+    prompt: "这次改了 5 个文件, 想从 logic / edge / security / perf / concurrency 5 维度审"
+    expected_skill: aqg-multi-review
+    skill_file_ref: agent-packs/claude-code/skills/aqg-multi-review/SKILL.md
+    description_sha256_first8: null
+    trigger_section_sha256_first8: null
+
+  - id: multireview-desc-002
+    style: description_based
+    prompt: "/ultrareview 跨 LLM 版本, 给我 5 维 audit 路由 prompt"
+    expected_skill: aqg-multi-review
+    skill_file_ref: agent-packs/claude-code/skills/aqg-multi-review/SKILL.md
+    description_sha256_first8: null
+    trigger_section_sha256_first8: null
+
+  - id: multireview-desc-003
+    style: description_based
+    prompt: "多文件改动想拿 cross-LLM panel 各维度独立判断"
+    expected_skill: aqg-multi-review
+    skill_file_ref: agent-packs/claude-code/skills/aqg-multi-review/SKILL.md
+    description_sha256_first8: null
+    trigger_section_sha256_first8: null
+
+  - id: multireview-desc-004
+    style: description_based
+    prompt: "审一下 logic / performance / concurrency 3 维就行, 不要全 5 维"
+    expected_skill: aqg-multi-review
+    skill_file_ref: agent-packs/claude-code/skills/aqg-multi-review/SKILL.md
+    description_sha256_first8: null
+    trigger_section_sha256_first8: null
+
+  - id: multireview-explicit-001
+    style: explicit_invocation
+    prompt: "请用 /aqg-multi-review skill 出 5 维 ledger skeleton + focus prompts"
+    expected_skill: aqg-multi-review
+    expected_caller_type: direct
+    skill_file_ref: agent-packs/claude-code/skills/aqg-multi-review/SKILL.md
+    description_sha256_first8: null
+    trigger_section_sha256_first8: null
+
+  # ===== aqg-test-quality-review (5 cases: 4 description + 1 explicit) =====
+  - id: tqr-desc-001
+    style: description_based
+    prompt: "review the test quality of this PR — are the tests testing behavior or just the shape of the data?"
+    expected_skill: aqg-test-quality-review
+    skill_file_ref: agent-packs/claude-code/skills/aqg-test-quality-review/SKILL.md
+    description_sha256_first8: null
+    trigger_section_sha256_first8: null
+
+  - id: tqr-desc-002
+    style: description_based
+    prompt: "did this diff weaken, delete, or skip any tests to make CI green?"
+    expected_skill: aqg-test-quality-review
+    skill_file_ref: agent-packs/claude-code/skills/aqg-test-quality-review/SKILL.md
+    description_sha256_first8: null
+    trigger_section_sha256_first8: null
+
+  - id: tqr-desc-003
+    style: description_based
+    prompt: "check this PR for flaky tests and coverage gaps before I merge"
+    expected_skill: aqg-test-quality-review
+    skill_file_ref: agent-packs/claude-code/skills/aqg-test-quality-review/SKILL.md
+    description_sha256_first8: null
+    trigger_section_sha256_first8: null
+
+  - id: tqr-desc-004
+    style: description_based
+    prompt: "this test just asserts isinstance(result, dict) — is it really testing behavior?"
+    expected_skill: aqg-test-quality-review
+    skill_file_ref: agent-packs/claude-code/skills/aqg-test-quality-review/SKILL.md
+    description_sha256_first8: null
+    trigger_section_sha256_first8: null
+
+  - id: tqr-explicit-001
+    style: explicit_invocation
+    prompt: "run /aqg-test-quality-review analyze on my branch diff and give me the ledger + focus prompts"
+    expected_skill: aqg-test-quality-review
+    expected_caller_type: direct
+    skill_file_ref: agent-packs/claude-code/skills/aqg-test-quality-review/SKILL.md
+    description_sha256_first8: null
+    trigger_section_sha256_first8: null
+
+  # ===== aqg-re-anchor (5 cases: 4 description + 1 explicit) =====
+  - id: reanchor-desc-001
+    style: description_based
+    prompt: "长 session 跑了好几步, 帮我重述一下 goal + 进度别跑偏"
+    expected_skill: aqg-re-anchor
+    skill_file_ref: agent-packs/claude-code/skills/aqg-re-anchor/SKILL.md
+    description_sha256_first8: null
+    trigger_section_sha256_first8: null
+
+  - id: reanchor-desc-002
+    style: description_based
+    prompt: "WorkPacket 边界 re-anchor 一下当前在哪 / 还剩什么"
+    expected_skill: aqg-re-anchor
+    skill_file_ref: agent-packs/claude-code/skills/aqg-re-anchor/SKILL.md
+    description_sha256_first8: null
+    trigger_section_sha256_first8: null
+
+  - id: reanchor-desc-003
+    style: description_based
+    prompt: "这个长任务我有点忘了目标, restate 一下纪律和进度"
+    expected_skill: aqg-re-anchor
+    skill_file_ref: agent-packs/claude-code/skills/aqg-re-anchor/SKILL.md
+    description_sha256_first8: null
+    trigger_section_sha256_first8: null
+
+  - id: reanchor-desc-004
+    style: description_based
+    prompt: "stay on track — re-state the goal and what's done / remaining"
+    expected_skill: aqg-re-anchor
+    skill_file_ref: agent-packs/claude-code/skills/aqg-re-anchor/SKILL.md
+    description_sha256_first8: null
+    trigger_section_sha256_first8: null
+
+  - id: reanchor-explicit-001
+    style: explicit_invocation
+    prompt: "请用 /aqg-re-anchor emit 一个紧凑重述 block (goal + discipline + progress)"
+    expected_skill: aqg-re-anchor
+    expected_caller_type: direct
+    skill_file_ref: agent-packs/claude-code/skills/aqg-re-anchor/SKILL.md
+    description_sha256_first8: null
+    trigger_section_sha256_first8: null
+
+  # ===== aqg-project-status (5 cases: 4 description + 1 explicit) =====
+  - id: pstatus-desc-001
+    style: description_based
+    prompt: "这个项目做到哪了? 给我一份进度报告"
+    expected_skill: aqg-project-status
+    skill_file_ref: agent-packs/claude-code/skills/aqg-project-status/SKILL.md
+    description_sha256_first8: null
+    trigger_section_sha256_first8: null
+
+  - id: pstatus-desc-002
+    style: description_based
+    prompt: "show me the open bugs / defect ledger for this repo"
+    expected_skill: aqg-project-status
+    skill_file_ref: agent-packs/claude-code/skills/aqg-project-status/SKILL.md
+    description_sha256_first8: null
+    trigger_section_sha256_first8: null
+
+  - id: pstatus-desc-003
+    style: description_based
+    prompt: "generate a project status report — progress timeline plus the delivery handbooks index"
+    expected_skill: aqg-project-status
+    skill_file_ref: agent-packs/claude-code/skills/aqg-project-status/SKILL.md
+    description_sha256_first8: null
+    trigger_section_sha256_first8: null
+
+  - id: pstatus-desc-004
+    style: description_based
+    prompt: "what's the progress on this project, and what bugs are still open?"
+    expected_skill: aqg-project-status
+    skill_file_ref: agent-packs/claude-code/skills/aqg-project-status/SKILL.md
+    description_sha256_first8: null
+    trigger_section_sha256_first8: null
+
+  - id: pstatus-explicit-001
+    style: explicit_invocation
+    prompt: "run /aqg-project-status --format html for the current repo"
+    expected_skill: aqg-project-status
+    expected_caller_type: direct
+    skill_file_ref: agent-packs/claude-code/skills/aqg-project-status/SKILL.md
+    description_sha256_first8: null
+    trigger_section_sha256_first8: null
+
+  # ===== aqg-memory-hygiene (5 cases: 4 description + 1 explicit) =====
+  - id: mhyg-desc-001
+    style: description_based
+    prompt: "validate my agent memory files — has the frontmatter schema drifted?"
+    expected_skill: aqg-memory-hygiene
+    skill_file_ref: agent-packs/claude-code/skills/aqg-memory-hygiene/SKILL.md
+    description_sha256_first8: null
+    trigger_section_sha256_first8: null
+
+  - id: mhyg-desc-002
+    style: description_based
+    prompt: "which volatile memories are stale and need re-verification?"
+    expected_skill: aqg-memory-hygiene
+    skill_file_ref: agent-packs/claude-code/skills/aqg-memory-hygiene/SKILL.md
+    description_sha256_first8: null
+    trigger_section_sha256_first8: null
+
+  - id: mhyg-desc-003
+    style: description_based
+    prompt: "check the memory dir for an invalid or future-dated last_verified"
+    expected_skill: aqg-memory-hygiene
+    skill_file_ref: agent-packs/claude-code/skills/aqg-memory-hygiene/SKILL.md
+    description_sha256_first8: null
+    trigger_section_sha256_first8: null
+
+  - id: mhyg-desc-004
+    style: description_based
+    prompt: "did any superseded memory lose its superseded_by pointer or keep a node_type residue?"
+    expected_skill: aqg-memory-hygiene
+    skill_file_ref: agent-packs/claude-code/skills/aqg-memory-hygiene/SKILL.md
+    description_sha256_first8: null
+    trigger_section_sha256_first8: null
+
+  - id: mhyg-explicit-001
+    style: explicit_invocation
+    prompt: "run /aqg-memory-hygiene validate on my project memory and show the schema report"
+    expected_skill: aqg-memory-hygiene
+    expected_caller_type: direct
+    skill_file_ref: agent-packs/claude-code/skills/aqg-memory-hygiene/SKILL.md
+    description_sha256_first8: null
+    trigger_section_sha256_first8: null
+
+  # ===== aqg-session-handoff (5 cases: 4 description + 1 explicit) =====
+  - id: handoff-desc-001
+    style: description_based
+    prompt: "我 CTX 快满了, 给我生成一个 handoff 让下个 session 接着干"
+    expected_skill: aqg-session-handoff
+    skill_file_ref: agent-packs/claude-code/skills/aqg-session-handoff/SKILL.md
+    description_sha256_first8: null
+    trigger_section_sha256_first8: null
+
+  - id: handoff-desc-002
+    style: description_based
+    prompt: "帮我写个 paste-ready 交接 prompt, 下一棒冷启动用"
+    expected_skill: aqg-session-handoff
+    skill_file_ref: agent-packs/claude-code/skills/aqg-session-handoff/SKILL.md
+    description_sha256_first8: null
+    trigger_section_sha256_first8: null
+
+  - id: handoff-desc-003
+    style: description_based
+    prompt: "session 要结束了, 把当前状态/下一步/踩过的坑整理成交接"
+    expected_skill: aqg-session-handoff
+    skill_file_ref: agent-packs/claude-code/skills/aqg-session-handoff/SKILL.md
+    description_sha256_first8: null
+    trigger_section_sha256_first8: null
+
+  - id: handoff-desc-004
+    style: description_based
+    prompt: "compaction 之后, 整理一份 cross-session handoff 给下个 session"
+    expected_skill: aqg-session-handoff
+    skill_file_ref: agent-packs/claude-code/skills/aqg-session-handoff/SKILL.md
+    description_sha256_first8: null
+    trigger_section_sha256_first8: null
+
+  - id: handoff-explicit-001
+    style: explicit_invocation
+    prompt: "用 /aqg-session-handoff new 出一个 8-section 交接骨架"
+    expected_skill: aqg-session-handoff
+    expected_caller_type: direct
+    skill_file_ref: agent-packs/claude-code/skills/aqg-session-handoff/SKILL.md
+    description_sha256_first8: null
+    trigger_section_sha256_first8: null
+
+  # ===== aqg-decision-capture (5 cases: 4 description + 1 explicit) =====
+  - id: decision-capture-desc-001
+    style: description_based
+    prompt: "Owner 刚拍板了一个决策, 帮我按格式记一笔进决策账本"
+    expected_skill: aqg-decision-capture
+    skill_file_ref: agent-packs/claude-code/skills/aqg-decision-capture/SKILL.md
+    description_sha256_first8: null
+    trigger_section_sha256_first8: null
+
+  - id: decision-capture-desc-002
+    style: description_based
+    prompt: "这轮外审裁决要不要记进 LOG, 怎么记一行"
+    expected_skill: aqg-decision-capture
+    skill_file_ref: agent-packs/claude-code/skills/aqg-decision-capture/SKILL.md
+    description_sha256_first8: null
+    trigger_section_sha256_first8: null
+
+  - id: decision-capture-desc-003
+    style: description_based
+    prompt: "之前我们为什么决定用 X 不用 Y, 查一下既往决策"
+    expected_skill: aqg-decision-capture
+    skill_file_ref: agent-packs/claude-code/skills/aqg-decision-capture/SKILL.md
+    description_sha256_first8: null
+    trigger_section_sha256_first8: null
+
+  - id: decision-capture-desc-004
+    style: description_based
+    prompt: "把这串拍板按 6 字段格式记到 docs/decisions/LOG.md"
+    expected_skill: aqg-decision-capture
+    skill_file_ref: agent-packs/claude-code/skills/aqg-decision-capture/SKILL.md
+    description_sha256_first8: null
+    trigger_section_sha256_first8: null
+
+  - id: decision-capture-explicit-001
+    style: explicit_invocation
+    prompt: "请用 /aqg-decision-capture format 生成一条决策行"
+    expected_skill: aqg-decision-capture
+    expected_caller_type: direct
+    skill_file_ref: agent-packs/claude-code/skills/aqg-decision-capture/SKILL.md
+    description_sha256_first8: null
+    trigger_section_sha256_first8: null

@@ -1,0 +1,101 @@
+{
+  "skill_template_schema": 1,
+  "name": "aqg-session-handoff",
+  "description": "Generate a paste-ready cross-session handoff prompt that lets a next-session LLM cold-start on a generic project — repo/branch + environment, what is done and verified, current working state, next steps, discipline traps, the first concrete action, and open decisions. Two modes — `new` prints an 8-section skeleton (Done-so-far prefilled from the construction ledger when present); `validate` reads the filled handoff from stdin and gates it (8 sections present, no placeholder or secret residue, plus first-step / actor / audit-state checks) before paste. For a generic project session handoff WITHOUT EAF engine run state — if the repo is running an EAF engine, use eaf-session-handoff instead (it captures run_id / hold-gate / transition_log, which this does not); for a completion product HANDOFF.md, use eaf-handoff. Use at session boundaries, high context, after compaction, or when the user asks for a handoff to continue next session. Not a substitute for aqg-evidence-closeout (in-session completion evidence).",
+  "version": "0.1.0",
+  "wrapper_generated": true,
+  "primary_trigger_keywords": [
+    "session handoff",
+    "cross-session",
+    "paste-ready",
+    "cold-start",
+    "交接",
+    "下个 session 继续"
+  ],
+  "boundary_class": "read-only",
+  "audit_mode_required": "standard",
+  "trigger_grammar": {
+    "keywords": [
+      "session handoff",
+      "cross-session",
+      "paste-ready",
+      "cold-start",
+      "下一棒",
+      "交接",
+      "下个 session 继续",
+      "compaction handoff",
+      "session boundary",
+      "高 CTX 交接"
+    ],
+    "sentence_patterns": [
+      "我 CTX 快满了, 给我生成一个 handoff 让下个 session 接着干",
+      "帮我写个 paste-ready 交接 prompt, 下一棒冷启动用",
+      "session 要结束了, 把当前状态/下一步/踩过的坑整理成交接",
+      "compaction 之后, 整理一份 cross-session handoff 给下个 session",
+      "Run aqg-session-handoff new to emit an 8-section handoff skeleton"
+    ]
+  },
+  "entry_script": "skills/aqg-session-handoff/scripts/aqg_session_handoff.py",
+  "cli_contract": {
+    "0": "success — new printed 8-section skeleton to stdout OR validate gate passed",
+    "1": "validation failure — validate found a gate violation (R1-R8); details on stderr",
+    "2": "usage error — bad args or missing subcommand (argparse)",
+    "3": "reserved — config/schema error (not currently emitted)",
+    "70": "reserved — internal error placeholder"
+  },
+  "output_shape": "multi_section_report",
+  "reads_paths": [
+    "skills/aqg-session-handoff/",
+    ".aqg/current_ledger.md"
+  ],
+  "writes_paths": [],
+  "forbidden_paths": [
+    "production/",
+    "secrets/",
+    ".env"
+  ],
+  "aqg_agent_gating": false,
+  "owner_only_actions": [
+    "read-only: prints skeleton to stdout (new) / gates stdin (validate); never writes the filesystem, never pushes/merges/deploys; the user owns running validate before paste and the paste itself"
+  ],
+  "cases": [
+    {
+      "id": "handoff-desc-001",
+      "style": "description_based",
+      "prompt": "My CTX is nearly full — generate a handoff so the next session can pick up where I left off",
+      "expected_skill": "aqg-session-handoff",
+      "skill_file_ref": "skills/aqg-session-handoff/SKILL.md"
+    },
+    {
+      "id": "handoff-desc-002",
+      "style": "description_based",
+      "prompt": "Write me a paste-ready handoff prompt for the next session to cold-start with",
+      "expected_skill": "aqg-session-handoff",
+      "skill_file_ref": "skills/aqg-session-handoff/SKILL.md"
+    },
+    {
+      "id": "handoff-desc-003",
+      "style": "description_based",
+      "prompt": "The session is wrapping up — organize the current state / next steps / traps hit into a handoff",
+      "expected_skill": "aqg-session-handoff",
+      "skill_file_ref": "skills/aqg-session-handoff/SKILL.md"
+    },
+    {
+      "id": "handoff-desc-004",
+      "style": "description_based",
+      "prompt": "After compaction, put together a cross-session handoff for the next session",
+      "expected_skill": "aqg-session-handoff",
+      "skill_file_ref": "skills/aqg-session-handoff/SKILL.md"
+    },
+    {
+      "id": "handoff-explicit-001",
+      "style": "explicit_invocation",
+      "prompt": "Use /aqg-session-handoff new to produce an 8-section handoff skeleton",
+      "expected_skill": "aqg-session-handoff",
+      "skill_file_ref": "skills/aqg-session-handoff/SKILL.md"
+    }
+  ],
+  "self_test_entrypoint": "skills/aqg-session-handoff/scripts/self_test.py",
+  "fixed_before_next_task_required_when_findings": true,
+  "numeric_values_quoted": true
+}

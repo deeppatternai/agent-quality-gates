@@ -1,0 +1,85 @@
+{
+  "skill_template_schema": 1,
+  "name": "aqg-phase-transition",
+  "description": "Use PROACTIVELY at three points — after producing a plan/PRD/design doc, after finishing a non-trivial implementation, after writing tests — to emit a phase-transition signal (PLAN_DONE / IMPL_DONE / TESTS_WRITTEN) and get a recommended audit mode before moving on. The depth rule lives in `docs/policies/audit-trigger.md`, which this skill applies — a sensitive-surface change is audited at the strictest depth regardless of size, and a trivial non-sensitive one is not audited at all. Signal only — the caller runs /audit.",
+  "version": "0.1.0",
+  "wrapper_generated": true,
+  "primary_trigger_keywords": ["phase transition", "PLAN_DONE", "IMPL_DONE", "TESTS_WRITTEN", "audit mode", "recommended audit", "phase boundary"],
+  "boundary_class": "writes-evidence",
+  "audit_mode_required": "standard",
+  "trigger_grammar": {
+    "keywords": ["phase transition", "PLAN_DONE", "IMPL_DONE", "TESTS_WRITTEN", "audit mode", "phase boundary", "plan 写完", "impl done", "tests 写完", "要不要审"],
+    "sentence_patterns": [
+      "我刚写完 plan / sketch, 进 impl 前帮我看看要不要 audit",
+      "implementation done, 跑 review 之前问要不要 audit",
+      "tests 写完, 跑测试前要不要先过一遍 audit",
+      "我刚 plan_done, 这次改动是 prod migration 高 stakes 不可逆",
+      "Run aqg-phase-transition emit to get recommended audit mode"
+    ]
+  },
+  "entry_script": "skills/aqg-phase-transition/scripts/aqg_phase_emit.py",
+  "cli_contract": {
+    "0": "success — phase verdict printed to stdout (markdown by default, JSON with --json)",
+    "1": "reserved — surfacing blocker in output, not exit code",
+    "2": "usage error — argparse propagates exit 2 on bad args / unknown subcommand",
+    "3": "reserved — config or schema error",
+    "70": "reserved — internal error placeholder"
+  },
+  "output_shape": "multi_section_report",
+  "reads_paths": [
+    "skills/aqg-phase-transition/",
+    ".aqg/phase-state-<task>.json"
+  ],
+  "writes_paths": [
+    ".aqg/phase-state-<task>.json"
+  ],
+  "forbidden_paths": [
+    "production/",
+    "secrets/",
+    ".env"
+  ],
+  "aqg_agent_gating": false,
+  "owner_only_actions": [
+    "Production / migration / branch protection / Owner-admin actions remain separate authorization gates; phase-transition only emits a signal, never calls audit-mcp itself (per ADR 2026-05-08-aqg-skill-distribution-boundary-a1.md §5)"
+  ],
+  "cases": [
+    {
+      "id": "phase-desc-001",
+      "style": "description_based",
+      "prompt": "I just finished the plan / sketch — before moving into impl, check whether I should audit",
+      "expected_skill": "aqg-phase-transition",
+      "skill_file_ref": "skills/aqg-phase-transition/SKILL.md"
+    },
+    {
+      "id": "phase-desc-002",
+      "style": "description_based",
+      "prompt": "implementation done — before running review, ask whether an external audit is needed",
+      "expected_skill": "aqg-phase-transition",
+      "skill_file_ref": "skills/aqg-phase-transition/SKILL.md"
+    },
+    {
+      "id": "phase-desc-003",
+      "style": "description_based",
+      "prompt": "tests are written — before running them, should I do an audit pass first",
+      "expected_skill": "aqg-phase-transition",
+      "skill_file_ref": "skills/aqg-phase-transition/SKILL.md"
+    },
+    {
+      "id": "phase-desc-004",
+      "style": "description_based",
+      "prompt": "I just hit plan_done — this change is a prod migration, high stakes and irreversible",
+      "expected_skill": "aqg-phase-transition",
+      "skill_file_ref": "skills/aqg-phase-transition/SKILL.md"
+    },
+    {
+      "id": "phase-explicit-001",
+      "style": "explicit_invocation",
+      "prompt": "Please use /aqg-phase-transition to emit the phase signal and get recommended_audit_mode",
+      "expected_skill": "aqg-phase-transition",
+      "skill_file_ref": "skills/aqg-phase-transition/SKILL.md"
+    }
+  ],
+  "self_test_entrypoint": "skills/aqg-phase-transition/scripts/self_test.py",
+  "fixed_before_next_task_required_when_findings": true,
+  "numeric_values_quoted": true
+}

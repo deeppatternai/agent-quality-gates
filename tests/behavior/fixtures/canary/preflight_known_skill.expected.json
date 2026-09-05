@@ -1,0 +1,9 @@
+{
+  "expected_skill_names": ["aqg-startup-preflight"],
+  "expected_caller_type": "direct",
+  "captured_from": "spike 2 sanitized minimal (audit_id 717918e8 PR-0)",
+  "captured_at": "2026-05-03",
+  "claude_code_version": "2.1.119",
+  "schema_version": 1,
+  "notes": "Sanitized historical capture: real spike 2 had ~262KB stream-json (164 events); this canary keeps just init + assistant Skill tool_use + result. expected_skill_names is a list for exact-equality (sorted) check — audit d982c3c3 #3. If extractor against this fixture diverges from baseline, possible causes: (a) upstream Claude Code schema drift, (b) extractor regression, (c) fixture corruption — investigate distinguishingly per canary.py reason text."
+}

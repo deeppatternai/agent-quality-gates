@@ -1,0 +1,38 @@
+{
+  "_doc": "AQG Ledger capture hooks (v2 SessionStart anchor + Stop commit-capture; v2.1 PostToolUse(Bash) PR-creation capture). OPT-IN and OFF BY DEFAULT: copy these three hook arrays into ~/.claude/settings.json under the existing 'hooks' key. Captures git commits + PR creations (observed network-free from `gh pr create` output) made in the project repo during the session as LOW-FIDELITY 'aqg-hook' progress events in the per-machine-local ledger (<AQG_DATA>/ledger/_inbox/); it NEVER writes the network/cloud and NEVER drives the defect state machine (progress-only). The PostToolUse hook fires on every Bash command but cheaply grep-pre-filters before doing any work. Inline AQG_ROOT/python3 checks keep Claude Code working if AQG is uninstalled. CLAUDE_PROJECT_DIR is forwarded so the writer pins to the actual project dir instead of the hook's runtime cwd. View captured work with the aqg-project-status skill. POSIX (macOS/Linux) only; Windows users adapt to a PowerShell equivalent.",
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "if [ -z \"${AQG_ROOT:-}\" ]; then exit 0; fi; if ! command -v python3 >/dev/null 2>&1; then exit 0; fi; bash \"$AQG_ROOT/agent-packs/claude-code/hooks/sessionstart_ledger_anchor.sh\" \"${CLAUDE_PROJECT_DIR:-}\" || true"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "if [ -z \"${AQG_ROOT:-}\" ]; then exit 0; fi; if ! command -v python3 >/dev/null 2>&1; then exit 0; fi; bash \"$AQG_ROOT/agent-packs/claude-code/hooks/stop_ledger_capture.sh\" \"${CLAUDE_PROJECT_DIR:-}\" || true"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "if [ -z \"${AQG_ROOT:-}\" ]; then exit 0; fi; if ! command -v python3 >/dev/null 2>&1; then exit 0; fi; bash \"$AQG_ROOT/agent-packs/claude-code/hooks/posttooluse_pr_capture.sh\" \"${CLAUDE_PROJECT_DIR:-}\" || true"
+          }
+        ]
+      }
+    ]
+  }
+}

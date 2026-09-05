@@ -1,0 +1,4 @@
+interface:
+  display_name: "AQG Security Review"
+  short_description: "OWASP Top 10 + CWE Top 25 security review"
+  default_prompt: "Review this code for OWASP Top 10 and CWE Top 25 issues and secure-by-default library usage."

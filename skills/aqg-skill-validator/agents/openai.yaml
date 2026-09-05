@@ -1,0 +1,4 @@
+interface:
+  display_name: "AQG Skill Validator"
+  short_description: "Validate AQG skill sidecar + SKILL.md + cross-cutting registration"
+  default_prompt: "Validate the named AQG skill against its sidecar manifest and report any drift."

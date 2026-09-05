@@ -1,0 +1,135 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/deeppatternai/agent-quality-gates/contracts/audit/audit-event.schema.json",
+  "title": "AuditEvent",
+  "description": "The de_audit external-audit INTERFACE contract — the request a caller sends and the response an engine returns. This repo ships the INTERFACE SHAPE ONLY (what to call, what comes back) plus a non-implementing stub; it deliberately does NOT ship the engine. Vendor selection / per-mode routing, panel-convergence weighting, and any ground_truth are engine-internal (the external cloud decision-engine) and are intentionally ABSENT from this contract — convergence adjudication (weighing agreeing vs diverging voices) is the CALLER's job, not a field here. See contracts/audit/README.md. Contract changes require mutual agreement with the engine side (bump schema_version, sync both).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "event_type", "payload"],
+  "properties": {
+    "schema_version": {
+      "enum": ["1.0"],
+      "description": "Contract version. Only 1.0 exists; an engine routes an unsupported version to an error rather than guessing."
+    },
+    "event_type": {
+      "enum": ["audit_request", "audit_response"],
+      "description": "Discriminator. Constrains the payload shape via the allOf branches below."
+    },
+    "payload": {
+      "type": "object",
+      "description": "Shape depends on event_type — constrained by the allOf branches below."
+    }
+  },
+  "allOf": [
+    {
+      "comment": "AuditRequest — what a caller (human / agent / any client) sends to de_audit.",
+      "if": {"properties": {"event_type": {"const": "audit_request"}}},
+      "then": {
+        "properties": {
+          "payload": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["artifact"],
+            "properties": {
+              "artifact": {
+                "type": "string",
+                "minLength": 1,
+                "description": "The MATERIAL UNDER REVIEW ONLY — raw code / doc / plan. NEVER fold review instructions, framing, or pre-mortem prompts into it; those go in context/focus. (Folding framing in causes a reviewer to flag your own review scaffolding as a finding.)"
+              },
+              "context": {
+                "type": "string",
+                "description": "Intent + acceptance criteria for the material. Free text; advisory to the engine."
+              },
+              "focus": {
+                "type": "string",
+                "description": "A specific dimension / question to steer the review (e.g. one aqg-multi-review dimension prompt)."
+              },
+              "mode": {
+                "enum": ["fast", "standard", "deep"],
+                "description": "Public review-depth ladder (see docs/AUDIT_DECISION_MODEL.md). WHICH auditor voices a mode maps to is ENGINE-INTERNAL and is NOT part of this contract."
+              },
+              "stakes": {
+                "enum": ["low", "medium", "high"],
+                "description": "Caller's risk signal; advisory. An engine MAY auto-upgrade depth on high stakes."
+              },
+              "caller_family": {
+                "type": "string",
+                "maxLength": 64,
+                "description": "Opaque caller model-family label; advisory, lets the engine avoid same-family voices for independence. No vendor value is presupposed."
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "comment": "AuditResponse — what the engine returns. Carries the verdict SHAPE only; the panel labels are opaque and no convergence score is included (adjudication is the caller's).",
+      "if": {"properties": {"event_type": {"const": "audit_response"}}},
+      "then": {
+        "properties": {
+          "payload": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["audit_id", "status"],
+            "properties": {
+              "audit_id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200,
+                "description": "Opaque engine-assigned id. NOT a content hash; format is engine-internal."
+              },
+              "status": {
+                "enum": ["running", "completed", "failed", "cancelled"],
+                "description": "Terminal (completed/failed/cancelled) or in-flight (running)."
+              },
+              "mode_effective": {
+                "enum": ["fast", "standard", "deep"],
+                "description": "The depth actually run (MAY differ from requested after an auto-upgrade)."
+              },
+              "panel": {
+                "type": "array",
+                "items": {"type": "string", "maxLength": 128},
+                "description": "OPAQUE voice labels. Vendor identities, per-mode routing, and voice weighting are engine-internal moat and are NOT part of this contract — treat each entry as a display label only."
+              },
+              "verdicts": {
+                "type": "array",
+                "description": "One entry per voice. The per-voice verdict SHAPE; the contract does NOT rank or converge them (the caller adjudicates).",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["overall_verdict"],
+                  "properties": {
+                    "voice_label": {"type": "string", "maxLength": 128, "description": "Opaque display label for this voice."},
+                    "overall_verdict": {
+                      "enum": ["clean", "has-issues", "has-serious-issues", "blocking"],
+                      "description": "This voice's headline judgment."
+                    },
+                    "findings": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": ["severity", "claim"],
+                        "properties": {
+                          "severity": {"enum": ["nit", "minor", "major", "critical"]},
+                          "dimension": {"type": "string", "maxLength": 64},
+                          "claim": {"type": "string", "minLength": 1},
+                          "location": {"type": "string"},
+                          "suggested_fix": {"type": "string"}
+                        }
+                      }
+                    }
+                  }
+                }
+              },
+              "note": {
+                "type": "string",
+                "description": "Optional engine free-text (e.g. degraded / dropped-voice notice)."
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,4 @@
+interface:
+  display_name: "AQG Decision Capture"
+  short_description: "Format / query / validate durable project decision-log entries"
+  default_prompt: "Format a candidate decision-log line (or query past decisions) for docs/decisions/LOG.md."

@@ -1,0 +1,88 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "WS-8 redaction-safe confirmatory report",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["study_id", "protocol_sha256", "validity", "confirmatory", "secondary", "joint_generalization"],
+  "properties": {
+    "study_id": {"type": "string", "pattern": "^ws-8-"},
+    "protocol_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "validity": {"$ref": "#/$defs/validity"},
+    "confirmatory": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 2,
+      "items": {"$ref": "#/$defs/confirmatory_contrast"}
+    },
+    "secondary": {
+      "type": "array",
+      "minItems": 4,
+      "maxItems": 4,
+      "items": {"$ref": "#/$defs/secondary_contrast"}
+    },
+    "joint_generalization": {"type": "boolean"}
+  },
+  "$defs": {
+    "validity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["valid", "reasons"],
+      "properties": {
+        "valid": {"type": "boolean"},
+        "reasons": {"type": "array", "items": {"type": "string"}}
+      }
+    },
+    "base_contrast": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["host", "tier", "contrast", "defect_rate_delta_pp", "confidence_interval_pp", "reasons"],
+      "properties": {
+        "host": {"enum": ["claude", "codex"]},
+        "tier": {"const": "deployment"},
+        "contrast": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "items": {"enum": ["baseline", "lite", "aqg-full"]}
+        },
+        "defect_rate_delta_pp": {"type": ["number", "null"]},
+        "confidence_interval_pp": {
+          "oneOf": [
+            {"type": "null"},
+            {"type": "array", "minItems": 2, "maxItems": 2, "items": {"type": "number"}}
+          ]
+        },
+        "reasons": {"type": "array", "items": {"type": "string"}}
+      }
+    },
+    "confirmatory_contrast": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["host", "tier", "contrast", "defect_rate_delta_pp", "confidence_interval_pp", "adjusted_p_value", "verdict", "reasons"],
+      "properties": {
+        "host": {"enum": ["claude", "codex"]},
+        "tier": {"const": "deployment"},
+        "contrast": {"const": ["aqg-full", "lite"]},
+        "defect_rate_delta_pp": {"type": ["number", "null"]},
+        "confidence_interval_pp": {"oneOf": [{"type": "null"}, {"type": "array", "minItems": 2, "maxItems": 2, "items": {"type": "number"}}]},
+        "adjusted_p_value": {"type": ["number", "null"], "minimum": 0, "maximum": 1},
+        "verdict": {"enum": ["supported", "harmful", "no-effect-above-mde", "inconclusive"]},
+        "reasons": {"type": "array", "items": {"type": "string"}}
+      }
+    },
+    "secondary_contrast": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["host", "tier", "contrast", "defect_rate_delta_pp", "confidence_interval_pp", "adjusted_p_value", "reasons"],
+      "properties": {
+        "host": {"enum": ["claude", "codex"]},
+        "tier": {"const": "deployment"},
+        "contrast": {"type": "array", "minItems": 2, "maxItems": 2, "items": {"enum": ["baseline", "lite", "aqg-full"]}},
+        "defect_rate_delta_pp": {"type": ["number", "null"]},
+        "confidence_interval_pp": {"oneOf": [{"type": "null"}, {"type": "array", "minItems": 2, "maxItems": 2, "items": {"type": "number"}}]},
+        "adjusted_p_value": {"type": ["number", "null"], "minimum": 0, "maximum": 1},
+        "reasons": {"type": "array", "items": {"type": "string"}}
+      }
+    }
+  }
+}

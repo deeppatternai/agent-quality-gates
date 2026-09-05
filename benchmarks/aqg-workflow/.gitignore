@@ -1,0 +1,3 @@
+# run.py --execute writes one JSONL ledger per run here; these are run artifacts,
+# not source. The directory is created on demand.
+results/

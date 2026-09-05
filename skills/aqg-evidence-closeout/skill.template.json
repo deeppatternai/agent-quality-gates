@@ -1,0 +1,91 @@
+{
+  "skill_template_schema": 1,
+  "name": "aqg-evidence-closeout",
+  "description": "Evidence-backed closeout for AI team project tasks in any repository path, covering fresh verification, audit adjudication, durable state, and remaining blockers. Use before saying work is complete, before final answers after code/docs/status edits, before PR/issue handoff, after tests/checks, and whenever the task touched production-adjacent preflight, audit artifacts, status docs, or handoff prompts.",
+  "version": "0.1.0",
+  "wrapper_generated": true,
+  "host_overrides": {
+    "claude": [
+      {
+        "anchor": "python3 \"$aqg_root/skills/aqg-evidence-closeout/scripts/aqg_closeout.py\" --task \"<short task name>\"",
+        "replacement": "python3 \"$aqg_root/skills/aqg-evidence-closeout/scripts/aqg_closeout.py\" --repo \"${CLAUDE_PROJECT_DIR:?CLAUDE_PROJECT_DIR is required}\" --task \"<short task name>\""
+      }
+    ]
+  },
+  "primary_trigger_keywords": ["closeout", "evidence", "完成", "ledger", "handoff"],
+  "boundary_class": "read-only",
+  "audit_mode_required": "standard",
+  "trigger_grammar": {
+    "keywords": ["closeout", "evidence ledger", "完成", "task done", "PR ready", "handoff", "claim completion"],
+    "sentence_patterns": [
+      "Close out this task with evidence",
+      "Generate the closeout ledger before I claim done",
+      "走 closeout 流程, 把 evidence 落清楚",
+      "Before I open the PR, run evidence closeout"
+    ]
+  },
+  "entry_script": "skills/aqg-evidence-closeout/scripts/aqg_closeout.py",
+  "cli_contract": {
+    "0": "success — closeout skeleton printed; ledger imported if present",
+    "1": "reserved — closeout surfaces missing evidence in output, does not raise",
+    "2": "usage error — argparse propagates exit 2 on bad args",
+    "3": "reserved — config or schema error",
+    "70": "reserved — internal error placeholder"
+  },
+  "output_shape": "multi_section_report",
+  "reads_paths": [
+    "skills/aqg-evidence-closeout/",
+    ".aqg/current_ledger.md",
+    ".aqg/code-construction/"
+  ],
+  "writes_paths": [],
+  "forbidden_paths": [
+    "production/",
+    "secrets/",
+    ".env"
+  ],
+  "aqg_agent_gating": false,
+  "owner_only_actions": [
+    "Production / deploy / restart / secrets / Owner-admin actions remain separate authorization; closeout never claims them done"
+  ],
+  "cases": [
+    {
+      "id": "closeout-desc-001",
+      "style": "description_based",
+      "prompt": "I'm about to say the task is done — first walk through the evidence ledger",
+      "expected_skill": "aqg-evidence-closeout",
+      "skill_file_ref": "skills/aqg-evidence-closeout/SKILL.md"
+    },
+    {
+      "id": "closeout-desc-002",
+      "style": "description_based",
+      "prompt": "Before I open the PR, generate the closeout skeleton with current evidence",
+      "expected_skill": "aqg-evidence-closeout",
+      "skill_file_ref": "skills/aqg-evidence-closeout/SKILL.md"
+    },
+    {
+      "id": "closeout-desc-003",
+      "style": "description_based",
+      "prompt": "Finished editing the status doc — before handing off to the owner I need an evidence-backed closeout",
+      "expected_skill": "aqg-evidence-closeout",
+      "skill_file_ref": "skills/aqg-evidence-closeout/SKILL.md"
+    },
+    {
+      "id": "closeout-desc-004",
+      "style": "description_based",
+      "prompt": "Tests pass — write the evidence ledger summarizing what changed and what's blocked",
+      "expected_skill": "aqg-evidence-closeout",
+      "skill_file_ref": "skills/aqg-evidence-closeout/SKILL.md"
+    },
+    {
+      "id": "closeout-explicit-001",
+      "style": "explicit_invocation",
+      "prompt": "Please use /aqg-evidence-closeout to produce this round's evidence",
+      "expected_skill": "aqg-evidence-closeout",
+      "skill_file_ref": "skills/aqg-evidence-closeout/SKILL.md"
+    }
+  ],
+  "self_test_entrypoint": "skills/aqg-evidence-closeout/scripts/self_test.py",
+  "fixed_before_next_task_required_when_findings": true,
+  "numeric_values_quoted": true
+}

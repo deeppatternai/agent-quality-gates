@@ -1,0 +1,26 @@
+{
+  "version": 1,
+  "project": {
+    "name": "fixture-required-context-blocking",
+    "required_context_files": [
+      "docs/__aqg_ws8b_does_not_exist__.md"
+    ]
+  },
+  "gates": {
+    "required_context": {
+      "enabled": true,
+      "mode": "blocking"
+    }
+  },
+  "boundaries": {
+    "production": {
+      "require_explicit_statement": false
+    },
+    "secrets": {
+      "require_explicit_statement": false
+    },
+    "raw_private_data": {
+      "require_explicit_statement": false
+    }
+  }
+}

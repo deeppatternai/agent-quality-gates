@@ -1,0 +1,14 @@
+{
+  "schema_version": "1.1",
+  "event_id": "manual:dec-run-1:550e8400-e29b-41d4-a716-446655440000",
+  "project": "Example-Org/Example-Repo",
+  "source": "manual",
+  "source_ref": {},
+  "kind": "decision",
+  "payload": {
+    "decision_id": "D1",
+    "action": "raised",
+    "question": "Which approach?"
+  },
+  "occurred_at": "2026-06-07T10:00:00Z"
+}

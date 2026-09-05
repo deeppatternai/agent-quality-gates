@@ -1,0 +1,24 @@
+{
+  "version": 1,
+  "project": {
+    "name": "fixture-project",
+    "required_context_files": [
+      "AGENTS.md"
+    ]
+  },
+  "gates": {},
+  "boundaries": {
+    "production": {
+      "require_explicit_statement": true
+    },
+    "secrets": {
+      "require_explicit_statement": true
+    },
+    "raw_private_data": {
+      "require_explicit_statement": true
+    },
+    "compliance": {
+      "require_explicit_statement": true
+    }
+  }
+}

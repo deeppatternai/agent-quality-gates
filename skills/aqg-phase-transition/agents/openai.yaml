@@ -1,0 +1,4 @@
+interface:
+  display_name: "AQG Phase Transition"
+  short_description: "Emit a phase signal and get the recommended audit mode"
+  default_prompt: "Emit the current phase transition (PLAN_DONE / IMPL_DONE / TESTS_WRITTEN) and return the recommended audit mode."

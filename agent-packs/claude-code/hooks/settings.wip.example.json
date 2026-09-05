@@ -1,0 +1,27 @@
+{
+  "_doc": "AQG WIP recovery hook pair (PreCompact save + SessionStart recover). Opt-in: copy these two hook arrays into ~/.claude/settings.json under existing 'hooks' key. Inline AQG_ROOT check ensures Claude Code keeps working if AQG is uninstalled. CLAUDE_PROJECT_DIR is forwarded so wip_save/recover can pin to the actual project dir instead of the hook's runtime cwd. POSIX (macOS/Linux) only; Windows 用户请改成 PowerShell 等价命令。",
+  "hooks": {
+    "PreCompact": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "if [ -z \"${AQG_ROOT:-}\" ]; then exit 0; fi; if ! command -v python3 >/dev/null 2>&1; then exit 0; fi; bash \"$AQG_ROOT/agent-packs/claude-code/hooks/wip_save.sh\" \"${CLAUDE_PROJECT_DIR:-}\" || true"
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "if [ -z \"${AQG_ROOT:-}\" ]; then exit 0; fi; if ! command -v python3 >/dev/null 2>&1; then exit 0; fi; bash \"$AQG_ROOT/agent-packs/claude-code/hooks/wip_recover.sh\" \"${CLAUDE_PROJECT_DIR:-}\" || true"
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,4 @@
+interface:
+  display_name: "AQG Evidence Closeout"
+  short_description: "Evidence-backed closeout for project work"
+  default_prompt: "Prepare an evidence-backed closeout for the current project task."

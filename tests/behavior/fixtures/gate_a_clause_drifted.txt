@@ -1,0 +1,11 @@
+# Negative fixture for test_gate_a_carriers_do_not_drift.py — NOT a carrier.
+# An early draft of the Gate A clause that paraphrased the policy's last
+# sensitivity category as "spanning repositories" instead of naming it. Every
+# other category is intact, so the guard must fail on exactly one token.
+# Do not "fix" this file; its wrongness is the assertion. Do not name the
+# omitted category anywhere in this file either — a comment mentioning it would
+# satisfy the very check the fixture is supposed to break.
+EXCEPT auth, permissions, crypto, secrets, trust-boundary input, data model,
+CI/deploy, install integrity, irreversible, changes spanning repositories: deep
+regardless of size. The sensitivity list at the policy path is authoritative
+over this abbreviation and outranks SKIP.

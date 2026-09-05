@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "name": "api-failure-30pct",
+  "description": "Synthetic simulation of 30 percent failure rate on payment API.\nProject runs the actual harness; AQG only validates this manifest.",
+  "kind": "api",
+  "duration_seconds": 300,
+  "seed": 42,
+  "parameters": {
+    "failure_rate_percent": 30,
+    "latency_ms_p50": 200,
+    "latency_ms_p99": 1500,
+    "targets": ["auth_api", "payment_api"]
+  },
+  "expected_artifacts": [
+    "docs/sim-runs/api-failure-30pct.log",
+    "docs/sim-runs/api-failure-30pct-summary.md"
+  ],
+  "boundaries": "no production touched; synthetic only; no customer data",
+  "actor": "claude",
+  "marker": "simulation-mock-manifest"
+}

@@ -1,0 +1,4 @@
+interface:
+  display_name: "AQG Re-Anchor"
+  short_description: "Compact goal/discipline/progress restatement at long-session step boundaries"
+  default_prompt: "Emit a compact re-anchor restatement (goal + active discipline gates + progress markers) for a long orchestrating session at a step / WorkPacket boundary; emit-only, the caller injects it."

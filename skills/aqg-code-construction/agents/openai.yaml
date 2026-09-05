@@ -1,0 +1,4 @@
+interface:
+  display_name: "AQG Code Construction"
+  short_description: "Live 6-step code construction discipline for project work"
+  default_prompt: "Run AQG code construction discipline before and during writing code; produce ledger + reviewer-objection prediction + anti-pattern checks."

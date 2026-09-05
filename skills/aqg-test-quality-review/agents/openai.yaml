@@ -1,0 +1,4 @@
+interface:
+  display_name: "AQG Test-Quality Review"
+  short_description: "Review PR/diff test QUALITY — behavioral vs shape, coverage gaps, weakened/skipped tests, flaky"
+  default_prompt: "Analyze the test quality of this diff and emit the test-quality ledger + focus prompts."

@@ -1,0 +1,215 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/deeppatternai/agent-quality-gates/contracts/ledger/incoming-event.schema.json",
+  "title": "IncomingEvent",
+  "description": "AQG Project Ledger — the producer→inbox contract (EAF exporter / aqg-hook / manual emit this). NOT StoredEvent: recorded_at + ledger_seq are AQG-generated at write time and MUST NOT appear here (additionalProperties:false enforces it). schema_version 1.1 (accepts 1.0/1.1 during rollout; 1.1 adds the milestone + decision kinds).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "event_id",
+    "project",
+    "source",
+    "source_ref",
+    "kind",
+    "payload",
+    "occurred_at"
+  ],
+  "properties": {
+    "schema_version": {
+      "enum": ["1.0", "1.1"],
+      "description": "Contract version. 1.1 = 1.0 + the milestone/decision kinds (a strict superset; progress/defect/handoff unchanged), so a 1.1 consumer accepts BOTH during rollout for backward compat. milestone/decision require 1.1 (see allOf). AQG inbox routes an unsupported version to failed/ for replay (does not crash)."
+    },
+    "event_id": {
+      "type": "string",
+      "maxLength": 200,
+      "pattern": "^[A-Za-z0-9._-]+:[A-Za-z0-9._-]+:[A-Za-z0-9._:-]+$",
+      "description": "<source>:<run_or_session_id>:<producer_seq>. Path-segment-safe alphabet [A-Za-z0-9._:-]; paths.py percent-encodes it to an injective cross-platform inbox filename. maxLength 200 keeps the inbox filename under the OS limit (ENAMETOOLONG) and the producer_seq tail bounded. producer_seq is per-LedgerEvent unique (NOT per-transition). The source-prefix MUST equal the top-level source (enforced by the per-source branches below). Retrying the same business action reuses the SAME event_id (idempotency). NOT a content hash."
+    },
+    "content_checksum": {
+      "type": "string",
+      "description": "Optional, ADVISORY only: sha256(payload) transport hint. AQG does NOT recompute or verify it and it is NOT used for dedup (event_id is the idempotency key). Treat as informational, not an integrity guarantee."
+    },
+    "project": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^([A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)*|local:[0-9a-f]{16})$",
+      "description": "project_id = normalized target-repo identity (one target_repo = one project). Canonically an 'owner/repo' slug or 'local:<16-hex>'. It is the on-disk partition key, so conformance.py treats this as a SAFETY gate and ADDITIONALLY rejects any '.'/'..' segment (path traversal) that this shape pattern cannot express. Aggregation primary key; MUST be stable per repo. See contracts/ledger/project_id.py."
+    },
+    "source": {
+      "enum": ["eaf", "aqg-hook", "manual"],
+      "description": "Provenance. EAF exporter sends 'eaf'. Only 'eaf' + 'manual' drive the defect state machine; 'aqg-hook' is low-fidelity (progress only)."
+    },
+    "source_ref": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Back-reference to the source, filled by source. Never copies source-side detail — just a handle.",
+      "properties": {
+        "run_id": {"type": "string", "description": "source=eaf"},
+        "work_packet_id": {"type": "string", "description": "source=eaf"},
+        "session_id": {"type": "string", "description": "source=aqg-hook"}
+      }
+    },
+    "kind": {
+      "enum": ["progress", "defect", "handoff", "milestone", "decision"]
+    },
+    "payload": {
+      "type": "object",
+      "description": "Shape depends on kind — constrained by the allOf branches below."
+    },
+    "occurred_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Event time from the producer clock (display only; AQG orders by ledger_seq, not this)."
+    }
+  },
+  "allOf": [
+    {
+      "comment": "provenance: event_id source-prefix must equal the source field",
+      "if": {"properties": {"source": {"const": "eaf"}}},
+      "then": {"properties": {"event_id": {"pattern": "^eaf:"}}}
+    },
+    {
+      "if": {"properties": {"source": {"const": "aqg-hook"}}},
+      "then": {"properties": {"event_id": {"pattern": "^aqg-hook:"}}}
+    },
+    {
+      "if": {"properties": {"source": {"const": "manual"}}},
+      "then": {"properties": {"event_id": {"pattern": "^manual:"}}}
+    },
+    {
+      "comment": "aqg-hook is progress-only (low-fidelity); it must not emit defect/milestone/decision — the projection ignores those for aqg-hook, so accepting one writes a dead event into the append-only log. progress + handoff stay allowed.",
+      "if": {"properties": {"source": {"const": "aqg-hook"}}},
+      "then": {"properties": {"kind": {"enum": ["progress", "handoff"]}}}
+    },
+    {
+      "comment": "version×kind gate: milestone/decision are 1.1-only (a4 §5.6 capability handshake); a 1.0 event must not carry them — conformance rejects it to dead-letter.",
+      "if": {"properties": {"schema_version": {"const": "1.0"}}},
+      "then": {"properties": {"kind": {"enum": ["progress", "defect", "handoff"]}}}
+    },
+    {
+      "comment": "milestone/decision lifecycles need a monotonic producer_seq — the §5.1.1 UUID escape hatch is excluded (a3:T1 / acceptance ⑪). event_id is '<seg>:<seg>:<producer_seq>'; reject when the producer_seq segment (everything after the 2nd colon) is ITSELF a canonical hyphenated UUID. Anchored to the whole 3rd segment to match conformance.py is_uuid(producer_seq(event_id)) — a bare ':UUID$' over-rejected a colon-containing tail that merely ENDS in a UUID (audit 996d6911 C2).",
+      "if": {"properties": {"kind": {"enum": ["milestone", "decision"]}}},
+      "then": {"properties": {"event_id": {"not": {"pattern": "^[^:]+:[^:]+:[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"}}}}
+    },
+    {
+      "if": {"properties": {"kind": {"const": "progress"}}},
+      "then": {
+        "properties": {
+          "payload": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["phase_event", "title"],
+            "properties": {
+              "phase_event": {"enum": ["started", "stage_advanced", "completed", "blocked"]},
+              "title": {"type": "string", "minLength": 1, "description": "one-line, canonical English"},
+              "detail": {"type": "string"},
+              "pr_url": {"type": "string"},
+              "commit_sha": {"type": "string"}
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {"properties": {"kind": {"const": "defect"}}},
+      "then": {
+        "properties": {
+          "payload": {
+            "type": "object",
+            "additionalProperties": false,
+            "description": "NO 'status' field — current status is projected by AQG from the action stream (additionalProperties:false rejects a stray status).",
+            "required": ["defect_id", "action"],
+            "properties": {
+              "defect_id": {"type": "string", "minLength": 1, "description": "stable across a bug's lifetime; AQG projects state from same-defect_id events"},
+              "action": {"enum": ["opened", "status_changed", "fixed", "reopened", "closed", "wontfix"]},
+              "title": {"type": "string", "minLength": 1, "description": "required on opened; non-empty when present"},
+              "severity": {"enum": ["critical", "high", "medium", "low"], "description": "required on opened"},
+              "fixed_commit": {"type": "string"},
+              "verification": {"type": "string"},
+              "regression_anchor": {"type": "string"}
+            },
+            "allOf": [
+              {
+                "if": {"properties": {"action": {"const": "opened"}}},
+                "then": {"required": ["title", "severity"]}
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {"properties": {"kind": {"const": "handoff"}}},
+      "then": {
+        "properties": {
+          "payload": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["manual_path", "generated_by"],
+            "properties": {
+              "manual_path": {"type": "string", "minLength": 1},
+              "generated_by": {"enum": ["eaf-handoff", "aqg-handoff"]}
+            }
+          }
+        }
+      }
+    },
+    {
+      "comment": "milestone (a4 §5.2): the 4-state business milestone (planned→started→completed/cancelled). NO 'status' — projected from the action stream. milestone_id MAY recur across sources (write-plan plans / EAF executes the same id); the projection reduces by action semantics, not cross-source seq (a4 §5.3).",
+      "if": {"properties": {"kind": {"const": "milestone"}}},
+      "then": {
+        "properties": {
+          "payload": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["milestone_id", "action"],
+            "properties": {
+              "milestone_id": {"type": "string", "minLength": 1, "description": "unique within (project_id); may appear across sources (a4 §5.2)"},
+              "action": {"enum": ["planned", "started", "completed", "cancelled"]},
+              "title": {"type": "string", "minLength": 1, "description": "business language; required on planned"},
+              "summary": {"type": "string", "minLength": 1, "description": "business language; required on planned"},
+              "key_outcome": {"type": "string", "minLength": 1, "description": "business language; required on planned"},
+              "estimated_size": {"type": "string", "minLength": 1, "description": "SIZE not wall-clock (a4 §5.2 [a4:T]): '~N person-weeks (human-team baseline)' + optional T-shirt; required on planned. The ONLY planning-time time concept; does NOT predict EAF wall-clock."},
+              "planned_start": {"type": "string", "format": "date", "description": "optional calendar field; does NOT drive progress/health"},
+              "target_date": {"type": "string", "format": "date", "description": "optional, human-baseline; does NOT drive progress/health (a4 §5.2 [a4:T] — no early/late, no overdue). When both present, planned_start <= target_date (enforced by conformance — a cross-field invariant not expressible in draft-07; schema is not a complete mirror for it)."},
+              "actual_date": {"type": "string", "format": "date", "description": "actual completion date; required on completed"},
+              "actual_wallclock": {"type": "string", "description": "optional EAF actual elapsed time (e.g. '14 minutes'), recorded on completed (a4 §5.2 [a4:T])"},
+              "replan": {"type": "boolean", "description": "explicit re-plan past a terminal state (a4 §5.3); a planned action after completed/cancelled is honored only with replan=true"},
+              "gate": {"type": "string"},
+              "phase_label": {"type": "string"}
+            },
+            "allOf": [
+              {"if": {"properties": {"action": {"const": "planned"}}}, "then": {"required": ["title", "summary", "key_outcome", "estimated_size"]}},
+              {"if": {"properties": {"action": {"const": "completed"}}}, "then": {"required": ["actual_date"]}}
+            ]
+          }
+        }
+      }
+    },
+    {
+      "comment": "decision (a4 §9 OQ-2): an owner decision the report surfaces as the structured 'pending your decision' item. a4 §9 names the fields (question/options/rationale/blocks); the raised/resolved `action` verb is the AQG append-only action-stream idiom (symmetry with defect/milestone) so the projection can drop a resolved decision from the pending list. NO 'status' — state is projected from the action stream.",
+      "if": {"properties": {"kind": {"const": "decision"}}},
+      "then": {
+        "properties": {
+          "payload": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["decision_id", "action"],
+            "properties": {
+              "decision_id": {"type": "string", "minLength": 1, "description": "stable across the decision's lifetime; AQG projects state from same-decision_id events"},
+              "action": {"enum": ["raised", "resolved"]},
+              "question": {"type": "string", "minLength": 1, "description": "what the owner must decide; required on raised"},
+              "options": {"type": "array", "items": {"type": "string"}, "description": "candidate choices"},
+              "rationale": {"type": "string", "description": "pros/cons of the options"},
+              "blocks": {"type": "string", "description": "milestone_id this decision is blocking"}
+            },
+            "allOf": [
+              {"if": {"properties": {"action": {"const": "raised"}}}, "then": {"required": ["question"]}}
+            ]
+          }
+        }
+      }
+    }
+  ]
+}
