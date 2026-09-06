@@ -392,8 +392,8 @@ attempted cell whose status is not `pass` is a defect, including agent errors
 and infrastructure failures. The primary contrast is `aqg-full − claude-md-lite`,
 calculated as the mean of the ten within-task defect-rate differences.
 
-The study may report “lower defects for this fixed task suite” only if all of
-the following hold:
+The study may report “a lower measured defect rate for this fixed task suite”
+only if all of the following hold:
 
 - every arm completes all of its planned cells and has at most 1%
   infrastructure failures;
@@ -500,9 +500,10 @@ stream schema does not expose plugin-internal file I/O as `Read`/`Edit`/`Write`
 events; this is an explicit observability limit rather than a claim that those
 unobservable effects are path-confined.
 Even a `supported` result is evidence for this fixed, deterministic small-code
-suite only and does **not** satisfy the D4×D5 bar for an outward causal
-"fewer defects" claim. That mechanical release gate remains closed until a
-separate, appropriately scoped study supplies evidence.
+suite **only**: it does not show fewer defects in general, and does not satisfy
+the D4×D5 bar for an outward causal claim of that kind. That mechanical release
+gate remains closed until a separate, appropriately scoped study supplies
+evidence.
 
 Every primary run requires a clean checkout at the merged protocol commit; the
 runner freshly fetches and proves that commit is an ancestor of `origin/main`, records both SHAs,

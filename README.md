@@ -2,7 +2,7 @@
 
 English | [中文](README.zh-CN.md)
 
-Current version: `0.14.0` (source of truth: `VERSION`; release notes in `CHANGELOG.md`).
+Current version: `0.14.1` (source of truth: `VERSION`; release notes in `CHANGELOG.md`).
 
 Agent Quality Gates (`AQG`) is a **quality-discipline toolkit** for AI coding workflows — it pushes quality from "review after writing" to "guard while writing." It **rides on top of your existing coding agent**, decoupled from any specific one, and has four parts:
 
@@ -61,6 +61,7 @@ AQG's capability core is agent-agnostic; each agent plugs in through a thin adap
 | Cursor | supported | skills + hooks + project rules; user rules remain UI-managed |
 | WorkBuddy (`workbuddy`) | partial | skills + rules/report; no documented lifecycle hooks |
 | CodeBuddy (`codebuddy`) | full | skills + hooks + rules + MCP |
+| WorkBuddy AI (`workbuddy-ai`) | full | skills + hooks + rules + MCP under its own independent `~/.workbuddy-ai` root; not shared with `workbuddy` or `codebuddy` |
 | Trae Work (`trae-work`) | partial | skills in the shared `~/.trae/skills` root + project rules; Work lifecycle-hook schema not verified |
 | Kimi Work (`kimi-work`) | partial | AQG skills in the Kimi Work Desktop / Kimi Desktop local Daimon skills root; no rules/hooks/MCP gate |
 | Kimi Code (`kimi-code`) | partial | skills + advisory hooks + rules + MCP; hooks are fail-open |

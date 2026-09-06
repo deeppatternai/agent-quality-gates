@@ -385,6 +385,35 @@ def test_macos_product_identities_are_single_sourced_and_exact() -> None:
             assert bundle_id in readme
 
 
+@pytest.mark.parametrize(
+    "relative_path",
+    (
+        "README.md",
+        "README.zh-CN.md",
+        "AI_SETUP.md",
+        "AI_SETUP.zh-CN.md",
+        "docs/client-support-matrix.zh-CN.md",
+    ),
+)
+def test_workbuddy_ai_is_visible_in_support_matrix_and_install_docs(relative_path: str) -> None:
+    # AQG-026 R8: workbuddy-ai must be consistently documented in English and
+    # Chinese support-matrix / install docs, not only in code.
+    text = _text(relative_path)
+    assert "workbuddy-ai" in text
+
+
+def test_workbuddy_ai_registry_spec_is_reachable_through_wrapper_routing() -> None:
+    # AQG-026 R8: the wrapper must route workbuddy-ai the same way as the other
+    # work-client profiles, through install_aqg_work_clients.py.
+    from scripts.aqg_client_registry import get_client
+
+    spec = get_client("workbuddy-ai")
+    assert all(
+        "install_aqg_work_clients.py" in command for command in spec.installer_command
+    )
+    assert spec.support_status == "full"
+
+
 def test_ai_setup_bootstrap_lists_required_client_runtime_paths() -> None:
     required_paths = (
         "scripts/install_aqg_hooks.py",

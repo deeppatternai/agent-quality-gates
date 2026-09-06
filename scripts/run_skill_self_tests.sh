@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Run every AQG skill's scripts/self_test.py STANDALONE and gate on any failure.
+# Run every `*/scripts/self_test.py` in the tree STANDALONE and gate on any failure.
 #
 # Why standalone (not `pytest skills/`): every skill ships a `self_test.py`, so
 # pytest's default import mode collides on the duplicate basename
@@ -7,6 +7,13 @@
 # scripts/ dir (it does `import aqg_<helper>` relying on sys.path[0]); running it
 # standalone is the contract. This script gates that existing coverage in CI —
 # previously the self_tests passed locally but nothing ran them in CI.
+#
+# The two globs below MUST stay identical to the `--ignore-glob` lines in the
+# repo-root pytest.ini. That ini hides these files from collection precisely
+# because this script owns them; if the patterns drift, a self_test is hidden
+# from pytest and run by nothing. This iterated `skills/aqg-*/` only until
+# 2026-09-05, which is how templates/example-skill/scripts/self_test.py — a file
+# that ships publicly — ended up executed by neither.
 #
 # Exit: 0 = all self_tests passed; 1 = one or more failed; 2 = none found.
 set -uo pipefail
@@ -18,7 +25,7 @@ ran=0
 fail=0
 failed_skills=()
 
-for st in skills/aqg-*/scripts/self_test.py; do
+for st in skills/*/scripts/self_test.py templates/*/scripts/self_test.py; do
   [ -f "$st" ] || continue
   ran=$((ran + 1))
   dir="$(dirname "$st")"
@@ -34,7 +41,7 @@ done
 
 echo "----------------------------------------"
 if [ "$ran" -eq 0 ]; then
-  echo "ERROR: no skill self_tests found under skills/aqg-*/scripts/self_test.py" >&2
+  echo "ERROR: no self_tests found under skills/*/ or templates/*/scripts/self_test.py" >&2
   exit 2
 fi
 echo "skill self-tests: ${ran} run, ${fail} failed"

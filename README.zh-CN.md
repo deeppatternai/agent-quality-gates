@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-当前版本：`0.14.0`（权威源：`VERSION`；release notes 见 `CHANGELOG.md`）。
+当前版本：`0.14.1`（权威源：`VERSION`；release notes 见 `CHANGELOG.md`）。
 
 Agent Quality Gates（`AQG`）是给 AI 编码工作流用的**质量纪律工具箱** —— 把质量从"写完再审"推到"边写边守"。它**骑在你现有的 coding agent 之上**、与任何具体 agent 解耦，四大件：
 
@@ -61,6 +61,7 @@ AQG 能力核心 agent-agnostic；每个 agent 通过一层薄 adapter 接入。
 | Cursor | 支持 | skills + hooks + 项目规则；User Rules 仍由 UI 管理 |
 | WorkBuddy（`workbuddy`）| partial | skills + rules/report；无已证实的生命周期 hooks |
 | CodeBuddy（`codebuddy`）| full | skills + hooks + rules + MCP |
+| WorkBuddy AI（`workbuddy-ai`）| full | skills + hooks + rules + MCP，全部写入独立根 `~/.workbuddy-ai`；不与 `workbuddy` 或 `codebuddy` 共享配置根 |
 | Trae Work（`trae-work`）| partial | skills + rules + MCP；TRAE Work hook parity 未知 |
 | Kimi Work（`kimi-work`）| partial | Kimi Work Desktop / Kimi Desktop 本地 Daimon skills root；无 rules/hooks/MCP gate |
 | Kimi Code（`kimi-code`）| partial | skills + advisory hooks + rules + MCP；hooks fail-open |

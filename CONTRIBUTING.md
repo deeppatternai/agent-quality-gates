@@ -69,6 +69,10 @@ out-of-sync state (skipping it locally = red CI). Adding / changing a skill also
   the audit-before-commit gate in `aqg-code-construction`).
 - Tests follow **vertical-slice TDD** (one test → one implementation, no horizontal batching); behavior
   tests are a CI gate: get `python3 -m pytest tests/behavior/ -q` green locally before pushing.
+- A bare `pytest` at the repo root does **not** cover the per-skill `scripts/self_test.py` files —
+  they share a basename, so they are excluded from collection (see `pytest.ini`) and gated separately
+  by `bash scripts/run_skill_self_tests.sh`. Every root run prints that reminder in its header. If you
+  add or move a `self_test.py`, keep the globs in `pytest.ini` and in that script identical.
 - For human-facing artifacts (README / guides / reports), additionally review once from a **reader's
   perspective** (guard against over-engineering).
 

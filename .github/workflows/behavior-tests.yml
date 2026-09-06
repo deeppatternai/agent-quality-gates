@@ -142,6 +142,14 @@ jobs:
         # ship green while the real-repo run above still passes (audit ae59c0a9 f2).
         run: python3 -m pytest tests/test_check_fixture_mix.py -v --tb=short
 
+      - name: Root pytest collects without errors (guards pytest.ini)
+        # The per-skill self_test.py files share a basename, so a bare `pytest` at
+        # the repo root used to abort with 17 `import file mismatch` collection
+        # errors — invisible to CI, because every step below passes explicit paths.
+        # pytest.ini fixes that; this step is what notices if it is removed or its
+        # globs drift, and it is deliberately the only step with no path argument.
+        run: python3 -m pytest --collect-only -q
+
       - name: Run skill self-tests (standalone — gates per-skill coverage)
         # Each skill ships scripts/self_test.py; pytest cannot collect them as a
         # suite (duplicate `self_test` basename → import file mismatch), so this

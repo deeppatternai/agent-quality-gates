@@ -417,7 +417,7 @@ AQG 是提示词密集型产品，任何新增文本都在和其它 skill 的 de
 建议放在 `../aqg-release/`（与本仓平级的独立目录），最终归属 B 仓。
 
 > **决定（2026-09-02，Owner）：发版签名 skill 放在本仓内，但不推到 B 仓。**
-> 位置 **`internal/release/skills/aqg-release-sign/`**，理由是双重私有：
+> 位置 **`internal/release/skills/aqg-release/`**，理由是双重私有：
 > ① 它不在 `internal/carve/allowlist.txt` 里（该白名单是显式的
 > "a path here ships public"，省略即私有）；② 它在 `internal/` 下，而 `internal/` 目前在白名单里有
 > **0 条**，是既定的私有区。不是只靠"记得别加进白名单"。
@@ -442,7 +442,7 @@ AQG 是提示词密集型产品，任何新增文本都在和其它 skill 的 de
 | **2** | `hosts/base.py` 四动词契约 + `claude_code` / `codex` / `cursor` / `generic` 四个适配器，**包住**现有安装脚本 | 能用统一接口问"这个宿主要改什么"（`plan`）、"现在装的是什么"（`verify`） | **否** —— 现有 CLI 全部保留 | **deep** |
 | **3** | 版本树布局（`git worktree`）+ `stage.py` + 原子符号链接切换 + `lock.py` + `_aqg_context.sh` 导出 `realpath` | 能手动把安装切到另一棵版本树并切回 | 轻微 —— `aqg_root` 变为解析后路径（§5.2） | **deep** |
 | **4** | `plan.py` + `transaction.py`（journal / 相位 / 回滚）+ `dispatch.py` + `skills_route.py` | **完整 dry-run**：算出这次要改什么、归第几类；`--apply` 需显式传入，尚未自动 | 否 | **deep** |
-| **5** | `internal/release/skills/aqg-release-sign/` + manifest 格式 + 公钥集落地本仓 | 能打出带签名的 `stable` tag | 否 —— 不下发用户 | **deep** |
+| **5** | `internal/release/skills/aqg-release/` + manifest 格式 + 公钥集落地本仓 | 能打出带签名的 `stable` tag | 否 —— 不下发用户 | **deep** |
 | **6** | `trust.py` + `acquire.py` + 触发器接入（`_aqg_context.sh` / SessionStart）+ `doctor` 报 `pending` + `upgrade.sh` 内部改调 | **自动更新上线** | 是 —— 这是唯一真正打开自动的一步 | **deep** |
 
 ### 每个 PR 的验收线
@@ -498,7 +498,7 @@ PR6 是唯一打开自动的一步，且它**硬依赖 PR5** —— 没有签名
       但它使 §9 的验签成为必需项而非可选项。见 §7.6。
 - [x] ~~保留策略~~ —— **已定（2026-09-02）**：保留 2 棵（当前 + 前一个），约 60 MB。见 §5.1。
 - [x] ~~签名密钥保管~~ —— **已定（2026-09-02）**：Owner 本人保管，`stable` tag 只由 Owner 打，
-      签名动作封装为 `internal/release/skills/aqg-release-sign/`。见 §12。
+      签名动作封装为 `internal/release/skills/aqg-release/`。见 §12。
 - [ ] `edge` 是否允许在内部机器上自动。**建议：只手动。** 签名验证的价值全在于"没有例外" —— 一旦存在
       一条合法的无签名自动路径，它就是信任模型上的一个洞，而"这台机器是内部的"只是一个配置字段，
       没有任何技术强制力。内部同步慢半拍，跑一条 `upgrade.sh --ref main` 就能解决。

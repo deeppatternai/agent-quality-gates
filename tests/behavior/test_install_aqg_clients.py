@@ -195,6 +195,7 @@ def test_all_supported_expands_from_registry() -> None:
         "cursor",
         "workbuddy",
         "codebuddy",
+        "workbuddy-ai",
         "trae-work",
         "kimi-work",
         "kimi-code",
@@ -617,6 +618,7 @@ def test_all_supported_dry_run_outputs_every_registry_command(monkeypatch, capsy
     assert (
         "- clients: codex[supported], claude-code[supported], "
         "cursor[supported], workbuddy[partial], codebuddy[full], "
+        "workbuddy-ai[full], "
         "trae-work[partial], kimi-work[partial], kimi-code[partial], "
         "qoder-cli[full], qoder-cli-cn[full], qoder[partial], "
         "qoder-cn[partial], trae[partial], trae-cn[partial], "
@@ -2270,3 +2272,66 @@ def test_apply_with_synthetic_home_never_touches_the_real_home(
     )
     assert rc == 0, capsys.readouterr()
     assert not (decoy_home / ".trae").exists()
+
+
+# --------------------------------------------------------------------------
+# AQG-026 WorkBuddy AI independent adaptation (R1-R4)
+# --------------------------------------------------------------------------
+
+
+def test_installed_supported_detects_workbuddy_ai_independently_from_workbuddy_and_codebuddy(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    # R1: only ~/.workbuddy-ai evidence must select the independent workbuddy-ai
+    # client, never the legacy workbuddy or codebuddy profiles.
+    monkeypatch.delenv("CODEX_HOME", raising=False)
+    home = tmp_path / "home"
+    (home / ".workbuddy-ai").mkdir(parents=True)
+
+    detected = installer.installed_supported_clients(home)
+
+    assert detected == ("workbuddy-ai",)
+
+
+def test_installed_supported_detects_legacy_workbuddy_unaffected_by_workbuddy_ai(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    # R2: only ~/.workbuddy evidence must keep selecting workbuddy, unchanged.
+    monkeypatch.delenv("CODEX_HOME", raising=False)
+    home = tmp_path / "home"
+    (home / ".workbuddy").mkdir(parents=True)
+
+    detected = installer.installed_supported_clients(home)
+
+    assert detected == ("workbuddy",)
+
+
+def test_installed_supported_detects_codebuddy_unaffected_by_workbuddy_ai(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    # R3: only ~/.codebuddy evidence must keep selecting codebuddy, unchanged.
+    monkeypatch.delenv("CODEX_HOME", raising=False)
+    home = tmp_path / "home"
+    (home / ".codebuddy").mkdir(parents=True)
+
+    detected = installer.installed_supported_clients(home)
+
+    assert detected == ("codebuddy",)
+
+
+def test_codebuddy_studio_app_bundle_alone_is_not_codebuddy_or_workbuddy_ai_evidence(
+    app_dirs: Path,
+    tmp_path,
+) -> None:
+    # R4: CodeBuddy Studio.app (com.codebuddy.ride) is IDE-embedded CLI evidence,
+    # not proof of the CodeBuddy Agent CLI contract or of WorkBuddy AI identity.
+    home = tmp_path / "home"
+    _write_bundle(app_dirs, "CodeBuddy Studio.app", "com.codebuddy.ride")
+
+    detected = installer.installed_supported_clients(home)
+
+    assert "codebuddy" not in detected
+    assert "workbuddy-ai" not in detected

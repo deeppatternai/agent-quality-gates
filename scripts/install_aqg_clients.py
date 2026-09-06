@@ -121,6 +121,7 @@ CLIENT_DETECTION_CANDIDATES: dict[str, tuple[ClientDetectionEvidence, ...]] = {
     "claude-code": (_home_relative(".claude"),),
     "cursor": (_home_relative(".cursor"),),
     "workbuddy": (_home_relative(".workbuddy"),),
+    "workbuddy-ai": (_home_relative(".workbuddy-ai"),),
     "codebuddy": (_home_relative(".codebuddy"),),
     "kimi-work": (
         _env_relative("KIMI_WORK_SKILLS_ROOT"),

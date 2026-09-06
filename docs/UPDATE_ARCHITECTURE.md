@@ -478,7 +478,7 @@ This is the **development** repo; actual packaging happens in the B repo. The li
 Proposed location: `../aqg-release/`, a directory sitting alongside this checkout, eventually owned by the B repo.
 
 > **Decision (2026-09-02, Owner): the release-signing skill lives in this repo but is never pushed to the B
-> repo.** Location: **`internal/release/skills/aqg-release-sign/`**, private twice over: ① it is absent from
+> repo.** Location: **`internal/release/skills/aqg-release/`**, private twice over: ① it is absent from
 > `internal/carve/allowlist.txt` — an explicit "a path here ships public"
 > allowlist, so omission means private; ② it sits under `internal/`, which currently has **zero** entries in
 > that allowlist and is the established private zone. Not merely "remember not to add it".
@@ -508,7 +508,7 @@ PR6 depends on it.
 | **2** | the four-verb contract in `hosts/base.py` plus `claude_code` / `codex` / `cursor` / `generic` adapters, **wrapping** the existing installers | a uniform way to ask "what would change on this host" (`plan`) and "what is installed" (`verify`) | **no** — every existing CLI is preserved | **deep** |
 | **3** | version-tree layout (`git worktree`) + `stage.py` + atomic symlink swap + `lock.py` + `_aqg_context.sh` exporting `realpath` | the install can be swapped to another version tree by hand, and swapped back | slightly — `aqg_root` becomes a resolved path (§5.2) | **deep** |
 | **4** | `plan.py` + `transaction.py` (journal / phases / rollback) + `dispatch.py` + `skills_route.py` | **full dry-run**: what this update would change and which class each item is; `--apply` must be passed explicitly, nothing automatic yet | no | **deep** |
-| **5** | `internal/release/skills/aqg-release-sign/` + the manifest format + landing the public key set in this repo | signed `stable` tags can be cut | no — never ships to users | **deep** |
+| **5** | `internal/release/skills/aqg-release/` + the manifest format + landing the public key set in this repo | signed `stable` tags can be cut | no — never ships to users | **deep** |
 | **6** | `trust.py` + `acquire.py` + trigger wiring (`_aqg_context.sh` / SessionStart) + `doctor` reporting `pending` + `upgrade.sh` calling the new engine internally | **automatic update goes live** | yes — this is the only step that actually turns automation on | **deep** |
 
 ### Acceptance line per PR
@@ -579,7 +579,7 @@ same precondition prevents a temporary unsigned automatic path from ever existin
 - [x] ~~Retention~~ — **decided (2026-09-02)**: keep 2 trees (current + previous), ~60 MB. See §5.1.
 - [x] ~~Signing key custody~~ — **decided (2026-09-02)**: the Owner holds the key and is the only one who
       cuts a `stable` tag; the signing action is packaged as
-      `internal/release/skills/aqg-release-sign/`. See §12.
+      `internal/release/skills/aqg-release/`. See §12.
 - [ ] Whether `edge` may ever be automatic for internal machines. **Recommendation: manual only.** The value
       of signature verification lies entirely in having no exceptions — a legitimate unsigned automatic path
       is a hole in the trust model, and "this machine is internal" is just a config field with no

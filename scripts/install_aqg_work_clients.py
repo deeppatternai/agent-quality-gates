@@ -25,6 +25,9 @@ except ModuleNotFoundError:
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 CURSOR_ADAPTER = REPO_ROOT / "scripts" / "cursor_aqg_hook.py"
+# Version-controlled skill roster manifest (same file check_fixture_mix.py anchors
+# its I6 deletion-guard floor to) — the required-source set for an install.
+SKILLS_MANIFEST = "skills.list"
 MANAGED_MARKER = ".aqg-work-client-managed.json"
 LINK_MARKER_DIR = "managed-links"
 MANAGER = "aqg-work-client-support"
@@ -121,6 +124,28 @@ PROFILES = {
             "https://www.codebuddy.ai/docs/cli/mcp",
         ),
     ),
+    "workbuddy-ai": WorkClientProfile(
+        client_id="workbuddy-ai",
+        support_level="full",
+        user_dir=".workbuddy-ai",
+        project_dir=".workbuddy-ai",
+        skills=True,
+        rules=True,
+        mcp=True,
+        hooks=True,
+        hooks_format="json",
+        hook_blocking=True,
+        degradation=(
+            "None for the documented embedded-CLI profile; WorkBuddy AI is an independent "
+            "product (bundle id com.workbuddy.workbuddy-ai) with its own root and ownership, "
+            "not a shared identity with CodeBuddy Agent CLI or legacy WorkBuddy."
+        ),
+        docs=(
+            "local evidence: WorkBuddy AI product.json customUserDataDir=.workbuddy-ai",
+            "local evidence: WorkBuddy AI main process sets WORKBUDDY_CONFIG_DIR/"
+            "CODEBUDDY_CONFIG_DIR to ~/.workbuddy-ai before launching its embedded CLI",
+        ),
+    ),
     "kimi-work": WorkClientProfile(
         client_id="kimi-work",
         support_level="partial",
@@ -211,8 +236,38 @@ class InstallError(RuntimeError):
     pass
 
 
+def _required_skill_names() -> set[str]:
+    """Skill names the version-controlled skills.list roster manifest requires:
+    one name per line, '#' comments and blank lines ignored (utf-8-sig so a
+    stray BOM cannot forge a phantom name). The manifest is the deletion-guard
+    FLOOR, so it is the REQUIRED set, not the allowed set — an extra packaged
+    aqg-* skill beyond the roster stays installable. Absent/unreadable/empty is
+    fail-closed: nothing anchors the required set, so an install that could
+    silently ship no skills is refused."""
+    manifest = REPO_ROOT / SKILLS_MANIFEST
+    try:
+        text = manifest.read_text(encoding="utf-8-sig")
+    except OSError as exc:
+        raise InstallError(
+            f"cannot read AQG skill roster manifest {manifest}: {_safe_error_summary(exc)}"
+        ) from exc
+    required = {name for name in (line.strip() for line in text.splitlines()) if name and not name.startswith("#")}
+    if not required:
+        raise InstallError(f"AQG skill roster manifest declares no skills: {manifest}")
+    return required
+
+
 def _skill_sources() -> list[Path]:
-    return sorted(path for path in (REPO_ROOT / "skills").glob("aqg-*") if (path / "SKILL.md").is_file())
+    sources = sorted(path for path in (REPO_ROOT / "skills").glob("aqg-*") if (path / "SKILL.md").is_file())
+    # An absent packaged source used to shrink this list silently, so _install_skills()
+    # no-opped and apply/verify could report success with no AQG skills installed.
+    missing = sorted(_required_skill_names() - {source.name for source in sources})
+    if missing:
+        raise InstallError(
+            f"missing required packaged AQG skill source(s): {', '.join(missing)} "
+            f"(expected skills/<name>/SKILL.md under {REPO_ROOT})"
+        )
+    return sources
 
 
 def _safe_error_summary(exc: BaseException) -> str:

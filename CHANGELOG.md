@@ -249,6 +249,35 @@ the AQG block in that file is the current one; where they disagree,
     entry and restored from the central store on `--uninstall`, replacing the
     in-tree `.aqg/.hookspath_backup`.
 
+## [0.14.1] - 2026-09-06
+
+The first release cut through the signed update channel was 0.14.0 on
+2026-09-05; this is the second, and it exists because the public tree changed
+while the version string did not. Two different trees answering to one number is
+a thing a person cannot check, even though `release_sequence` separates them
+mechanically.
+
+### Added
+
+- **WorkBuddy AI and Qoder lifecycle support.** Both clients now go through the
+  same registry and installer path as the rest, rather than being partially
+  wired. Covers `aqg_client_registry.py`, `install_aqg_clients.py`,
+  `install_aqg_qoder.py` and `install_aqg_work_clients.py`, with the client
+  support matrix and `AI_SETUP` updated to match.
+
+### Fixed
+
+- **A bare `pytest` at the repository root failed to collect.** Sixteen
+  `skills/*/scripts/self_test.py` files errored, so the first thing a new reader
+  is likely to run produced a wall of noise. CI ran `pytest tests/` and never
+  saw it. Addressed in `pytest.ini`, `conftest.py` and
+  `scripts/run_skill_self_tests.sh`.
+
+### Changed
+
+- `PREREGISTRATION.md` states its two constrained claims in a form the outward
+  claim gate can read, rather than in one it had to be waived past.
+
 ## [0.14.0] - 2026-07-09
 
 Minor: **Behavior Contract** — absorb OpenSpec's requirement/scenario model into the

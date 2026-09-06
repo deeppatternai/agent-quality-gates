@@ -984,13 +984,18 @@ def _merge_hooks(existing: dict, specs: dict[str, list[dict]]) -> tuple[dict, bo
                 kept_blocks.append(block)
                 continue
             matcher = block.get("matcher", "")
+            has_foreign_hook = any(
+                not isinstance(hook, dict)
+                or not _owned_command(hook.get("command"))
+                for hook in hooks
+            )
             kept_hooks = []
             for hook in hooks:
                 if not isinstance(hook, dict) or not _owned_command(hook.get("command")):
                     kept_hooks.append(hook)
                     continue
                 script = _script_in_command(hook["command"])
-                if (event, matcher, script) in expected:
+                if (event, matcher, script) in expected and not has_foreign_hook:
                     kept_hooks.append(hook)
                 else:
                     changed = True
@@ -1044,7 +1049,15 @@ def _merge_hooks(existing: dict, specs: dict[str, list[dict]]) -> tuple[dict, bo
                     (
                         block
                         for block in blocks
-                        if isinstance(block, dict) and block.get("matcher", "") == matcher
+                        if isinstance(block, dict)
+                        and block.get("matcher", "") == matcher
+                        and isinstance(block.get("hooks"), list)
+                        and bool(block["hooks"])
+                        and all(
+                            isinstance(hook, dict)
+                            and _owned_command(hook.get("command"))
+                            for hook in block["hooks"]
+                        )
                     ),
                     None,
                 )

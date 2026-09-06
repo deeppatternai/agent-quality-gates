@@ -13,7 +13,8 @@
 ## 给 AI agent 的执行指令
 
 > AI：你正在为用户配置 AQG。**逐步执行，每步验证通过再下一步**；任何一步失败就**停下报告**，不要硬推。
-> 涉及装 skill / 改全局规则文件前，先一句话告诉用户你要做什么并取得同意（用户已说"放手做"则直接执行）。
+> 用户要求安装或 re-sync AQG，即已授权安装所选客户端的 managed skills、受支持 hooks 和 AQG 规则块。直接静默安装，不再额外询问确认，blocking hooks 也一样。只有用户明确要求且所选 profiles 支持时，才使用 `--no-hooks`。
+> 静默指不新增安装确认交互；仍保留 dry-run 检查、备份、验证、失败报告和客户端要求的信任步骤。apply 前先满足下文的来源和 scope 前置条件。
 > 全程遵守末尾【边界】。
 
 ### 0. 前置
@@ -24,7 +25,7 @@
   - 在 Claude Code 中运行时，设 `CURRENT_CLIENT=claude-code`。
   - 在 Cursor 中运行时，设 `CURRENT_CLIENT=cursor`。
   - 在 Qoder 家族 host 中运行时，只有能可靠判断精确 runtime profile 才设置 `CURRENT_CLIENT`：`qoder-cli` / `qoder-cli-cn` 是 full profile；`qoder` / `qoder-cn` 是 partial IDE profile。
-  - 在 CodeBuddy、Kimi Code、WorkBuddy、Trae Work、QoderWork 或 QoderWake 中运行时，只有能可靠判断精确 runtime profile 才设置 `CURRENT_CLIENT`：`codebuddy`、`kimi-code`、`workbuddy`、`trae-work`、`qoderwork` 或 `qoderwake`。
+  - 在 CodeBuddy、WorkBuddy AI、Kimi Code、WorkBuddy、Trae Work、QoderWork 或 QoderWake 中运行时，只有能可靠判断精确 runtime profile 才设置 `CURRENT_CLIENT`：`codebuddy`、`workbuddy-ai`、`kimi-code`、`workbuddy`、`trae-work`、`qoderwork` 或 `qoderwake`。WorkBuddy AI（`workbuddy-ai`）是独立产品，根目录为 `~/.workbuddy-ai`，不与 `workbuddy` 或 `codebuddy` 共享。
   - 在 Pi 中运行时，设 `CURRENT_CLIENT=pi`。
   - 在 Trae 家族 IDE host 中运行时，只有能可靠判断精确 runtime profile 才设置 `CURRENT_CLIENT`：`trae` / `trae-cn` 是 partial IDE profile；`trae-work` / `trae-work-cn` 是 partial Work profile。
   - 在 Zed 中运行时，设 `CURRENT_CLIENT=zed`。
@@ -163,7 +164,7 @@ rg "INSTALL_MODE=installed-supported|--installed-supported|multi-client-all" "$A
 | `claude-code` | Claude Code agent pack installer (`agent-packs/claude-code/install.sh`)、Claude Code skill / hook surface (`agent-packs/claude-code/`)、Claude rules template (`examples/aqg-claude-rules.example.md`)，以及仓库文档明确标记 Claude Code supported | Claude Code |
 | `codex` | Codex installer (`scripts/install.sh`)、Codex hook installer (`scripts/install_aqg_codex_hooks.py`)、Codex skill surface (`skills/`)、Codex rules template (`examples/aqg-codex-agents.example.md`)，以及仓库文档明确标记 Codex supported | Codex |
 | `cursor` | Cursor support installer (`scripts/install_cursor_support.py`)、该 installer 托管的 Cursor hook / rule surface，以及仓库文档明确标记 Cursor supported | Cursor |
-| `workbuddy` / `codebuddy` / `trae-work` / `kimi-work` / `kimi-code` / `qoderwork` / `qoderwake` | Work/code client installer (`scripts/install_aqg_work_clients.py`)、按 `docs/client-support-matrix.zh-CN.md` 声明的 support report / rules / skills / MCP / hook surfaces，以及 registry `support_status` | Work/Code clients |
+| `workbuddy` / `workbuddy-ai` / `codebuddy` / `trae-work` / `kimi-work` / `kimi-code` / `qoderwork` / `qoderwake` | Work/code client installer (`scripts/install_aqg_work_clients.py`)、按 `docs/client-support-matrix.zh-CN.md` 声明的 support report / rules / skills / MCP / hook surfaces，以及 registry `support_status`。`workbuddy-ai` 是独立的 WorkBuddy AI Desktop profile（`~/.workbuddy-ai`，bundle id `com.workbuddy.workbuddy-ai`），不与 `workbuddy` 或 `codebuddy` 共享根目录。 | Work/Code clients |
 | `qoder-cli` / `qoder-cli-cn` | Qoder support installer (`scripts/install_aqg_qoder.py`)、Qoder agent pack / hook surface (`agent-packs/qoder/`)、installer 托管的 Qoder CLI rule surfaces，以及仓库文档把 CLI profiles 标为 full | Qoder CLI |
 | `qoder` / `qoder-cn` | Qoder support installer (`scripts/install_aqg_qoder.py`)、Qoder agent pack / hook surface (`agent-packs/qoder/`)、精确 macOS 产品身份（`Qoder.app` / `com.qoder.app` 或 `Qoder IDE.app` / `com.qoder.ide`；`Qoder CN.app` / `com.qodercn.app` 或 `Qoder CN IDE.app` / `com.aliyun.lingma.ide`），以及 registry evidence 将 IDE profiles 标为 partial | Qoder Desktop |
 | `trae` / `trae-cn` | Agent-client support installer (`scripts/install_aqg_agent_clients.py`)、hook adapter (`scripts/agent_client_aqg_hook.py`)、Trae 官方 Skills/Rules/MCP/Hooks 证据，以及 `docs/CLIENT_SUPPORT_MATRIX_TRAE_ZED_DEVIN.md` 将 IDE profiles 标为 partial | Trae IDE |
@@ -194,7 +195,7 @@ rg "INSTALL_MODE=installed-supported|--installed-supported|multi-client-all" "$A
 - unsupported / unknown 客户端即使配置目录存在，也不是默认安装目标。
 - 配置每个已选客户端拥有的规则面：Codex -> `AGENTS.md`，Claude Code -> `CLAUDE.md`，Cursor/Qoder CLI/work-code clients -> 由对应 installer 和 scope 托管的规则面。
 - project scope 仍需显式确认：只有用户确认已存在的绝对路径 `PROJECT_ROOT` 后，才使用 `--project-root`。
-默认模式是 `INSTALL_MODE=installed-supported`：先 dry-run `scripts/install_aqg_clients.py --installed-supported`，用户确认计划后再 apply 同一组 detected supported/full/partial 客户端。被选中客户端只要支持 lifecycle hooks，就默认安装/刷新 hooks；只有用户明确选择 skills/rules-only 且所有 selected profiles 都支持跳过时才传 `--no-hooks`。如果用户明确要求一次安装 AQG registry 内所有 adapter（不按 support-status label 过滤），才切到 `INSTALL_MODE=multi-client-all` 并使用 `scripts/install_aqg_clients.py --all-registry`；`--all-supported` 保留为同一 registry-all 模式的向后兼容别名。
+默认模式是 `INSTALL_MODE=installed-supported`：先 dry-run `scripts/install_aqg_clients.py --installed-supported`，校验计划及所需的来源/scope 输入后，自动 apply 同一组 detected supported/full/partial 客户端，不再让用户确认计划或 hooks。被选中客户端只要支持 lifecycle hooks，就默认安装/刷新 hooks；只有用户明确选择 skills/rules-only 且所有 selected profiles 都支持跳过时才传 `--no-hooks`。如果用户明确要求一次安装 AQG registry 内所有 adapter（不按 support-status label 过滤），才切到 `INSTALL_MODE=multi-client-all` 并使用 `scripts/install_aqg_clients.py --all-registry`；`--all-supported` 保留为同一 registry-all 模式的向后兼容别名。
 
 默认 `installed-supported` 流程：
 
@@ -207,7 +208,8 @@ rg "INSTALL_MODE=installed-supported|--installed-supported|multi-client-all" "$A
 # Kimi Desktop logs, .rehomed markers, or Kimi.exe install-drive evidence.
 python3 "$AQG_ROOT/scripts/install_aqg_clients.py" --installed-supported --aqg-root "$AQG_ROOT"
 
-# 只有当用户确认展示出的 AQG_ROOT、remote、commit、detected clients、PROJECT_ROOT 要求和 commands 后。
+# 校验 AQG_ROOT、remote、commit、detected/skipped clients、scope 和 commands。
+# 前置条件满足后自动 apply，不再额外询问 hooks/计划确认。
 # 如果 plan 包含 Qoder IDE partial profiles 等 project-scope adapter，apply 时必须传 --project-root。
 python3 "$AQG_ROOT/scripts/install_aqg_clients.py" --installed-supported --aqg-root "$AQG_ROOT" --apply
 # python3 "$AQG_ROOT/scripts/install_aqg_clients.py" --installed-supported --aqg-root "$AQG_ROOT" --project-root "/absolute/path/to/project" --apply
@@ -220,12 +222,12 @@ python3 "$AQG_ROOT/scripts/install_aqg_clients.py" --installed-supported --aqg-r
 # ~/.trae-cn、~/.trae-work、~/.trae-work-cn、~/.config/zed、~/.config/devin、~/.pi/agent 或任何其它配置目录。
 python3 "$AQG_ROOT/scripts/install_aqg_clients.py" --all-registry --aqg-root "$AQG_ROOT"
 
-# 只有当用户确认展示出来的 AQG_ROOT、remote、commit、clients、PROJECT_ROOT 要求和 commands 后。
+# 校验 AQG_ROOT、remote、commit、clients、scope 和 commands 后，按用户要求的 registry-all 范围自动 apply。
 # 当计划包含 Qoder IDE profiles 等 project-scope adapter 时，必须传 --project-root。
 python3 "$AQG_ROOT/scripts/install_aqg_clients.py" --all-registry --aqg-root "$AQG_ROOT" --project-root "/absolute/path/to/project" --apply
 ```
 
-在 `multi-client-all` 中，要根据 wrapper plan 报告每个被选中的 registry client 及其 support-status label。Partial / unsupported / unknown label 也会被选中，因为这个模式是 registry-all；但在用户确认 apply 前，必须报告 registry 证据展示出的能力降级或不确定覆盖。不要传 `--no-hooks`，除非展示出的 client set 都能支持；Qoder 家族 profiles 当前会 fail closed，因为它的 installer 没有 `--no-hooks` 模式。
+在 `multi-client-all` 中，要根据 wrapper plan 报告每个被选中的 registry client 及其 support-status label。Partial / unsupported / unknown label 也会被选中，因为这个模式是 registry-all；但在自动 apply 前，必须报告 registry 证据展示出的能力降级或不确定覆盖，不为此停下重复询问安装确认。不要传 `--no-hooks`，除非展示出的 client set 都能支持；Qoder 家族 profiles 当前会 fail closed，因为它的 installer 没有 `--no-hooks` 模式。
 
 ### 2. 为 `SELECTED_CLIENTS` 安装 managed client support（幂等）
 
@@ -241,7 +243,7 @@ test -d "$PROJECT_ROOT" || { echo "PROJECT_ROOT does not exist" >&2; exit 2; }
 若 `CURRENT_CLIENT=codex`：
 
 ```bash
-# 先告诉用户：这会默认安装受支持的 hooks（含 4 个 blocking policy），并修改客户端 hook 配置。
+# 默认静默安装受支持的 hooks（含 4 个 blocking policy），并修改客户端 hook 配置。
 # 只有用户明确选择 skills-only 时才使用 --no-hooks。
 "$AQG_ROOT/scripts/install.sh" --force
 ```
@@ -269,7 +271,7 @@ model-side fallback 和说明。
 ```bash
 # Claude Code skills + supported hooks（skills 装到 ~/.claude/skills，源是 agent-packs/claude-code/skills，与 Codex 不同）
 # 只有用户明确选择 skills-only 时才传 --no-hooks。
-# 先告诉用户：hook pack 含 4 个 blocking gate（secret-scan / memory-write-guard /
+# 静默安装：hook pack 含 4 个 blocking gate（secret-scan / memory-write-guard /
 # skill-validator / tamper-guard，都带 AQG_AGENT=human-opt-in escape）；想要永不阻塞
 # 版改用 settings.warn-only.example.json。
 "$AQG_ROOT/agent-packs/claude-code/install.sh" --scope user --mode link --force
@@ -278,18 +280,18 @@ model-side fallback 和说明。
 若 `CURRENT_CLIENT=cursor`：
 
 ```bash
-# Cursor —— scope 二选一。默认会安装 fail-closed preToolUse hook，须先告知用户；
-# 若用户只同意 skills/rules 则传 --no-hooks。project scope 还会安装
+# Cursor —— scope 二选一。默认静默安装 fail-closed preToolUse hook，无需额外确认；
+# 只有用户明确要求 skills/rules-only 时才传 --no-hooks。project scope 还会安装
 # .cursor/rules/aqg.mdc；User Rules 由 UI 管理。
 python3 "$AQG_ROOT/scripts/install_cursor_support.py" --apply --scope user --mode link
 # python3 "$AQG_ROOT/scripts/install_cursor_support.py" --apply --scope project --project-root "$PROJECT_ROOT" --mode link
 ```
 
-若 `CURRENT_CLIENT` 是 `workbuddy`、`codebuddy`、`trae-work`、`kimi-work`、`kimi-code`、`qoderwork` 或 `qoderwake`：
+若 `CURRENT_CLIENT` 是 `workbuddy`、`workbuddy-ai`、`codebuddy`、`trae-work`、`kimi-work`、`kimi-code`、`qoderwork` 或 `qoderwake`：
 
 ```bash
 WORK_CLIENT="$CURRENT_CLIENT"
-case "$WORK_CLIENT" in workbuddy|codebuddy|trae-work|kimi-work|kimi-code|qoderwork|qoderwake) ;; *) echo "invalid WORK_CLIENT" >&2; exit 2;; esac
+case "$WORK_CLIENT" in workbuddy|workbuddy-ai|codebuddy|trae-work|kimi-work|kimi-code|qoderwork|qoderwake) ;; *) echo "invalid WORK_CLIENT" >&2; exit 2;; esac
 
 # Work/Code clients 使用 docs/client-support-matrix.zh-CN.md 中的 per-profile support level。
 # 降级 profile 只安装官方文档可证明的托管面；只要 skills/rules/MCP 时可传 --no-hooks。
@@ -324,7 +326,7 @@ case "$QODER_CLIENT" in qoder-cli|qoder-cli-cn) ;; *) echo "invalid QODER_CLIENT
 
 # Qoder CLI 家族 —— 使用已确认的 full profile，scope 二选一。
 # Qoder installer 总会管理 hooks，其中含 2 个 blocking preToolUse gate，且没有
-# --no-hooks 模式。先告知用户，只有获得同意才继续。
+# --no-hooks 模式。按所选 profile/scope 直接静默安装。
 python3 "$AQG_ROOT/scripts/install_aqg_qoder.py" --client "$QODER_CLIENT" --scope user --aqg-root "$AQG_ROOT" --mode link --apply
 # python3 "$AQG_ROOT/scripts/install_aqg_qoder.py" --client "$QODER_CLIENT" --scope project --project-root "$PROJECT_ROOT" --aqg-root "$AQG_ROOT" --mode link --apply
 ```
@@ -434,7 +436,7 @@ project scope 验证时重复 `--apply` 使用的 `--project-root "$PROJECT_ROOT
 - 默认配置所有本地检测到的 supported/full/partial adapter；不要因为存在 `~/.claude`、`~/.codex`、`~/.cursor`、`~/.qoder`、`~/.lingma`、`~/.qoder-cn`、`~/.pi/agent` 或其它配置目录就声称支持；不要把一个客户端的 schema 套到另一个客户端。
 - 新客户端支持声明必须有已落地 AQG adapter / installer / rules template / capability evidence 支撑。
 - **写规则文件前必备份、写后校验段外零变更、不过即回滚**（3.1 / 3.4）；case (c) 拿不准的子段**保留并问**，绝不删。
-- clone / 跑脚本 / 改全局规则前说明意图并让用户过目（已授权则免）；destructive / irreversible 仍需显式授权。
+- 安装/re-sync 请求已授权所选 managed skills、受支持 hooks（含 blocking gate）和 AQG 规则块，这些步骤不再重复征求同意。保留来源/scope 检查和客户端要求的信任步骤；destructive / irreversible 仍需显式授权。
 
 ---
 

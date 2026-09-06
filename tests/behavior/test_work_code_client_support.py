@@ -661,6 +661,110 @@ def test_work_client_migrates_and_removes_legacy_inplace_backups(tmp_path: Path)
     ), "legacy adjacent backup should be preserved centrally"
 
 
+# --------------------------------------------------------------------------
+# AQG-026 WorkBuddy AI independent adaptation (R5-R7)
+# --------------------------------------------------------------------------
+
+
+def test_workbuddy_ai_full_profile_installs_skills_rules_mcp_and_hooks_independently(
+    tmp_path: Path,
+) -> None:
+    home = tmp_path / "home"
+
+    proc = _run_installer(
+        "--client",
+        "workbuddy-ai",
+        "--scope",
+        "user",
+        "--home",
+        str(home),
+        "--aqg-root",
+        str(REPO),
+        "--apply",
+    )
+
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert "support_level: full" in proc.stdout
+    root = home / ".workbuddy-ai"
+    expected_skills = _expected_skills()
+    assert sorted(path.name for path in (root / "skills").glob("aqg-*")) == expected_skills
+    assert RULE_MARKER in (root / "rules" / "aqg.md").read_text(encoding="utf-8")
+    mcp = json.loads((root / "mcp.json").read_text(encoding="utf-8"))
+    assert "aqg-support" in mcp["mcpServers"]
+    settings = json.loads((root / "settings.json").read_text(encoding="utf-8"))
+    assert {
+        "SessionStart",
+        "PreToolUse",
+        "PostToolUse",
+        "PostToolUseFailure",
+        "PreCompact",
+        "Stop",
+        "UserPromptSubmit",
+    } <= set(settings["hooks"])
+
+    # R5/R6: independent identity -- full capability lives only under its own
+    # root, never merged into the sibling workbuddy/codebuddy config roots.
+    assert not (home / ".workbuddy").exists()
+    assert not (home / ".codebuddy").exists()
+
+    assert _run_installer(
+        "--client",
+        "workbuddy-ai",
+        "--scope",
+        "user",
+        "--home",
+        str(home),
+        "--aqg-root",
+        str(REPO),
+        "--verify",
+    ).returncode == 0
+    assert _run_installer(
+        "--client",
+        "workbuddy-ai",
+        "--scope",
+        "user",
+        "--home",
+        str(home),
+        "--aqg-root",
+        str(REPO),
+        "--is-installed",
+    ).returncode == 0
+
+
+def test_workbuddy_ai_repeat_apply_is_idempotent_and_uninstall_preserves_third_party_and_siblings(
+    tmp_path: Path,
+) -> None:
+    home = tmp_path / "home"
+    sibling_workbuddy = home / ".workbuddy"
+    sibling_workbuddy.mkdir(parents=True)
+    (sibling_workbuddy / "keep.txt").write_text("legacy workbuddy content\n", encoding="utf-8")
+    sibling_codebuddy = home / ".codebuddy"
+    sibling_codebuddy.mkdir(parents=True)
+    (sibling_codebuddy / "keep.txt").write_text("codebuddy content\n", encoding="utf-8")
+
+    common = ("--client", "workbuddy-ai", "--scope", "user", "--home", str(home), "--aqg-root", str(REPO))
+    first = _run_installer("--apply", *common)
+    assert first.returncode == 0, first.stdout + first.stderr
+    root = home / ".workbuddy-ai"
+    (root / "team.txt").write_text("keep\n", encoding="utf-8")
+
+    second = _run_installer("--apply", *common)
+    assert second.returncode == 0, second.stdout + second.stderr
+    assert "already current" in second.stdout
+
+    uninstall = _run_installer("--uninstall", *common)
+    assert uninstall.returncode == 0, uninstall.stdout + uninstall.stderr
+    assert (root / "team.txt").read_text(encoding="utf-8") == "keep\n"
+    assert not (root / "rules" / "aqg.md").exists()
+    assert not any((root / "skills").glob("aqg-*"))
+    assert _run_installer("--is-installed", *common).returncode == 1
+
+    # R7: sibling roots must remain completely untouched by workbuddy-ai's
+    # apply -> repeat-apply -> uninstall cycle.
+    assert (sibling_workbuddy / "keep.txt").read_text(encoding="utf-8") == "legacy workbuddy content\n"
+    assert (sibling_codebuddy / "keep.txt").read_text(encoding="utf-8") == "codebuddy content\n"
+
+
 def test_kimi_work_uninstall_backs_up_external_skills_to_central_store(
     tmp_path: Path, monkeypatch
 ) -> None:
@@ -699,3 +803,103 @@ def test_kimi_work_uninstall_backs_up_external_skills_to_central_store(
     # The external skills root gets its own session so relpath mirroring stays valid.
     assert str(skills_root.resolve()) in source_roots, source_roots
     assert list((central / "kimi-work").rglob("SKILL.md")), "external skill dirs captured centrally"
+
+
+def _fake_aqg_root(tmp_path: Path, *, roster: tuple[str, ...], present: tuple[str, ...]) -> Path:
+    """A minimal stand-in for REPO_ROOT: a skills.list roster manifest plus the
+    subset of skills/<name>/SKILL.md dirs that are actually packaged."""
+    root = tmp_path / "fake-aqg-root"
+    (root / "skills").mkdir(parents=True)
+    # Real rule template: the roster is then the ONLY thing wrong with this root,
+    # so a fail-closed apply cannot pass for an unrelated missing-file reason.
+    rule_template = REPO / "examples" / "aqg-codex-agents.example.md"
+    (root / "examples").mkdir()
+    shutil.copy2(rule_template, root / "examples" / rule_template.name)
+    (root / "skills.list").write_text(
+        "# roster manifest fixture\n\n" + "".join(f"{name}\n" for name in roster),
+        encoding="utf-8",
+    )
+    for name in present:
+        skill = root / "skills" / name
+        skill.mkdir()
+        (skill / "SKILL.md").write_text(f"# {name}\n", encoding="utf-8")
+    return root
+
+
+def test_partially_missing_required_skill_sources_fail_closed_before_any_client_write(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # AQG-026: _skill_sources() returned whatever it happened to find, so absent
+    # packaged skills made _install_skills() a silent no-op and apply/verify
+    # could claim success with no AQG skills installed. A PARTIAL roster (not
+    # just an empty skills/ dir) must fail closed before any surface is written.
+    fake_root = _fake_aqg_root(
+        tmp_path,
+        roster=("aqg-code-construction", "aqg-security-review", "aqg-startup-preflight"),
+        present=("aqg-code-construction", "aqg-extra-local"),
+    )
+    monkeypatch.setattr(work_installer, "REPO_ROOT", fake_root)
+    home = tmp_path / "home"
+    common = ["--client", "workbuddy-ai", "--scope", "user", "--home", str(home), "--aqg-root", str(REPO)]
+
+    assert work_installer.main([*common, "--apply"]) == 1
+    apply_err = capsys.readouterr().err
+    assert "aqg-security-review" in apply_err, apply_err
+    assert "aqg-startup-preflight" in apply_err, apply_err
+    assert "aqg-code-construction" not in apply_err, apply_err
+
+    root = home / ".workbuddy-ai"
+    assert not list((root / "skills").glob("aqg-*"))
+    assert not (root / "rules" / "aqg.md").exists()
+    assert not (root / "aqg-support-report.md").exists()
+    assert not (root / "settings.json").exists()
+    assert not (root / "mcp.json").exists()
+    # fail-closed must not smear across the sibling CodeBuddy / legacy WorkBuddy roots
+    assert not (home / ".codebuddy").exists()
+    assert not (home / ".workbuddy").exists()
+
+    # verify must fail closed through the same source validation, not report OK.
+    assert work_installer.main([*common, "--verify"]) == 1
+    verify_err = capsys.readouterr().err
+    assert "aqg-security-review" in verify_err, verify_err
+
+
+def test_skill_sources_allows_extra_aqg_skills_beyond_the_roster(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # skills.list is a deletion-guard FLOOR: adding a skill needs no manifest
+    # edit, so a packaged aqg-* skill absent from the roster stays installable.
+    fake_root = _fake_aqg_root(
+        tmp_path,
+        roster=("aqg-code-construction",),
+        present=("aqg-code-construction", "aqg-extra-local"),
+    )
+    monkeypatch.setattr(work_installer, "REPO_ROOT", fake_root)
+    assert [path.name for path in work_installer._skill_sources()] == [
+        "aqg-code-construction",
+        "aqg-extra-local",
+    ]
+
+
+@pytest.mark.parametrize("manifest", (None, "", "# only a comment\n"))
+def test_absent_or_empty_roster_manifest_fails_closed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, manifest: str | None
+) -> None:
+    # Nothing anchors the required set -> refuse to install rather than trust an
+    # unverifiable source tree (same fail-closed stance as check_fixture_mix I6).
+    fake_root = _fake_aqg_root(
+        tmp_path, roster=("aqg-code-construction",), present=("aqg-code-construction",)
+    )
+    if manifest is None:
+        (fake_root / "skills.list").unlink()
+    else:
+        (fake_root / "skills.list").write_text(manifest, encoding="utf-8")
+    monkeypatch.setattr(work_installer, "REPO_ROOT", fake_root)
+    with pytest.raises(work_installer.InstallError):
+        work_installer._skill_sources()
+
+
+def test_skill_sources_accepts_the_real_packaged_roster() -> None:
+    # GREEN guard: the shipped tree satisfies its own roster, so the new
+    # validation cannot regress a normal install.
+    assert [path.name for path in work_installer._skill_sources()] == _expected_skills()

@@ -14,7 +14,8 @@ English | [中文](AI_SETUP.zh-CN.md)
 ## Execution instructions for the AI agent
 
 > AI: you are configuring AQG for the user. **Execute step by step, verify each step passes before moving to the next**; if any step fails, **stop and report** — do not force ahead.
-> Before installing skills / editing the global rules file, tell the user in one sentence what you're about to do and get their consent (if the user already said "go ahead," just proceed).
+> The user's request to install or re-sync AQG authorizes the selected managed skills, supported hooks, and AQG rule blocks. Install these silently without asking for additional confirmation, including for blocking hooks. Use `--no-hooks` only when the user explicitly requests it and the selected profiles support it.
+> Silent means no extra installation prompts: retain dry-run checks, backups, verification, failure reporting, and client-required trust steps. Resolve source and scope prerequisites below before applying.
 > Follow the [Boundaries] at the end throughout.
 
 ### 0. Prerequisites
@@ -25,7 +26,7 @@ English | [中文](AI_SETUP.zh-CN.md)
   - When running in Claude Code, set `CURRENT_CLIENT=claude-code`.
   - When running in Cursor, set `CURRENT_CLIENT=cursor`.
   - When running in a Qoder-family host, set `CURRENT_CLIENT` to the exact runtime profile only if it is reliably known: `qoder-cli` / `qoder-cli-cn` are full profiles; `qoder` / `qoder-cn` are partial IDE profiles.
-  - When running in CodeBuddy, Kimi Code, WorkBuddy, QoderWork, or QoderWake, set `CURRENT_CLIENT` to the exact registry `client_id` only if it is reliably known: `codebuddy`, `kimi-code`, `workbuddy`, `qoderwork`, or `qoderwake`. TRAE Work is not a work-client profile: use `trae-work` with the agent-client installer.
+  - When running in CodeBuddy, WorkBuddy AI, Kimi Code, WorkBuddy, QoderWork, or QoderWake, set `CURRENT_CLIENT` to the exact registry `client_id` only if it is reliably known: `codebuddy`, `workbuddy-ai`, `kimi-code`, `workbuddy`, `qoderwork`, or `qoderwake`. WorkBuddy AI (`workbuddy-ai`) is an independent product from legacy WorkBuddy and from CodeBuddy Agent CLI: its root is `~/.workbuddy-ai`, never `~/.workbuddy` or `~/.codebuddy`. TRAE Work is not a work-client profile: use `trae-work` with the agent-client installer.
   - When running in Pi, set `CURRENT_CLIENT=pi`.
   - When running in a Trae-family IDE host, set `CURRENT_CLIENT` only if the exact profile is known: `trae` / `trae-cn` are partial IDE profiles; `trae-work` / `trae-work-cn` are partial Work profiles.
   - When running in Zed, set `CURRENT_CLIENT=zed`.
@@ -170,7 +171,7 @@ The table below is not a permanent support registry; it documents the current in
 | `claude-code` | Claude Code agent pack installer (`agent-packs/claude-code/install.sh`), Claude Code skill / hook surface (`agent-packs/claude-code/`), Claude rules template (`examples/aqg-claude-rules.example.md`), and repo documentation explicitly marking Claude Code supported | Claude Code |
 | `codex` | Codex installer (`scripts/install.sh`), Codex hook installer (`scripts/install_aqg_codex_hooks.py`), Codex skill surface (`skills/`), Codex rules template (`examples/aqg-codex-agents.example.md`), and repo documentation explicitly marking Codex supported | Codex |
 | `cursor` | Cursor support installer (`scripts/install_cursor_support.py`), Cursor hook / rule surface managed by that installer, and repo documentation explicitly marking Cursor supported | Cursor |
-| `workbuddy` / `codebuddy` / `kimi-work` / `kimi-code` / `qoderwork` / `qoderwake` | Work/code client installer (`scripts/install_aqg_work_clients.py`), support report / rules / skills / MCP / hook surfaces per `docs/client-support-matrix.zh-CN.md`, and registry `support_status` declarations | Work/Code clients |
+| `workbuddy` / `workbuddy-ai` / `codebuddy` / `kimi-work` / `kimi-code` / `qoderwork` / `qoderwake` | Work/code client installer (`scripts/install_aqg_work_clients.py`), support report / rules / skills / MCP / hook surfaces per `docs/client-support-matrix.zh-CN.md`, and registry `support_status` declarations. `workbuddy-ai` is the independent WorkBuddy AI Desktop profile (`~/.workbuddy-ai`, bundle id `com.workbuddy.workbuddy-ai`); it does not share a root with `workbuddy` or `codebuddy`. | Work/Code clients |
 | `qoder-cli` / `qoder-cli-cn` | Qoder support installer (`scripts/install_aqg_qoder.py`), Qoder agent pack / hook surface (`agent-packs/qoder/`), Qoder CLI rule surfaces managed by the installer, and repo documentation marking the CLI profiles full | Qoder CLI |
 | `qoder` / `qoder-cn` | Qoder support installer (`scripts/install_aqg_qoder.py`), Qoder agent pack / hook surface (`agent-packs/qoder/`), exact macOS identities (`Qoder.app` / `com.qoder.app` or `Qoder IDE.app` / `com.qoder.ide`; `Qoder CN.app` / `com.qodercn.app` or `Qoder CN IDE.app` / `com.aliyun.lingma.ide`), and registry evidence marking the IDE profiles partial | Qoder Desktop |
 | `trae` / `trae-cn` | Agent-client support installer (`scripts/install_aqg_agent_clients.py`), hook adapter (`scripts/agent_client_aqg_hook.py`), Trae official Skills/Rules/MCP/Hooks evidence, and `docs/CLIENT_SUPPORT_MATRIX_TRAE_ZED_DEVIN.md` marking the IDE profiles partial | Trae IDE |
@@ -201,7 +202,7 @@ Selection rules:
 - Unsupported / unknown clients are not default install targets even if their config directories exist.
 - Configure each selected client's owned rule surface: Codex -> `AGENTS.md`, Claude Code -> `CLAUDE.md`, Cursor/Qoder CLI/work-code clients -> the rule surface owned by that selected installer and scope.
 - Project scope remains explicit: only use `--project-root` after the user confirms an existing absolute `PROJECT_ROOT`.
-Default mode is `INSTALL_MODE=installed-supported`: dry-run `scripts/install_aqg_clients.py --installed-supported` first, then apply the same detected supported/full/partial set after the user confirms the plan. Supported lifecycle hooks are installed/refreshed by default for selected clients; pass `--no-hooks` only when the user explicitly chooses a skills/rules-only install and every selected profile can honor it. If the user explicitly wants every AQG registry adapter installed in one batch regardless of support-status label, switch to `INSTALL_MODE=multi-client-all` and use `scripts/install_aqg_clients.py --all-registry`. `--all-supported` remains a backward-compatible alias for the same registry-all mode.
+Default mode is `INSTALL_MODE=installed-supported`: dry-run `scripts/install_aqg_clients.py --installed-supported` first, validate the plan and required source/scope inputs, then automatically apply the same detected supported/full/partial set without asking the user to confirm the plan or hooks again. Supported lifecycle hooks are installed/refreshed by default for selected clients; pass `--no-hooks` only when the user explicitly chooses a skills/rules-only install and every selected profile can honor it. If the user explicitly wants every AQG registry adapter installed in one batch regardless of support-status label, switch to `INSTALL_MODE=multi-client-all` and use `scripts/install_aqg_clients.py --all-registry`. `--all-supported` remains a backward-compatible alias for the same registry-all mode.
 
 Default `installed-supported` flow:
 
@@ -215,8 +216,8 @@ Default `installed-supported` flow:
 # or Kimi.exe install-drive evidence.
 python3 "$AQG_ROOT/scripts/install_aqg_clients.py" --installed-supported --aqg-root "$AQG_ROOT"
 
-# Only after the user confirms the displayed AQG_ROOT, remote, commit,
-# detected clients, skipped clients, PROJECT_ROOT requirement, and commands.
+# Validate AQG_ROOT, remote, commit, detected/skipped clients, scope, and commands.
+# Once prerequisites are satisfied, apply automatically; no extra hook/plan confirmation.
 # Add --project-root when the plan includes project-scope adapters such as
 # Qoder IDE partial profiles.
 python3 "$AQG_ROOT/scripts/install_aqg_clients.py" --installed-supported --aqg-root "$AQG_ROOT" --apply
@@ -231,8 +232,8 @@ Optional `multi-client-all` flow:
 # ~/.pi/agent, or any other config directory.
 python3 "$AQG_ROOT/scripts/install_aqg_clients.py" --all-registry --aqg-root "$AQG_ROOT"
 
-# Only after the user confirms the displayed AQG_ROOT, remote, commit, clients,
-# PROJECT_ROOT requirement, and commands. Use --project-root when the plan
+# Validate AQG_ROOT, remote, commit, clients, scope, and commands, then apply
+# automatically within the requested registry-all scope. Use --project-root when the plan
 # includes project-scope adapters such as Qoder IDE profiles.
 python3 "$AQG_ROOT/scripts/install_aqg_clients.py" --all-registry --aqg-root "$AQG_ROOT" --project-root "/absolute/path/to/project" --apply
 ```
@@ -249,7 +250,7 @@ Wrapper exit codes (stable contract for callers such as decision-engine's `insta
 
 Client-level failures are isolated per client id: a client is one atomic unit (skills install plus its hook install), so a failing client skips its own remaining commands while every other client still installs. Child process return codes are never propagated, so `4` / `5` always mean "a client failed" and never collide with `2`. Failed client ids are printed in the `- results:` summary and on stderr.
 
-In `multi-client-all`, report every selected registry client plus its support-status label from the wrapper plan. Partial / unsupported / unknown labels are still selected because this mode is registry-all, but any degraded or uncertain coverage shown by the registry evidence must be reported before the user confirms apply. Do not pass `--no-hooks` unless the displayed client set can honor it; Qoder-family profiles currently fail closed because their installer has no `--no-hooks` mode.
+In `multi-client-all`, report every selected registry client plus its support-status label from the wrapper plan. Partial / unsupported / unknown labels are still selected because this mode is registry-all, but any degraded or uncertain coverage shown by the registry evidence must be reported before automatic apply; do not pause for another installation confirmation. Do not pass `--no-hooks` unless the displayed client set can honor it; Qoder-family profiles currently fail closed because their installer has no `--no-hooks` mode.
 
 ### 2. Install managed client support for `SELECTED_CLIENTS` (idempotent)
 
@@ -265,8 +266,8 @@ test -d "$PROJECT_ROOT" || { echo "PROJECT_ROOT does not exist" >&2; exit 2; }
 If `CURRENT_CLIENT=codex`:
 
 ```bash
-# Tell the user first: this installs supported hooks by default, including 4 blocking policies,
-# and edits the client's hook configuration. Use --no-hooks
+# Silently install supported hooks by default, including 4 blocking policies,
+# and update the client's hook configuration. Use --no-hooks
 # only when the user explicitly chooses a skills-only install.
 "$AQG_ROOT/scripts/install.sh" --force
 ```
@@ -298,7 +299,7 @@ If `CURRENT_CLIENT=claude-code`:
 ```bash
 # Claude Code skills + supported hooks (skills install to ~/.claude/skills; source is agent-packs/claude-code/skills, different from Codex)
 # Pass --no-hooks only if the user explicitly chooses skills-only.
-# Tell the user first: the hook pack includes 4 blocking gates (secret-scan / memory-write-guard /
+# Install silently: the hook pack includes 4 blocking gates (secret-scan / memory-write-guard /
 # skill-validator / tamper-guard, all with an AQG_AGENT=human-opt-in escape); for a never-blocking
 # version use settings.warn-only.example.json.
 "$AQG_ROOT/agent-packs/claude-code/install.sh" --scope user --mode link --force
@@ -308,17 +309,17 @@ If `CURRENT_CLIENT=cursor`:
 
 ```bash
 # Cursor — choose ONE scope. By default this installs a fail-closed preToolUse
-# hook; tell the user first. Pass --no-hooks if they approve skills/rules only.
+# hook without extra confirmation. Pass --no-hooks only if the user requests skills/rules only.
 # Project scope also installs .cursor/rules/aqg.mdc. User Rules are UI-managed.
 python3 "$AQG_ROOT/scripts/install_cursor_support.py" --apply --scope user --mode link
 # python3 "$AQG_ROOT/scripts/install_cursor_support.py" --apply --scope project --project-root "$PROJECT_ROOT" --mode link
 ```
 
-If `CURRENT_CLIENT` is one of `workbuddy`, `codebuddy`, `trae-work`, `kimi-work`, `kimi-code`, `qoderwork`, or `qoderwake`:
+If `CURRENT_CLIENT` is one of `workbuddy`, `workbuddy-ai`, `codebuddy`, `trae-work`, `kimi-work`, `kimi-code`, `qoderwork`, or `qoderwake`:
 
 ```bash
 WORK_CLIENT="$CURRENT_CLIENT"
-case "$WORK_CLIENT" in workbuddy|codebuddy|kimi-work|kimi-code|qoderwork|qoderwake) ;; *) echo "invalid WORK_CLIENT" >&2; exit 2;; esac
+case "$WORK_CLIENT" in workbuddy|workbuddy-ai|codebuddy|kimi-work|kimi-code|qoderwork|qoderwake) ;; *) echo "invalid WORK_CLIENT" >&2; exit 2;; esac
 
 # Work/Code clients use per-profile support levels from docs/client-support-matrix.zh-CN.md.
 # Degraded profiles install only documented surfaces; pass --no-hooks for skills/rules/MCP only.
@@ -353,7 +354,7 @@ case "$QODER_CLIENT" in qoder-cli|qoder-cli-cn) ;; *) echo "invalid QODER_CLIENT
 
 # Qoder CLI family — choose the confirmed full profile and ONE scope.
 # The Qoder installer always manages hooks, including 2 blocking preToolUse gates,
-# and has no --no-hooks mode. Tell the user and proceed only with approval.
+# and has no --no-hooks mode. Install silently within the selected profile/scope.
 python3 "$AQG_ROOT/scripts/install_aqg_qoder.py" --client "$QODER_CLIENT" --scope user --aqg-root "$AQG_ROOT" --mode link --apply
 # python3 "$AQG_ROOT/scripts/install_aqg_qoder.py" --client "$QODER_CLIENT" --scope project --project-root "$PROJECT_ROOT" --aqg-root "$AQG_ROOT" --mode link --apply
 ```
@@ -464,7 +465,7 @@ If other client directories exist but were not configured, say this is intention
 - Configure every locally detected supported/full/partial adapter by default, and never claim support from directory presence alone: `~/.claude`, `~/.codex`, `~/.cursor`, `~/.qoder`, `~/.lingma`, `~/.qoder-cn`, or another config directory only indicate local presence; never apply one client's schema to another client.
 - New client support declarations require landed AQG adapter / installer / rules template / capability evidence before this guide may install or configure them.
 - **Back up before writing the rules file, validate zero changes outside the section after writing, roll back if it fails** (3.1 / 3.4); in case (c), **keep and ask** about subsections you're unsure of, never delete.
-- Before clone / running scripts / editing global rules, explain the intent and let the user review it (skip if already authorized); destructive / irreversible actions still need explicit authorization.
+- The install/re-sync request authorizes selected managed skills, supported hooks (including blocking gates), and AQG rule blocks; do not request consent again for these steps. Keep source/scope checks and client-required trust steps; destructive / irreversible actions still need explicit authorization.
 
 ---
 

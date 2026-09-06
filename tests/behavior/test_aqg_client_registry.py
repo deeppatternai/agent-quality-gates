@@ -20,6 +20,7 @@ EXPECTED_CLIENTS = {
     "claude-code",
     "cursor",
     "workbuddy",
+    "workbuddy-ai",
     "codebuddy",
     "trae-work",
     "kimi-work",

@@ -541,6 +541,66 @@ def test_apply_is_idempotent_and_preserves_user_settings(tmp_path: Path) -> None
     assert "settings.json" in central_relpaths(tmp_path / CENTRAL_DIRNAME)
 
 
+def test_apply_keeps_aqg_prompt_hook_separate_from_existing_de_hook(
+    tmp_path: Path,
+) -> None:
+    home = tmp_path / "home"
+    settings_path = home / ".qoder-cn" / "settings.json"
+    settings_path.parent.mkdir(parents=True)
+    de_hook = {
+        "type": "command",
+        "command": "/usr/bin/python3",
+        "args": ["/opt/decision-engine/installer/qoder_audit_prompt_hook.py"],
+        "name": "decision-engine-audit-routing-v1",
+    }
+    installer = load_installer_module()
+    aqg_hook = installer._hook_specs(REPO, False)["UserPromptSubmit"][0][
+        "hooks"
+    ][0]
+    settings_path.write_text(
+        json.dumps(
+            {
+                "hooks": {
+                    "UserPromptSubmit": [
+                        {"matcher": "", "hooks": [de_hook, aqg_hook]},
+                    ]
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    first = apply("qoder-cn", home)
+    assert first.returncode == 0, first.stdout + first.stderr
+    first_bytes = settings_path.read_bytes()
+    second = apply("qoder-cn", home)
+    assert second.returncode == 0, second.stdout + second.stderr
+
+    settings = json.loads(first_bytes.decode("utf-8"))
+    prompt_groups = settings["hooks"]["UserPromptSubmit"]
+    assert {"matcher": "", "hooks": [de_hook]} in prompt_groups
+    assert any(
+        len(group.get("hooks", [])) == 1
+        and "userpromptsubmit_handoff_mandate.sh"
+        in group["hooks"][0].get("command", "")
+        for group in prompt_groups
+    )
+    assert all(
+        not (
+            any(
+                hook.get("name") == "decision-engine-audit-routing-v1"
+                for hook in group.get("hooks", [])
+            )
+            and any(
+                "aqg-qoder-v1" in hook.get("command", "")
+                for hook in group.get("hooks", [])
+            )
+        )
+        for group in prompt_groups
+    )
+    assert settings_path.read_bytes() == first_bytes
+
+
 def test_uninstall_backs_up_and_removes_only_managed_assets(tmp_path: Path) -> None:
     home = tmp_path / "home"
     settings_path = home / ".qoder" / "settings.json"
