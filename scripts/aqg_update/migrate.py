@@ -211,6 +211,87 @@ class LayoutResult:
     target: Optional[Path] = None
 
 
+def logical_root(path: Path) -> Path:
+    """The spelling of *path* that owns a route, or *path* canonicalised.
+
+    Two different needs were being served by one string:
+
+    * **executing** out of the checkout wants the PHYSICAL path, so one skill
+      invocation cannot tear across a swap — `scripts/_aqg_context.sh` resolves
+      for exactly that reason and is right to;
+    * **owning a route** wants a spelling that does not change when the version
+      does, because ownership is an exact link-text comparison and
+      `versions/<sha>` stops matching at the next release.
+
+    **Nothing is computed from the caller's spelling.** Five rounds of review
+    found five ways to make two derivations of "the same" string disagree — a
+    symlinked `$HOME`, `/var` -> `/private/var`, a `versions/` directory moved
+    to another volume, a staged tree that is itself a link — and each fix
+    produced the next case. They share one cause: the installer is handed the
+    root as a human spelled it, the update engine resolves its own, and anything
+    computed FROM those inputs can differ. So the managed root is named, not
+    derived: `~/.deeppattern/agent-quality-gates` is where AQG installs.
+
+    The only judgement is whether *path* is that install, and it is made on
+    physical identity — the one comparison that cannot be spelled two ways.
+
+    **Why this is anchored on `Path.home()` and not searched for.** Round 7 tried
+    searching the tree's own ancestors so that an installer and an update engine
+    under different `HOME` would still agree. Measured, it did not even fix that
+    case — with `versions/` on another volume the managed link is not on the
+    tree's ancestor chain at all — and it made any symlink named
+    `agent-quality-gates` in any ancestor directory into an ownership root,
+    which is what decides what the prune loop may delete. Strictly worse, so it
+    is gone.
+
+    The `HOME` dependency it was trying to remove is pre-existing and systemic
+    rather than introduced here: the state root, every host adapter's default
+    locations, and the installer this repo publishes all anchor on it. An
+    install made under one `HOME` and updated under another is already looking
+    at a different machine's worth of directories before ownership is reached.
+
+    That is not the same as "it cannot happen", and an earlier draft of this
+    docstring said so — wrongly, and a reviewer caught it. If the second `HOME`
+    happens to contain a host skills directory of its own, the roster is read
+    from THAT directory, none of it is ours, and the host is planned a full
+    route: the update stalls at `pending` rather than doing damage. The failure
+    is a stall, in the direction everything else here fails in.
+
+    Accepting the constraint is still the right call — the mechanism built to
+    route around it adopted any similarly-named symlink in any ancestor as an
+    ownership root, and ownership decides what the prune loop deletes. A stall
+    under a mismatched `HOME` is worse than nothing and much better than
+    that.
+
+    An unmanaged checkout has no swap to survive and gets its own fully resolved
+    spelling: also identical from either side, for the same reason.
+    """
+    candidate = _canonical(Path(path).expanduser())
+    try:
+        managed = _canonical(Path.home() / MANAGED_ROOT_SUFFIX[0]) / MANAGED_ROOT_SUFFIX[-1]
+        if managed.is_symlink() and _canonical(managed) == candidate:
+            return managed
+    except (OSError, RuntimeError):
+        # `Path.home()` raises RuntimeError — not OSError — when HOME is unset
+        # and the uid has no passwd entry. Both sides call this unconditionally,
+        # so it must not be the thing that makes an update crash.
+        pass
+    return candidate
+
+
+def _canonical(path: Path) -> Path:
+    """One spelling for one directory, whoever names it.
+
+    `resolve()` when it exists — the only way two callers who spelled a path
+    differently arrive at the same string. Lexical normalisation when it does
+    not, so a path not yet created still has an answer rather than an exception.
+    """
+    try:
+        return Path(path).resolve()
+    except OSError:
+        return Path(os.path.normpath(str(Path(path).absolute())))
+
+
 def _is_managed_location(root: Path) -> bool:
     """Whether *root* is the location AQG installs to and therefore owns.
 

@@ -20,10 +20,17 @@ must not receive a native exception instead. (A bad *argument* from calling code
 
 from __future__ import annotations
 
+import os
+
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, Iterable, Optional, Tuple
+
+try:  # invoked as a package (tests, `python3 -m`)
+    from scripts.aqg_update import migrate, skills_route
+except ImportError:  # invoked with scripts/ itself on sys.path
+    from aqg_update import migrate, skills_route  # type: ignore[no-redef]
 
 #: What `verify` may report about a host's managed hook set.
 #:
@@ -64,12 +71,32 @@ class Evidence:
     ``recorded_version`` is what install state *claims* was last applied here;
     ``hooks_status`` is what the host's config *actually* shows. Keeping both
     is the point — the interesting case is when they disagree.
+
+    ``routed_skills`` extends that same claim-versus-reality split to skills,
+    which had only the claim side. The planner used to diff the shipped roster
+    against ``state["hosts"][id]["routed_skills"]`` — a key no installer writes,
+    so a freshly installed machine reported zero routes, planned one
+    ``route_skill`` per shipped skill, and stalled at ``pending`` forever
+    because nothing was applied and therefore nothing was ever recorded.
+
+    Three states, and the middle one is the reason this is ``Optional``:
+
+    * ``None``  — this host keeps no AQG skills on this machine (no destination
+      directory). The planner plans no skill work for it rather than proposing
+      to populate a host that is not there.
+    * ``()``    — the destination exists and holds none of our routes.
+    * names     — what is actually routed, read off disk.
+
+    An adapter that cannot answer raises instead; ``run._collect_evidence``
+    already turns that into a reported ``dropped`` host, so absence never has to
+    double as failure.
     """
 
     client_id: str
     hooks_status: str
     hooks_detail: str
     recorded_version: Optional[str]
+    routed_skills: Optional[Tuple[str, ...]] = None
 
     def __post_init__(self) -> None:
         # On the type, not in a helper: a guard an adapter can bypass by picking
@@ -80,12 +107,66 @@ class Evidence:
             raise AdapterError(
                 f"evidence carries an empty client_id: {self.client_id!r}"
             )
+        if self.routed_skills is not None:
+            if not isinstance(self.routed_skills, tuple):
+                raise AdapterError(
+                    f"{self.client_id}: routed_skills must be None or a tuple, "
+                    f"got {type(self.routed_skills).__name__} "
+                    f"({self.routed_skills!r}); a bare string is iterable, so "
+                    f"'nope' would become four skills named n, o, p, e"
+                )
+            for name in self.routed_skills:
+                if not isinstance(name, str):
+                    raise AdapterError(
+                        f"{self.client_id}: routed_skills holds a "
+                        f"{type(name).__name__}, not a name: {name!r}"
+                    )
+                # The full one-path-component rule, on the TYPE. These names are
+                # joined to a directory that is not ours by whatever applies the
+                # plan, so nothing may aim that. Enforcing it here rather than in
+                # the planner is what keeps a bad name from having to be
+                # *handled* downstream: a planner that refuses one host still
+                # holds back the whole apply, which turns one odd directory
+                # entry into an indefinite stop on a security update channel.
+                # It cannot arise from `owned_routes` — a directory entry name
+                # can hold no separator — so this is the boundary for an adapter
+                # that builds evidence some other way.
+                try:
+                    skills_route._require_safe_name(name)
+                except skills_route.RouteError as exc:
+                    raise AdapterError(
+                        f"{self.client_id}: routed_skills carries {name!r}: {exc}"
+                    ) from exc
         if self.hooks_status not in HOOK_STATUSES:
             raise AdapterError(
                 f"{self.client_id}: unrecognized hook status "
                 f"{self.hooks_status!r}; this adapter contract models "
                 f"{list(HOOK_STATUSES)}"
             )
+
+
+def observed_routes(
+    *, aqg_root: Optional[Path], skills_subdir: str, dest_root: Path
+) -> Optional[Tuple[str, ...]]:
+    """What this layer actually owns in *dest_root*, or ``None`` if not here.
+
+    Takes the root and derives the spelling itself rather than accepting a
+    ``source_root`` from the caller: ownership is an exact link-text
+    comparison, so letting each adapter arrive at its own spelling is how the
+    planner came to disagree with the installer about which links were ours.
+
+    ``None`` means "there is no skills destination for this host on this
+    machine". That is deliberately narrow — it is NOT "it has none of ours",
+    which is ``()`` and plans a full route. A host whose directory is missing
+    has nothing to maintain; one whose directory is empty has everything to.
+    """
+    if aqg_root is None:
+        return None
+    dest_root = Path(dest_root)
+    if not dest_root.is_dir():
+        return None
+    source_root = migrate.logical_root(aqg_root) / skills_subdir
+    return skills_route.owned_routes(source_root=source_root, dest_root=dest_root)
 
 
 def recorded_version_for(
@@ -198,6 +279,20 @@ class HostAdapter(ABC):
         test may substitute it without reaching past the contract.
         """
 
+    def _observed_routes(self) -> Optional[Tuple[str, ...]]:
+        """Which AQG skills are routed into this host right now. Read-only.
+
+        Optional seam, unlike ``_inspect``. An adapter for a host whose skill
+        layout AQG has not verified returns ``None`` and the planner leaves its
+        skills alone. That is a CHANGE, not the status quo: before this, those
+        hosts were planned from the recorded roster, which is empty on every
+        machine, so each of them collected one `route_skill` per shipped skill
+        on every check — for hosts usually not installed at all. Leaving them
+        alone is better and still not maintenance; see the known gap in
+        `docs/UPDATE_ARCHITECTURE.md` §8.
+        """
+        return None
+
     def verify(self, *, state: Optional[Dict[str, Any]] = None) -> Evidence:
         """Report what is installed on this host. Read-only."""
         status, detail = self._inspect()
@@ -216,4 +311,5 @@ class HostAdapter(ABC):
             hooks_status=hooks_status,
             hooks_detail=hooks_detail,
             recorded_version=recorded_version_for(self.client_id, state),
+            routed_skills=self._observed_routes(),
         )

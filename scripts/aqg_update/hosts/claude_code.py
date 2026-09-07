@@ -23,7 +23,13 @@ try:  # invoked as a package (tests, `python3 -m`)
 except ImportError:  # invoked with scripts/ itself on sys.path
     import install_aqg_hooks  # type: ignore[no-redef]
 
-from .base import AdapterError, Evidence, HostAdapter, require_aqg_root
+from .base import (
+    AdapterError,
+    Evidence,
+    HostAdapter,
+    observed_routes,
+    require_aqg_root,
+)
 
 
 class ClaudeCodeAdapter(HostAdapter):
@@ -32,12 +38,21 @@ class ClaudeCodeAdapter(HostAdapter):
     #: Where this host's canonical hook scripts live under the checkout.
     _HOOK_SOURCES = "agent-packs/claude-code/hooks"
 
+    #: Where its skills are shipped from, relative to the root.
+    _SKILL_SOURCES = "agent-packs/claude-code/skills"
+
     def __init__(
         self,
         *,
         settings_path: Optional[Path] = None,
         aqg_root: Optional[Path] = None,
+        skills_dest: Optional[Path] = None,
     ) -> None:
+        self._skills_dest = (
+            Path(skills_dest)
+            if skills_dest is not None
+            else Path.home() / ".claude" / "skills"
+        )
         self._settings_path = (
             Path(settings_path)
             if settings_path is not None
@@ -70,3 +85,18 @@ class ClaudeCodeAdapter(HostAdapter):
             raise AdapterError(
                 f"{self.client_id}: cannot inspect {self._settings_path}: {exc}"
             ) from exc
+
+    def _observed_routes(self):
+        """Read the routes off disk rather than trusting the install record.
+
+        The spelling is derived from the layout by `migrate.logical_root`, not
+        read from `AQG_ROOT`: by the time an update check runs from a skill,
+        that variable holds the PHYSICAL path — `_aqg_context.sh` pins it that
+        way so one invocation cannot tear across a swap, which is correct for
+        executing and wrong for deciding ownership.
+        """
+        return observed_routes(
+            aqg_root=self._aqg_root,
+            skills_subdir=self._SKILL_SOURCES,
+            dest_root=self._skills_dest,
+        )

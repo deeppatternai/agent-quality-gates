@@ -753,7 +753,24 @@ def build_commands(
 
 
 def _repo_root_from_script() -> Path:
-    return Path(__file__).resolve().parent.parent
+    """This checkout's root, spelled the way it was reached.
+
+    `absolute`, not `resolve`, for the reason `_collect_context` records: this
+    is its only caller, and its value becomes `AQG_ROOT` for every install
+    command. Under the managed layout the script is reached *through* the root
+    symlink, so resolving here bakes `versions/<sha>` into every skill route
+    exactly as passing a resolved `--aqg-root` would — the same defect by the
+    path a caller takes when it passes no root at all.
+
+    The trade is deliberate and worth stating: if the SCRIPT FILE itself is
+    reached through a symlink or a wrapper rather than the root being one,
+    `.parent.parent` is no longer the checkout and this returns the wrong
+    directory — where `.resolve()` would have been right. That shape is not one
+    any installer here produces, and both shipped callers (`scripts/install.sh`
+    via `install_aqg_clients`, and decision-engine's `de-aqg-install`) pass
+    `--aqg-root` explicitly, so this fallback is reached only by a hand-run.
+    """
+    return Path(__file__).absolute().parent.parent
 
 
 def _git_value(aqg_root: Path, *args: str) -> str:
@@ -776,7 +793,17 @@ def _git_value(aqg_root: Path, *args: str) -> str:
 
 def _collect_context(aqg_root_arg: str | None) -> RunContext:
     aqg_root = Path(aqg_root_arg or _repo_root_from_script())
-    aqg_root = aqg_root.expanduser().resolve()
+    # `absolute`, never `resolve` — the same call `run._apply` makes on the root,
+    # for the same reason: under the managed layout the root IS a symlink into
+    # `versions/<sha>`, and resolving it bakes today's release into everything
+    # downstream. This value becomes `AQG_ROOT` for every install command, and
+    # the skill installers spell their symlink targets from it. Ownership of a
+    # route is an exact link-text comparison (`aqg_update/skills_route`), so a
+    # resolved spelling made every route stop being recognised at the next
+    # release — which is why a fresh install could never leave `pending`, and
+    # why `docs/UPDATE_ARCHITECTURE.md` §8's "a skill rides the root symlink for
+    # free" was not true of any install this repo has ever produced.
+    aqg_root = aqg_root.expanduser().absolute()
     return RunContext(
         aqg_root=str(aqg_root),
         git_remote=_git_value(aqg_root, "config", "--get", "remote.origin.url"),

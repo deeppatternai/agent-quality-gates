@@ -44,8 +44,10 @@ from pathlib import Path
 from typing import Any, Mapping, Optional, Tuple
 
 try:  # invoked as a package (tests, `python3 -m`)
+    from scripts.aqg_update import skills_route
     from scripts.aqg_update.hosts.base import HOOK_STATUSES, Evidence
 except ImportError:  # invoked with scripts/ itself on sys.path
+    from aqg_update import skills_route  # type: ignore[no-redef]
     from aqg_update.hosts.base import HOOK_STATUSES, Evidence  # type: ignore[no-redef]
 
 #: Hook states meaning "AQG should install or repair hooks here".
@@ -205,6 +207,43 @@ def _version_of(target: Path) -> str:
         raise PlanError(f"cannot read {target}/VERSION: {exc}") from exc
 
 
+def _current_roster(evidence_item: Evidence) -> Optional[Tuple[str, ...]]:
+    """What is routed into this host now, or ``None`` to plan no skill work.
+
+    Reality, not the record. The recorded roster lives under a key no installer
+    writes — only `run._record_installed`, from inside an apply — so on every
+    freshly installed machine it read empty, the planner proposed re-routing
+    every shipped skill, `route_skill` put the plan in `HOST_TOUCHING_KINDS`,
+    and the update returned `pending` with nothing applied. Nothing applied
+    meant nothing recorded, so the next check planned the same thing. The stall
+    was not a wrong answer; it was the wrong source.
+
+    Name safety is enforced on `Evidence` itself, not here. A refusal at this
+    layer had to become a deferral, a deferral becomes an outstanding item, and
+    an outstanding item holds the whole machine's apply — so one unusable name
+    would have stopped a security update channel with no bound and no escape.
+    Refusing the evidence at construction keeps the guard and removes the
+    consequence.
+    """
+    observed = evidence_item.routed_skills
+    if observed is None:
+        return None
+    for name in observed:
+        try:
+            skills_route._require_safe_name(name)
+        except skills_route.RouteError:
+            # Defence in depth, and deliberately the SAME answer as "no skills
+            # destination": skip this host. `Evidence` refuses these at
+            # construction, but a frozen dataclass is not sealed —
+            # `object.__setattr__` writes through one, and this repo's own tests
+            # do exactly that — so the layer that hands names to a filesystem
+            # keeps its own check. Skipping, not deferring: a deferral becomes
+            # an outstanding item and holds back the whole machine's apply,
+            # which is how a guard turns into a denial of service.
+            return None
+    return tuple(observed)
+
+
 def build_plan(
     *,
     state: Optional[Mapping[str, Any]],
@@ -259,8 +298,11 @@ def build_plan(
     # routed skill — the ordering matters for a CASE-ONLY rename on a
     # case-insensitive filesystem, where `Foo` and `foo` are one directory entry
     # and pruning second would delete what routing just created.
+    rosters = {c: _current_roster(evidence[c]) for c in planned_hosts}
     for client_id in planned_hosts:
-        previous = _recorded_roster(state, client_id)
+        previous = rosters[client_id]
+        if previous is None:
+            continue
         for name in sorted(set(previous) - set(roster)):
             actions.append(
                 Action(
@@ -272,7 +314,9 @@ def build_plan(
                 )
             )
     for client_id in planned_hosts:
-        previous = _recorded_roster(state, client_id)
+        previous = rosters[client_id]
+        if previous is None:
+            continue
         for name in sorted(set(roster) - set(previous)):
             actions.append(
                 Action(

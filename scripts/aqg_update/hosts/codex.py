@@ -30,7 +30,12 @@ try:  # invoked as a package (tests, `python3 -m`)
 except ImportError:  # invoked with scripts/ itself on sys.path
     import install_aqg_codex_hooks  # type: ignore[no-redef]
 
-from .base import AdapterError, HostAdapter, require_aqg_root
+from .base import (
+    AdapterError,
+    HostAdapter,
+    observed_routes,
+    require_aqg_root,
+)
 
 
 class CodexAdapter(HostAdapter):
@@ -40,12 +45,23 @@ class CodexAdapter(HostAdapter):
     #: the same sources the Claude pack ships.
     _HOOK_SOURCES = "agent-packs/claude-code/hooks"
 
+    #: Codex takes the repo-root `skills/` wrappers, not the Claude pack's.
+    _SKILL_SOURCES = "skills"
+
     def __init__(
         self,
         *,
         hooks_path: Optional[Path] = None,
         aqg_root: Optional[Path] = None,
+        skills_dest: Optional[Path] = None,
     ) -> None:
+        # Same call-time reasoning as `_default_target`: CODEX_HOME is read now,
+        # not at import, so a session that exports it gets its own directory.
+        self._skills_dest = (
+            Path(skills_dest)
+            if skills_dest is not None
+            else install_aqg_codex_hooks._default_target().parent / "skills"
+        )
         # `_default_target` reads CODEX_HOME at call time, so the location is
         # resolved when the adapter is built rather than when this module is
         # imported — a session that exports CODEX_HOME still gets its own file.
@@ -74,3 +90,12 @@ class CodexAdapter(HostAdapter):
             raise AdapterError(
                 f"{self.client_id}: cannot inspect {self._hooks_path}: {exc}"
             ) from exc
+
+    def _observed_routes(self):
+        """See `ClaudeCodeAdapter._observed_routes` — same reasoning, different
+        source directory: Codex is routed the repo-root `skills/` wrappers."""
+        return observed_routes(
+            aqg_root=self._aqg_root,
+            skills_subdir=self._SKILL_SOURCES,
+            dest_root=self._skills_dest,
+        )

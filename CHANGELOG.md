@@ -6,6 +6,64 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) loosely;
 
 ## [Unreleased]
 
+## [0.14.3] - 2026-09-07
+
+### Fixed
+
+- **Automatic updates could not complete on any machine.** The planner diffed the
+  shipped skill roster against `state["hosts"][id]["routed_skills"]` — a key written
+  only by `run._record_installed`, from *inside* an apply. No installer writes it. So
+  every fresh machine read an empty roster while sixteen routes sat on disk, planned
+  one `route_skill` per shipped skill, and `route_skill` is host-touching: `_apply`
+  applied **nothing** and returned `pending`. Nothing applied meant nothing recorded,
+  so the next check planned exactly the same thing. There was no exit.
+  Compounding it, the link text carried a release. Ownership of a route is an exact
+  raw link-text comparison — deliberately, because parsing once admitted shapes this
+  layer never wrote and deleted entries it did not create — and the installer spelled
+  those links through the *resolved* root, so each named `versions/<sha>` and stopped
+  being recognised at the next release. `docs/UPDATE_ARCHITECTURE.md` §8's premise,
+  that a skill's content rides the root symlink for free, was true of no install this
+  repo had ever produced. Fixing either alone leaves it broken: the planner still
+  stalls without the second, and the first silently strands skills on a tree that
+  retention will delete.
+  The root cause was one variable serving two jobs. Executing out of the checkout
+  wants the PHYSICAL path so a skill invocation cannot tear across a swap;
+  `scripts/_aqg_context.sh` resolves for exactly that reason and is right to. Owning a
+  route wants a spelling that does not move. `Evidence` now carries the routes read
+  off the host's own directory, the managed root is *named* rather than derived, and
+  the installer and the planner arrive at one string through one function.
+  **Everyone must uninstall and reinstall once**: existing routes carry the old
+  version-pinned spelling and the new code does not recognise them.
+- **Every release but the last was unrecoverable.** The publish runbook's archive step
+  wrote the literal `refs/aqg-release-archive/stable-<prev>` instead of substituting
+  the hash. `<` and `>` are legal in a ref name, so nothing errored — every release
+  wrote the same ref and overwrote it. The comment three lines above said the archive
+  exists so the overwrite is reversible. The read, the archive and the publish now run
+  in one `set -e` subshell, because fixing the names still left the archive skippable:
+  pasted into an ordinary shell those lines keep going after a failure, so a rejected
+  archive push scrolls past and the channel push two lines down unreferences the
+  release that just failed to be archived.
+- **Two release tests passed locally and failed on CI with `fatal: empty ident name`.**
+  A reused clone copies no user config and a post-receive hook commits as the pushing
+  user; a developer machine derives an identity from its passwd entry and a CI runner
+  has nothing to derive one from. Worse than the failure was what it hid: with the hook
+  broken, no race was ever injected, so a test reported "the lease must refuse a
+  channel that moved" about a channel that never moved. The fixture precondition is now
+  asserted before the property it exists to exercise.
+
+### Added
+
+- **A file under a managed prefix must carry a publication decision.** Absence from
+  `internal/carve/allowlist.txt` was silent, and three times a behaviour test was
+  written, committed and never allowlisted — the public repo shipped an engine without
+  its tests while all four carve gates reported green. The only check that looked was
+  advisory, and stayed advisory because there was nowhere to record "reviewed,
+  excluded". Now there is: `internal/carve/allowlist-exempt.txt` holds
+  `<path>  # <reason>`, a bare path is refused, and under seven managed prefixes every
+  tracked file must appear in one list or the other. `docs/`, `benchmarks/` and
+  `workpackets/` stay advisory — their exceptions are hundreds of evidence artefacts,
+  and a gate demanding a line per artefact is a gate people delete.
+
 ## [0.14.2] - 2026-09-07
 
 ### Fixed

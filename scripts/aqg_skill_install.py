@@ -167,6 +167,77 @@ def _copy_skill(source: Path, target: Path, aqg_root: Path) -> None:
     (target / ".aqg-root").write_text(str(aqg_root.resolve()) + "\n", encoding="utf-8")
 
 
+def _logical_root_of(root: Path) -> Path:
+    """`aqg_update.migrate.logical_root`, or the root unchanged if unavailable.
+
+    This installer has to keep working in a checkout with no update engine —
+    and a checkout with no update engine has no version swap to survive, so the
+    spelling it was given is already the stable one.
+    """
+    try:
+        from scripts.aqg_update.migrate import logical_root
+    except ImportError:  # invoked with scripts/ itself on sys.path
+        try:
+            from aqg_update.migrate import logical_root  # type: ignore[no-redef]
+        except ImportError:
+            # Loud, because the two sides are contractually required to produce
+            # one string and the reader cannot even import without this module.
+            # Degrading quietly here writes version-pinned links that the update
+            # path will never recognise — the exact silent failure this change
+            # exists to remove.
+            print(
+                "NOTE: the AQG update engine is not importable, so skill links "
+                "are written with the path as given. In a managed install this "
+                "pins them to one version and they will not receive automatic "
+                "updates.",
+                file=sys.stderr,
+            )
+            return root
+    return logical_root(root)
+
+
+def _link_text_for(source: Path, real: Path, aqg_root: Path | None) -> Path:
+    """The spelling to write into the link.
+
+    Ownership of a route is an exact link-text comparison, so this installer and
+    `aqg_update.plan` must arrive at the same string or they will disagree about
+    which links are ours — which is exactly what happened.
+
+    The reader builds ``logical_root(root) / <subdir> / <name>`` **lexically**.
+    So this prefers the lexical relationship too, and falls back to the physical
+    one only when the given spellings do not share a prefix. Deriving it from
+    resolved paths first looked equivalent and is not: any symlinked component
+    *inside* the checkout resolves away on this side and stays on the reader's,
+    and the two strings differ for a route that is perfectly correct.
+
+    ``expanduser`` on both sides, and before anything else. ``Path.resolve()``
+    does not expand ``~`` — it makes ``~/x`` into ``<cwd>/~/x`` — so an
+    unexpanded tilde root sent this down the fallback path and wrote the
+    physical spelling, silently restoring the stall.
+
+    A source outside the root is left alone: there is no root to re-spell it
+    against, and guessing one would write a link naming a directory the caller
+    never mentioned.
+    """
+    if aqg_root is None:
+        return _normal(real)
+    root_given = _normal(Path(aqg_root).expanduser())
+    source_given = _normal(Path(source).expanduser())
+    try:
+        rel = source_given.relative_to(root_given)
+    except ValueError:
+        try:
+            rel = real.relative_to(Path(aqg_root).expanduser().resolve())
+        except (ValueError, OSError):
+            return _normal(real)
+    return _logical_root_of(root_given) / rel
+
+
+def _normal(path: Path) -> Path:
+    """Absolute and lexically normalised, never resolved."""
+    return Path(os.path.normpath(str(Path(path).expanduser().absolute())))
+
+
 def install_skill(
     source: Path,
     target: Path,
@@ -175,16 +246,35 @@ def install_skill(
     force: bool,
     aqg_root: Path | None = None,
 ) -> str:
-    """Install a skill and return linked, junctioned, or copied."""
-    source = source.resolve(strict=True)
-    if not source.is_dir() or not (source / "SKILL.md").is_file():
-        raise InstallError(f"invalid skill source (SKILL.md required): {source}")
+    """Install a skill and return linked, junctioned, or copied.
+
+    Two spellings of one directory, and which is used where is the whole point.
+
+    ``real`` is the physical path. **Every filesystem operation uses it** —
+    every check, and every read. A check that runs on one path while the work
+    runs on another is not a check: it leaves a window in which the link under
+    a logical path can be swapped between the two.
+
+    ``link_text`` is written into the symlink and is used for nothing else. It
+    must stay logical, because under the managed layout the physical path is
+    ``versions/<sha>/...``: a link naming that stops being recognised as ours at
+    the next release (`aqg_update.skills_route` compares raw link text), is
+    never re-pointed, and dangles once retention drops the tree it names.
+    Deriving it here rather than trusting the caller's spelling is the point —
+    the reader derives the same way, and the two must agree.
+    """
+    real = source.resolve(strict=True)
+    link_text = _link_text_for(source, real, aqg_root)
+    if not real.is_dir() or not (real / "SKILL.md").is_file():
+        raise InstallError(f"invalid skill source (SKILL.md required): {real}")
     target = target.absolute()
     # Resolve the parent to catch symlinked-parent escapes without following an
     # existing final symlink/junction that the installer may need to replace.
     target = target.parent.resolve(strict=False) / target.name
-    if source == target or source in target.parents or target in source.parents:
-        raise InstallError(f"source and target must not overlap: {source} / {target}")
+    # Overlap is asked of the PHYSICAL paths: two different spellings of the
+    # same directory must not slip past by looking unalike.
+    if real == target or real in target.parents or target in real.parents:
+        raise InstallError(f"source and target must not overlap: {real} / {target}")
     existing = classify_install(target)
     if existing != "missing":
         refreshable_link = requested_mode == "link" and existing in {"symlink", "junction"}
@@ -199,13 +289,22 @@ def install_skill(
         _remove_existing(target)
 
     target.parent.mkdir(parents=True, exist_ok=True)
-    root = (aqg_root or source.parent.parent).resolve()
+    # `.aqg-root` is written into a copied skill so it can find its checkout
+    # again. With no `--aqg-root` there is nothing to derive it from: two levels
+    # up from a skill is the pack directory, not the root, for every layout this
+    # repo ships. Every caller that ships passes the flag; this fallback exists
+    # for a hand-run copy and is wrong for anything deeper than a flat layout.
+    root = Path(aqg_root or real.parent.parent).expanduser().resolve()
     if requested_mode == "copy":
-        _copy_skill(source, target, root)
+        # Copies read from `real`, never from `link_text`. Copy mode leaves no
+        # link text, so it is outside what `skills_route` can recognise as
+        # owned — it is not part of the managed-update roster and is documented
+        # that way rather than half-supported.
+        _copy_skill(real, target, root)
         return "copied"
 
     try:
-        _create_symlink(source, target)
+        _create_symlink(link_text, target)
     except OSError:
         pass
     created = classify_install(target)
@@ -218,12 +317,24 @@ def install_skill(
     # link. Remove only the target just created, then try the Windows-native path.
     if created != "missing":
         _remove_existing(target)
-    if _is_windows_host() and _create_windows_junction(source, target):
+    if _is_windows_host() and _create_windows_junction(real, target):
         if classify_install(target) == "junction":
             return "junctioned"
         _remove_existing(target)
 
-    _copy_skill(source, target, root)
+    _copy_skill(real, target, root)
+    if requested_mode == "link":
+        # Not silent. A copy carries no link text, so `aqg_update.skills_route`
+        # cannot recognise it as ours: the update path will neither re-point nor
+        # prune it, and it is frozen at this version's content. The install is
+        # usable; automatic maintenance of it is not, and the user is the only
+        # one who can decide whether that matters.
+        print(
+            f"NOTE: {target.name} was copied, not linked — this host will not "
+            f"receive automatic skill updates for it. Symlink creation failed; "
+            f"on Windows this usually means Developer Mode is off.",
+            file=sys.stderr,
+        )
     return "copied"
 
 

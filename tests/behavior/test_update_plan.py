@@ -63,12 +63,26 @@ def _state(**overrides) -> dict:
     return payload
 
 
-def _evidence(status: str, client_id: str = "claude-code") -> base.Evidence:
+#: What a host that came through a normal install looks like. Mirrors the
+#: roster `_state` records, because until the planner read reality the two were
+#: the same claim written twice.
+_ROUTED = ("aqg-code-construction", "aqg-security-review")
+
+
+def _evidence(
+    status: str,
+    client_id: str = "claude-code",
+    routed: "tuple[str, ...] | None" = _ROUTED,
+) -> base.Evidence:
+    """`routed` is what is on disk. `None` means this host keeps no AQG skills
+    here, which the planner reads as "plan nothing for it" — not as "it has
+    none of ours"."""
     return base.Evidence(
         client_id=client_id,
         hooks_status=status,
         hooks_detail="",
         recorded_version="0.15.0",
+        routed_skills=routed,
     )
 
 
@@ -98,10 +112,17 @@ def test_an_up_to_date_install_plans_no_actions(tmp_path):
 
 
 def test_a_first_run_with_no_state_plans_a_full_route(tmp_path):
-    """No record means nothing has been routed, not that everything is current."""
+    """An empty host is still routed in full.
+
+    The premise moved with the source: emptiness is now read off the host's own
+    skills directory (`routed=()`) instead of inferred from a missing record.
+    That distinction is the whole fix — an absent record used to be read as an
+    empty host on machines whose 16 routes were sitting right there, and the
+    resulting plan stalled every update at `pending`.
+    """
     tree = _tree(tmp_path / "v", version="0.15.0", skills=("aqg-code-construction",))
     result = _plan(
-        None, tree, {"claude-code": _evidence("missing")}
+        None, tree, {"claude-code": _evidence("missing", routed=())}
     )
     kinds = {action.kind for action in result.actions}
     assert "route_skill" in kinds
@@ -248,13 +269,18 @@ def test_a_target_without_a_skills_directory_is_refused(tmp_path):
         _plan(_state(), tree, {})
 
 
-def test_a_malformed_routed_skill_list_fails_closed(tmp_path):
-    tree = _tree(tmp_path / "v", version="0.15.0", skills=("aqg-code-construction",))
-    state = _state(
-        hosts={"claude-code": {"last_applied_version": "0.15.0", "routed_skills": "nope"}}
-    )
-    with pytest.raises(plan_mod.PlanError, match="routed_skills"):
-        _plan(state, tree, {"claude-code": _evidence("complete")})
+def test_a_malformed_routed_skill_list_fails_closed():
+    """Now refused on `Evidence` rather than in the planner: a bare string is
+    iterable, so a roster of `"nope"` would otherwise plan four routes named
+    `n`, `o`, `p`, `e`."""
+    with pytest.raises(base.AdapterError, match="routed_skills"):
+        base.Evidence(
+            client_id="claude-code",
+            hooks_status="complete",
+            hooks_detail="",
+            recorded_version=None,
+            routed_skills="nope",
+        )
 
 
 # --- the plan is data, not an act -------------------------------------------------
@@ -340,16 +366,34 @@ def test_an_unmodelled_hook_status_is_refused(tmp_path):
 
 
 @pytest.mark.parametrize("name", ["..", "a/b", "/abs", ".", ""])
-def test_an_unsafe_skill_name_in_state_is_refused(tmp_path, name):
-    """A prune subject is joined to a route directory by whatever applies it. A
-    corrupted state file must not be able to aim that."""
-    tree = _tree(tmp_path / "v", version="0.15.0", skills=("aqg-code-construction",))
-    state = _state(
-        hosts={"claude-code": {"last_applied_version": "0.15.0",
-                               "routed_skills": [name]}}
-    )
-    with pytest.raises(plan_mod.PlanError, match="skill name"):
-        _plan(state, tree, {"claude-code": _evidence("complete")})
+def test_an_unsafe_routed_skill_name_is_refused_by_the_contract(name):
+    """A prune subject is joined to a route directory by whatever applies it,
+    and nothing may aim that.
+
+    Refused on `Evidence`, so it never reaches a planner. Refusing in the
+    planner instead had to produce a deferral, and a deferral holds back the
+    whole machine's apply — turning one odd directory entry into an unbounded
+    stop on a security update channel.
+    """
+    with pytest.raises(base.AdapterError, match="routed_skills"):
+        base.Evidence(
+            client_id="claude-code", hooks_status="complete", hooks_detail="",
+            recorded_version=None, routed_skills=(name,),
+        )
+
+
+def test_an_empty_routed_skill_name_is_refused_by_the_contract():
+    """The empty name is caught one layer earlier, on `Evidence` itself, so it
+    cannot reach a planner at all. Asserted rather than assumed: moving the
+    check must not quietly drop a case the old parametrisation covered."""
+    with pytest.raises(base.AdapterError, match="routed_skills"):
+        base.Evidence(
+            client_id="claude-code",
+            hooks_status="complete",
+            hooks_detail="",
+            recorded_version=None,
+            routed_skills=("",),
+        )
 
 
 def test_evidence_filed_under_the_wrong_host_is_refused(tmp_path):
@@ -400,17 +444,25 @@ def test_the_root_activation_is_part_of_the_plan(tmp_path):
     assert kinds.index("activate_root") < kinds.index("record_state")
 
 
-@pytest.mark.parametrize(
-    "state",
-    [
-        {"hosts": "not a mapping", "installed_version": "0.15.0", "pending": []},
-        {"hosts": {"claude-code": "not a mapping"}, "installed_version": "0.15.0",
-         "pending": []},
-    ],
-)
-def test_a_malformed_state_shape_is_a_typed_refusal(tmp_path, state):
-    """All of these already failed closed — as raw AttributeError/TypeError
-    rather than the refusal the docstring promises."""
+def test_a_malformed_hosts_map_is_a_typed_refusal(tmp_path):
+    """Already failed closed — as a raw AttributeError rather than the refusal
+    the docstring promises."""
+    state = {"hosts": "not a mapping", "installed_version": "0.15.0", "pending": []}
     tree = _tree(tmp_path / "v", version="0.15.0", skills=("aqg-code-construction",))
     with pytest.raises(plan_mod.PlanError):
         _plan(state, tree, {"claude-code": _evidence("complete")})
+
+
+def test_a_malformed_host_record_is_refused_before_the_planner_sees_it():
+    """The per-host record is no longer the planner's roster source, so this
+    refusal is asserted where it now happens: `recorded_version_for`, during
+    evidence collection.
+
+    Kept rather than deleted because the property is what mattered, not the
+    call site — a malformed record must not be read as absence, which would
+    report a configured host as a first run.
+    """
+    with pytest.raises(base.AdapterError, match="must be a mapping"):
+        base.recorded_version_for(
+            "claude-code", {"hosts": {"claude-code": "not a mapping"}}
+        )

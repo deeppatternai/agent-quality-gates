@@ -2,7 +2,7 @@
 
 English | [中文](README.zh-CN.md)
 
-Current version: `0.14.1` (source of truth: `VERSION`; release notes in `CHANGELOG.md`).
+Current version: `0.14.3` (source of truth: `VERSION`; release notes in `CHANGELOG.md`).
 
 Agent Quality Gates (`AQG`) is a **quality-discipline toolkit** for AI coding workflows — it pushes quality from "review after writing" to "guard while writing." It **rides on top of your existing coding agent**, decoupled from any specific one, and has four parts:
 

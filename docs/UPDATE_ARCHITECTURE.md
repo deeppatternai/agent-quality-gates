@@ -389,7 +389,69 @@ changed in 0.15.0". If any of those is unavailable, the item is deferred to `pen
   `commonpath` against its own source root for the same guarantee.
 - **Never clobber a real directory.** DE raises `SkillRouteConflict` and reports it rather than overwriting a
   user's own skill of the same name. Adopt that — silently replacing a user's directory is unrecoverable.
-- **Rename** is (prune, route) driven by the state-file diff (§4). There is no rename signal in the payload
+- **A route's link text must not carry a version.** Ownership is decided by comparing the link's *raw text*
+  against the one string this layer writes, so the root in that text must be spelled the way it stays
+  spelled — `~/.deeppattern/agent-quality-gates`, never the `versions/<sha>` it points at. Spelled with the
+  version, a route stops being ours at the next release, is never re-pointed, and dangles once retention
+  drops the tree it names.
+
+  **The managed root is FOUND, never spelled.** Five rounds of review found five ways to make two
+  derivations of "the same" string disagree — a symlinked `$HOME`, `/var` -> `/private/var`, a `versions/`
+  directory moved to another volume, a staged tree that is itself a link — and each fix produced the next
+  case. They share one cause: the installer is handed the root as a human spelled it, the update engine
+  resolves its own, and anything computed FROM those inputs can differ. So nothing is computed from them.
+  It is the symlink that resolves to this tree: looked for where AQG installs, and — if that misses, because
+  the installer and the update engine can run under different `HOME` — among the tree's own ancestors. Both
+  searches decide on physical identity, the one comparison that cannot be spelled two ways, so neither can
+  reintroduce a divergence. A link that resolves somewhere else is not ours however it is named.
+
+  **Two spellings, two jobs.** *Executing* out of the checkout wants the PHYSICAL path so that one skill
+  invocation cannot tear across a swap — `scripts/_aqg_context.sh` resolves for exactly that reason and is
+  right to. *Owning a route* wants the LOGICAL path. Both were read out of one `AQG_ROOT`, and that is the
+  root cause, not any single `.resolve()` call: by the time an update check starts from a skill, `AQG_ROOT`
+  holds the physical path, so any ownership rule that consults it is wrong precisely when it matters.
+  `migrate.logical_root` derives the logical spelling from the observed layout and reads no environment at
+  all — `<base>/agent-quality-gates` is the answer only when that symlink is seen to point at the tree being
+  asked about. It normalises lexically and never resolves, because `a/./b` and `a/b` must be one spelling
+  while the root symlink must not collapse into its target.
+
+  None of this was true of any install before 0.14.3, so the consequence the rest of this section rests on —
+  *a skill's content rides the root symlink for free* — was aspirational. Existing machines carry
+  version-pinned routes; one reinstall adopts them (measured, not assumed:
+  `test_a_pre_existing_version_pinned_route_is_converted_by_reinstalling`).
+- **The roster diff reads the host, not the record.** What is routed is read off the host's skills directory
+  (`skills_route.owned_routes`) and carried on `Evidence.routed_skills`; `state["hosts"][id]["routed_skills"]`
+  is written only by an apply, so on every freshly installed machine it was empty while sixteen routes sat on
+  disk — and because nothing was applied, nothing was ever recorded, so the next check planned the same
+  thing. `None` there means the host has no skills destination on this machine and no skill work is planned
+  for it; `()` means the directory is there and holds none of ours, which plans a full route.
+- **A bad entry defers one host, it does not abort the plan.** The skills directory is shared with the user
+  and other tools, so a name that fails the one-path-component check is one host's problem. Raising would let
+  a single odd entry stop security updates machine-wide.
+- **A release that changes the roster still needs a person.** The roster diff terminating means an update
+  applies unattended only when the host is already routed as the release expects. Adding or removing a skill
+  is a real difference, and `route_skill`/`prune_skill` are host-touching, so such a release goes `pending`
+  and asks for a reinstall. That is the gate working — what this change removed is the FALSE positive, the
+  machine that was already correct and was told otherwise on every check, forever.
+- **The ownership string is now one a human could type.** Moving routes off `versions/<sha>` and onto the
+  logical root means a link someone hand-wrote into the skills directory, spelled exactly the way this layer
+  spells it, is now adopted as ours — and therefore prunable when the roster drops that name. That is the
+  cost of a stable spelling and it is accepted: the alternative is a spelling nobody can reproduce, which is
+  what made every route unrecognisable at the next release.
+- **Scope: link mode only.** Ownership is an exact link-text comparison, so a **copy-mode** install — which
+  leaves no link text — is not part of the managed-update roster and never will be under this rule. Windows
+  junctions are likewise unverified: no Windows runner exists in this repo. Both are stated here rather than
+  half-supported. Copies still read from the physical path, so nothing about them is less safe; they simply
+  do not participate in automatic skill maintenance.
+- **Known gaps**, both narrower than they look and neither silent in the code:
+  - The six `hook_delivery="none"` hosts report `None` and are planned for nothing, because AQG has no
+    verified record of where each keeps its skills. Strictly better than the previous behaviour — sixteen
+    spurious `route_skill` actions each, for hosts usually not installed at all, which is most of what made
+    the stall so large — but it is not maintenance. Closing it needs a machine with each host installed.
+  - A host whose skills directory does not exist yet also reports `None`, so a *first* skill installation is
+    never planned by the update path. That is the installer's job today and the update path has never done
+    it; what changes is only that it is now stated.
+- **Rename** is (prune, route) driven by the roster diff (§4). There is no rename signal in the payload
   and there does not need to be.
 - **A correct existing route is left untouched**, not re-created. Churning symlinks on every check races
   concurrent sessions for no benefit (DE makes this point explicitly in `_route_skills`).
