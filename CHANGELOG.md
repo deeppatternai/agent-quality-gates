@@ -6,7 +6,48 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) loosely;
 
 ## [Unreleased]
 
+## [0.14.2] - 2026-09-07
+
 ### Fixed
+
+- **Automatic updates had never worked for anybody.** `_apply` refuses any root
+  that is not a symlink into a `versions/` directory — correctly, because the
+  atomic one-symlink swap is the whole reason an unattended update cannot leave a
+  half-written tree — and **no install path produced one**. `scripts/install.sh`
+  and decision-engine's `de-aqg-install` both clone into a plain directory, so
+  every install since the channel shipped could reach the remote, fetch a
+  release, verify its signature against the shipped keyring, and then refuse to
+  apply it. Silently: the outcome was not surfaced anywhere a user looks.
+  `scripts/install_aqg_clients.py` now puts the install on the managed layout,
+  because it is the one place both install paths pass through — so the other team
+  does not have to change how they call us. It runs **after** the commands and
+  **only** when they all succeeded: the conversion renames the checkout this very
+  script is running from, and doing it after a failed install would leave that
+  team's own retry and repair paths meeting a symlink root none of their code put
+  there. It converts only `~/.deeppattern/agent-quality-gates`, the location AQG
+  installs to and therefore owns; anywhere else needs `AQG_MIGRATE=1`, and
+  `AQG_NO_MIGRATE=1` declines everywhere. It never raises — an install that
+  cannot be converted is still a working install — but it never claims more than
+  it did either: the message reports whether updates are actually on, because
+  reporting "the call worked" printed `Automatic updates: enabled` on the one
+  path that leaves them off.
+- **A check started by a skill could swap the tree that skill was reading.**
+  `scripts/_aqg_context.sh` is what every skill sources to resolve `$aqg_root`,
+  and then immediately uses that path to run scripts and read templates out of.
+  Starting an update there let the symlink swap land between one dereference and
+  the next, leaving a skill running the script from one version against the
+  template from another — silent, and the hardest shape to diagnose. The two
+  trigger paths are not in the same position: the session-start hook runs before
+  any skill does, so nothing is reading the tree and it still applies; the helper
+  runs while something is, so it now passes `--check-only` and leaves the swap to
+  the next session start, or on a host with no hooks to the next skill
+  invocation, by which time the previous one is over. An update can take a
+  session longer to land; a tree half one version and half another while a skill
+  walks it cannot be observed at all.
+- **`doctor` told a machine with a pending update that it was up to date.**
+  `check(apply=False)` returned `outcome="current"` with a detail saying an
+  update was available and not applied, and `report()` reads the outcome and
+  nothing else. There is now a `deferred` outcome that says what happened.
 
 - **A file written with a Bash heredoc got no discipline at all.**
   The PostToolUse construction reminder read `tool_input.file_path`, which a Bash
