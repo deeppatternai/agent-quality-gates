@@ -42,6 +42,7 @@ Verified against the current Codex hooks documentation on 2026-07-23:
 | MCP / equivalent connectors | partial | Codex MCP docs | Codex supports MCP, but this adapter intentionally does not overwrite `config.toml`; the audit hub MCP remains a separate opt-in integration. |
 | Session startup preflight | supported | Codex `SessionStart` schema; `sessionstart_preflight.sh`; adapter tests | Emits official `hookSpecificOutput.additionalContext` JSON. |
 | WIP checkpoint recovery | supported | `wip_checkpoint_recover.sh` | Surfaces local checkpoint metadata without changing the worktree. |
+| Managed update check | supported | `sessionstart_update_check.sh`; `docs/UPDATE_ARCHITECTURE.md` §10.1 | A trigger only: it starts a detached process and returns, writes nothing, and is not in `BLOCKING_SCRIPTS`. |
 | PreToolUse shell skill validator | supported | `pretooluse_bash_skill_validator.sh` | Can deny a supported `Bash` call. |
 | PreToolUse shell / file secret scan | supported | `pretooluse_secret_scan.sh`; translation tests | Scans literal Bash commands and added `apply_patch` content; deliberately not an obfuscation detector. |
 | PostToolUse shell failure debugging reminder | supported | `posttooluse_bash_error_debugging_reminder.sh`; result normalization test | Non-zero exit codes become the legacy `is_error` contract. |

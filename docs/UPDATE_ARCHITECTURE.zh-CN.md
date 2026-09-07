@@ -385,6 +385,55 @@ rollback(action)      -> Outcome         # 把该宿主配置恢复到应用前�
 （zed、trae-work-cn、qoderwake、workbuddy、kimi-work）。而这些恰恰是不做它就永远不会更新的机器。
 **先做 hook 触发会把它们落下。**
 
+### 10.1 hook 触发实际覆盖到哪些宿主
+
+"有真实 hook 面的宿主"和"AQG 真的为它装了会话启动事件的宿主"不是同一个集合。有三个 managed-merge
+宿主有 hook 面，但拿不到 hook 这一路的触发。这个缺口写在这里、而不是留给下一个读安装器的人去发现，
+因为这个特性第一版只接了一个宿主，另外十二个是**静默**缺失的。
+
+每个安装器各自持有自己的 hook 表，所以这个触发器接在 6 处、覆盖 12 个宿主。这个集合由
+`tests/behavior/test_update_check_host_coverage.py` 钉住：某个宿主新拿到 hook 面而没人决定它该怎么办时，
+该测试会失败。
+
+| 宿主 | 安装器 | 挂在 | 覆盖 |
+|---|---|---|---|
+| claude-code | `install_aqg_hooks.py` | `SessionStart` | 是 |
+| codex | `install_aqg_codex_hooks.py` | `SessionStart` | 是 |
+| cursor | `install_cursor_support.py` | `sessionStart` -> `cursor_aqg_hook.py` | 是 |
+| codebuddy、workbuddy-ai | `install_aqg_work_clients.py`（JSON） | `SessionStart` -> `cursor_aqg_hook.py` | 是 |
+| kimi-code | `install_aqg_work_clients.py`（TOML） | `SessionStart` -> `cursor_aqg_hook.py` | 是 |
+| qoder-cli、qoder-cli-cn | `install_aqg_qoder.py` | `SessionStart` -> `qoder_hook_adapter.py` | 是 |
+| trae、trae-cn、devin | `install_aqg_agent_clients.py` | `SessionStart` -> `agent_client_aqg_hook.py` | 是 |
+| pi | `install_aqg_pi.py` | `session_start` 扩展 handler | 是 |
+| **qoder、qoder-cn** | `install_aqg_qoder.py` | —— | **否**：Desktop（`cli=False`）没有已验证的 `SessionStart` 面，AQG 根本不为它装会话启动事件 |
+| **qoderwork** | `install_aqg_work_clients.py` | —— | **否**：`SessionStart` 与 Qoder CLI 的一致性未经证实，它的事件集止于 `PreToolUse` / `PostToolUse` / `Stop` / `UserPromptSubmit` |
+
+cursor 家族的四个宿主是"每个生命周期事件挂一条 adapter 命令"，而不是在配置里点名 hook 脚本，所以对它们
+来说触发器住在 `cursor_aqg_hook.py::_trigger_update_check` 里，而不是某一行配置。它是**启动后不等待**的：
+那个 adapter 是整个事件唯一的一条命令，本身已经要花掉最多 20s 的 preflight 加 15s 的 WIP 恢复，而宿主给的
+预算是 45s（Cursor）和 30s（work clients）—— 在这里等多久都是从一个本就吃紧的预算里扣；而 adapter 被中途
+杀掉时，宿主一个 JSON 都拿不到。
+
+有两个限制值得写下来，而不是留给别人去撞：
+
+- **Windows 宿主装得上但跑不起来。** 启动器的前置条件是 `command -v python3`，而 Windows 的 Python
+  装出来的是 `python.exe` / `py.exe`。context-helper 那一路卡的是同一个条件，所以 Windows 宿主两条路都
+  够不着，只有跑 `scripts/upgrade.sh` 时才更新。
+- **Codex 现在会自己触发那个让它自身信任 pin 失效的更新。** 每条 Codex hook 命令里都嵌了对
+  `run_aqg_codex_hook.py` 和该 hook 脚本的 sha256，在 runner 加载前校验；一次成功的 apply 会换掉这些路径
+  所指向的树，于是下一次 hook 会在还没运行时就 exit 3。该宿主上所有 AQG 闸门（包括四个 blocking 的
+  `PreToolUse`）都会停止判定，直到重跑 `install_aqg_codex_hooks.py --apply` 并在 `/hooks` 里重新批准。
+  这是 apply 流水线的性质，不是触发器的性质 —— 同一台机器上的 Claude Code 会话一样会打断 Codex 的 pin，
+  而且从触发器上线那天起就能 —— 但把它挂到 Codex 上，意味着 Codex 现在能在无人看管时对自己做这件事。
+  能真正堵上它的两件事都不在本节范围内：`pending[]` 目前没有任何地方呈现（§11 规定了那一行，
+  `sessionstart_preflight.sh` 并没有带上），而 host reconciliation 把 hook 配置变更留给人处理、不会自动
+  重新 pin。`test_codex_bundle_digest_matches_installed_pin` 能抓到过期的 pin，但只在装了 Codex 的机器上
+  —— 它在 CI 里是 skip 的。
+- **这三个未覆盖的宿主是在 skill 调用时被覆盖的，不是在会话启动时。**
+  `scripts/_aqg_context.sh` 里的 `_aqgctx_nudge_update` 调的是同一个 `scripts.aqg_update.run` 入口，
+  因此共用同一个节流文件，两条路不可能重复干活。它们不共用的是**时机**：一个从头到尾没调用过 AQG skill
+  的 `qoder` / `qoder-cn` / `qoderwork` 会话，就永远不会检查。这比 hook 那一路弱，不是等价物。
+
 ## 11. 提示词面：这套机制需要改动什么（答案：几乎不需要）
 
 AQG 是提示词密集型产品，任何新增文本都在和其它 skill 的 description 抢同一份注意力预算。

@@ -72,6 +72,7 @@ HOOK_SCRIPTS = (
     "posttooluse_security_review_reminder.sh",
     "precompact_closeout_reminder.sh",
     "sessionstart_preflight.sh",
+    "sessionstart_update_check.sh",
     "userpromptsubmit_handoff_mandate.sh",
     "wip_checkpoint_save.sh",
     "wip_checkpoint_recover.sh",
@@ -905,6 +906,15 @@ def _hook_specs(aqg_root: Path, cli: bool) -> dict[str, list[dict]]:
             }
         ],
     }
+    # `cli` gates every session-lifecycle event, and with it the managed update
+    # check below. Qoder Desktop and Qoder CN Desktop (`cli=False`, support level
+    # `partial`) have no verified SessionStart surface, so AQG mounts none for them
+    # and they get no hook-borne update trigger at all -- not an oversight, and not
+    # silently absent: tests/behavior/test_update_check_host_coverage.py names both
+    # with this reason and fails if either quietly gains or loses coverage. They
+    # are reached instead by _aqgctx_nudge_update in scripts/_aqg_context.sh,
+    # which every skill sources and which shares this check's throttle file --
+    # but only when a session invokes a skill, never merely by starting.
     if cli:
         specs["Stop"][0]["hooks"].append(entry("wip_checkpoint_save.sh"))
         specs["SessionStart"] = [
@@ -913,6 +923,10 @@ def _hook_specs(aqg_root: Path, cli: bool) -> dict[str, list[dict]]:
                 "hooks": [
                     entry("sessionstart_preflight.sh"),
                     entry("wip_checkpoint_recover.sh"),
+                    # A trigger only: it starts a detached process and returns, and
+                    # it stays out of BLOCKING_HOOKS so a slow remote can never stop
+                    # a session from starting.
+                    entry("sessionstart_update_check.sh"),
                 ],
             }
         ]

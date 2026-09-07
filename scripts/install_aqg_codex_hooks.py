@@ -51,6 +51,7 @@ CODEX_HOOK_SCRIPTS = (
     "posttooluse_security_review_reminder.sh",
     "precompact_closeout_reminder.sh",
     "sessionstart_preflight.sh",
+    "sessionstart_update_check.sh",
     "userpromptsubmit_handoff_mandate.sh",
     "wip_checkpoint_save.sh",
     "wip_checkpoint_recover.sh",
@@ -250,6 +251,13 @@ def _aqg_hook_specs(aqg_root: Path, *, python_executable: Path) -> dict[str, lis
                 "hooks": [
                     make("sessionstart_preflight.sh", "run startup preflight"),
                     make("wip_checkpoint_recover.sh", "surface WIP checkpoints"),
+                    # Managed update check — a trigger only, and deliberately absent
+                    # from BLOCKING_SCRIPTS in run_aqg_codex_hook.py: it starts a
+                    # detached process and returns, so a slow remote can never stop
+                    # a session from starting. Same mount as the Claude installer,
+                    # which test_shared_hooks_mount_on_the_same_events_in_both_installers
+                    # keeps it in step with.
+                    make("sessionstart_update_check.sh", "check for AQG updates"),
                 ],
             }
         ],

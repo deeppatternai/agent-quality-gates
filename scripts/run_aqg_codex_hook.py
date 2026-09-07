@@ -55,6 +55,7 @@ MANAGED_SCRIPTS = frozenset(
         "posttooluse_security_review_reminder.sh",
         "precompact_closeout_reminder.sh",
         "sessionstart_preflight.sh",
+        "sessionstart_update_check.sh",
         "userpromptsubmit_handoff_mandate.sh",
         "wip_checkpoint_save.sh",
         "wip_checkpoint_recover.sh",

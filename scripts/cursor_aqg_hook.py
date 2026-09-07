@@ -13,6 +13,7 @@ import importlib.util
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -318,7 +319,75 @@ def _wip(mode: str, payload: dict[str, object], aqg_root: Path, project: Path) -
     return proc.stdout.strip() if proc.returncode == 0 else ""
 
 
+def _find_bash() -> str | None:
+    """The same lookup `agent_client_aqg_hook.py` and `qoder_hook_adapter.py` do.
+
+    `shutil.which` alone finds nothing on Windows, where bash ships beside git
+    rather than on PATH -- and CodeBuddy and WorkBuddy AI are hosts whose own
+    installers branch on `os.name == "nt"`, so "no bash" there is a real
+    configuration, not a hypothetical one.
+    """
+    if os.name == "nt":
+        git = shutil.which("git")
+        if git:
+            git_root = Path(git).resolve().parent.parent
+            for candidate in (git_root / "bin" / "bash.exe", git_root / "usr" / "bin" / "bash.exe"):
+                if candidate.is_file():
+                    return str(candidate)
+    return shutil.which("bash")
+
+
+def _trigger_update_check(aqg_root: Path) -> None:
+    """Start the managed update check in the background and come straight back.
+
+    Cursor, CodeBuddy, WorkBuddy AI and Kimi Code mount ONE command per lifecycle
+    event -- this adapter -- instead of naming hook scripts in their config, so
+    the trigger cannot be a row in an installer's hook table the way it is on
+    Claude Code. This function is the only place their session start passes
+    through.
+
+    It runs the same `sessionstart_update_check.sh` every other host runs rather
+    than re-deriving the spawn here. That script's rules were paid for once
+    already -- reduced environment, `nohup` and not `setsid` (util-linux, absent
+    on macOS), nothing on stdout, always exit 0 -- and a second copy of them is a
+    second thing to get wrong.
+
+    NOT waited on, and the arithmetic is why. This adapter is ONE command for the
+    whole event, and the rest of it already spends up to 20s on preflight and 15s
+    on WIP recovery against host budgets of 45s (Cursor) and 30s (the work
+    clients). A bounded wait here -- even a short one -- is spent out of a budget
+    that is already tight, and being killed mid-adapter means the host gets no
+    JSON at all. `Popen` with its own session costs a fork: the launcher does its
+    own backgrounding, so nothing is gained by watching it do it.
+
+    Every failure is silent, deliberately. A session must never hear about this
+    -- least of all on stdout, which is the host's JSON channel.
+    """
+    script = aqg_root / "agent-packs" / "claude-code" / "hooks" / "sessionstart_update_check.sh"
+    bash = _find_bash()
+    if bash is None or not script.is_file():
+        return
+    env = os.environ.copy()
+    env["AQG_ROOT"] = str(aqg_root)
+    try:
+        subprocess.Popen(  # noqa: S603 - fixed argv, no shell
+            [bash, str(script)],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            env=env,
+            start_new_session=True,
+            close_fds=True,
+        )
+    except OSError:
+        return
+
+
 def _session_start(payload: dict[str, object], aqg_root: Path, project: Path | None) -> int:
+    # Before the workspace check below, not after: the update check needs no
+    # project, and a session opened outside a repo is still a session that should
+    # find out its AQG checkout is stale.
+    _trigger_update_check(aqg_root)
     if project is None or not project.is_dir():
         _emit({})
         return 0

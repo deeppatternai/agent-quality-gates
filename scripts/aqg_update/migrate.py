@@ -188,6 +188,104 @@ def _undo_on_signal(undo):
                 pass
 
 
+#: Where an install AQG manages lives unless told otherwise. Converting anything
+#: else is a decision about someone's own directory, so it is opt-in.
+MANAGED_ROOT_SUFFIX = (".deeppattern", "agent-quality-gates")
+
+
+@dataclass(frozen=True)
+class LayoutResult:
+    """What `ensure_managed_layout` did, and why, without ever raising.
+
+    `managed` is the only field a caller should report from: it says whether
+    the install can now update itself. `ok` means the call did not fail, which
+    is a different question — declining to convert is a successful call that
+    leaves updates OFF, and conflating the two announced "enabled" on exactly
+    the install that could not update (audit aud_Y3qcP8c7jPy4xs_H, four voices).
+    """
+
+    ok: bool
+    changed: bool
+    managed: bool
+    reason: str
+    target: Optional[Path] = None
+
+
+def _is_managed_location(root: Path) -> bool:
+    """Whether *root* is the location AQG installs to and therefore owns.
+
+    The previous discriminator was that a fresh clone has no untracked files
+    and a developer's copy usually does. That is a claim about habits: a clean
+    checkout on a feature branch has none either, and it would have been moved
+    silently and then updated away from that branch.
+    """
+    try:
+        resolved = Path(root).expanduser().absolute()
+    except (OSError, RuntimeError):
+        return False
+    return resolved.parts[-len(MANAGED_ROOT_SUFFIX):] == MANAGED_ROOT_SUFFIX
+
+
+def ensure_managed_layout(root: Path, *, managed: Optional[bool] = None) -> LayoutResult:
+    """Put an install on the managed-update layout at install time, or say why not.
+
+    `_apply` refuses any root that is not a symlink into a versions directory,
+    and no install path produced one: both `scripts/install.sh` and
+    decision-engine's `de-aqg-install` clone into a plain directory. So every
+    fresh install could fetch a release, verify its signature, and then refuse
+    to apply it.
+
+    **Never raises.** An install that cannot be converted is still a working
+    install — it simply will not update itself. What it must not do is stay
+    quiet, so every refusal carries its reason and `managed` says plainly
+    whether updates are on.
+
+    **Only converts what AQG owns.** This is a one-way change to a directory,
+    so it happens at the location AQG installs to, or when the caller states
+    otherwise: `managed=True`, or `AQG_MIGRATE=1` for someone installing
+    deliberately elsewhere. `AQG_NO_MIGRATE` declines everywhere.
+
+    The refusals beyond that are `migrate`'s own, unchanged and not widened.
+    """
+    root = Path(root)
+    declined = os.environ.get("AQG_NO_MIGRATE")
+    if declined:
+        return LayoutResult(
+            ok=True, changed=False, managed=False,
+            reason=f"AQG_NO_MIGRATE={declined!r} is set; the layout was left alone",
+        )
+    if managed is None:
+        managed = _is_managed_location(root) or bool(os.environ.get("AQG_MIGRATE"))
+    if not managed:
+        return LayoutResult(
+            ok=True, changed=False, managed=False,
+            reason=(
+                f"{root} is not the managed install location "
+                f"(~/{'/'.join(MANAGED_ROOT_SUFFIX)}); it was left alone. "
+                f"Set AQG_MIGRATE=1 to convert an install kept elsewhere."
+            ),
+        )
+    try:
+        result = migrate(root)
+    except MigrateError as exc:
+        return LayoutResult(ok=False, changed=False, managed=False, reason=str(exc))
+    except OSError as exc:  # aqg: top-level boundary
+        return LayoutResult(
+            ok=False, changed=False, managed=False,
+            reason=f"cannot migrate {root}: {exc}",
+        )
+    if result.already:
+        return LayoutResult(
+            ok=True, changed=False, managed=True,
+            reason="already on the managed-update layout", target=result.target,
+        )
+    return LayoutResult(
+        ok=True, changed=True, managed=True,
+        reason=f"moved onto the managed-update layout at {result.target}",
+        target=result.target,
+    )
+
+
 def migrate(root: Path, *, dry_run: bool = False) -> Migration:
     """Turn *root* into a symlink into ``versions/<sha>/``, or explain why not.
 

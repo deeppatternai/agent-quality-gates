@@ -1003,6 +1003,49 @@ def _print_detection_conflicts(detection: DetectionResult) -> None:
         )
 
 
+def _ensure_update_layout(aqg_root: object, *, install_succeeded: bool) -> None:
+    """Leave the install in the shape the update engine will accept.
+
+    Both install paths land here — `scripts/install.sh` runs this script, and
+    decision-engine's `de-aqg-install` invokes it directly — and neither
+    produced the layout `_apply` requires.
+
+    **Only after a successful install.** This reshapes a directory another
+    team's installer created and owns. Doing it when their commands failed
+    leaves their retry and repair paths meeting a symlink root none of their
+    code put there (audit aud_Y3qcP8c7jPy4xs_H).
+
+    **After the commands, never before.** The conversion renames the checkout
+    this very script is running from, and between that rename and the symlink
+    landing there is a window in which the old path does not exist. Nothing is
+    spawned after this point.
+
+    Never fatal, and never claims more than it did: the message reports
+    `managed`, not "the call worked". Reporting the latter announced
+    "Automatic updates: enabled" on the one path that leaves them off.
+    """
+    if not install_succeeded:
+        return
+    try:
+        from scripts.aqg_update.migrate import ensure_managed_layout
+    except ImportError as exc:  # aqg: top-level boundary
+        print(f"NOTE: automatic updates unavailable: {exc}", file=sys.stderr)
+        return
+
+    root = Path(aqg_root).expanduser() if aqg_root else Path(__file__).resolve().parents[1]
+    result = ensure_managed_layout(root)
+    if result.managed:
+        print(f"Automatic updates: enabled. {result.reason}")
+        return
+    print(
+        f"NOTE: automatic updates are NOT enabled for {root}.\n"
+        f"      {result.reason}\n"
+        f"      AQG works normally; it will not update itself. To enable it "
+        f"later: {root}/scripts/upgrade.sh --migrate",
+        file=sys.stderr,
+    )
+
+
 def main(argv: list[str] | None = None) -> int:
     detection: DetectionResult | None = None
     try:
@@ -1082,7 +1125,9 @@ def main(argv: list[str] | None = None) -> int:
     env = _execution_env(context, project_root, args.home)
     results = _execute_commands(commands, env)
     _print_execution_summary(results)
-    return _exit_code_for_results(results)
+    exit_code = _exit_code_for_results(results)
+    _ensure_update_layout(args.aqg_root, install_succeeded=(exit_code == 0))
+    return exit_code
 
 
 if __name__ == "__main__":

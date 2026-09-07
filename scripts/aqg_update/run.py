@@ -46,6 +46,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sys
 import tempfile
 import time
@@ -68,10 +69,71 @@ KILL_SWITCH = "AQG_NO_UPDATE_CHECK"
 
 LAST_CHECK_FILENAME = "update-last-check.json"
 
-#: Sessions start many times a day; a remote does not need telling. Twenty
-#: hours rather than twenty-four so a daily rhythm does not drift into "every
-#: other day" by starting a few minutes late.
-CHECK_INTERVAL_SECONDS = 20 * 3600
+#: How long a recorded check suppresses the next one. Sessions start many times
+#: a day and a remote does not need telling every time, but the right number
+#: differs by who is asking: a day of debugging wants minutes, a settled install
+#: may want longer than this. It was twenty hours and hardcoded, which made
+#: every adjustment a code change and a release.
+#:
+#: The accepted cost of one hour rather than twenty: an install whose sessions
+#: are spread across a working day makes up to 24 checks a day instead of about
+#: one. A check is a git ref read against the release remote, and an install
+#: that wants the old rhythm back sets the variable below.
+DEFAULT_CHECK_INTERVAL_SECONDS = 3600
+
+#: Set this to a whole number of seconds to override the interval.
+INTERVAL_ENV = "AQG_UPDATE_INTERVAL_SECONDS"
+
+#: Below this, "once per interval" stops rate-limiting anything — every session
+#: start becomes a network round trip, which is the cost the interval exists to
+#: avoid. It is a floor rather than a rejection: someone who asks for 5 seconds
+#: is asking for a short interval, and the default is the opposite of that.
+MIN_CHECK_INTERVAL_SECONDS = 60
+
+#: And a ceiling, for the reason the future-timestamp guard in `_too_soon`
+#: exists. That guard stops a record dated a year ahead from turning the check
+#: off forever; an unbounded interval is the same denial of service reached
+#: through the other operand of the same comparison, and an audit was right
+#: that defending one side and not the other is half a defence. Seven days is
+#: generous — a settled install can go a week between checks — while keeping
+#: "stop checking" reachable only through `AQG_NO_UPDATE_CHECK`, which is the
+#: switch a person looking for one will find.
+MAX_CHECK_INTERVAL_SECONDS = 7 * 24 * 3600
+
+#: What `int()` is allowed to see. `int` on its own accepts `3_600`, `+60` and
+#: non-ASCII decimal digits like `٣٦٠٠`, which is a wider grammar than
+#: anything documented here — and a silently-accepted `3_600` is a worse
+#: outcome than a rejected one, because it looks like it was ignored.
+_INTEGER = re.compile(r"[+-]?[0-9]+")
+
+
+def check_interval_seconds() -> int:
+    """The interval in force, from the environment or the default.
+
+    On the SessionStart path a raised exception is a check that silently never
+    happens, so nothing in here can raise. Three cases, and the difference
+    between the first two is the one worth reading twice:
+
+    * **Not a duration at all** — unset, blank, `soon`, `1.5`, `3_600`, and
+      also `0` and the negatives. These are treated as *unset* and take the
+      default. In particular `0` does **not** mean "check every time": there is
+      no way to ask for that, and the shortest interval obtainable is
+      ``MIN_CHECK_INTERVAL_SECONDS``. To stop checking, use ``KILL_SWITCH``.
+    * **A duration outside the bounds** — honoured as far as the nearest bound,
+      because someone who asks for 5 seconds is asking for a short interval and
+      the default would be the opposite of that. The same in the other
+      direction, where the bound is also what stops the variable from being a
+      silent permanent off switch.
+    * **A duration within the bounds** — used as given.
+    """
+    raw = os.environ.get(INTERVAL_ENV, "").strip()
+    if not _INTEGER.fullmatch(raw):
+        return DEFAULT_CHECK_INTERVAL_SECONDS
+    seconds = int(raw)
+    if seconds <= 0:
+        return DEFAULT_CHECK_INTERVAL_SECONDS
+    return min(max(seconds, MIN_CHECK_INTERVAL_SECONDS), MAX_CHECK_INTERVAL_SECONDS)
+
 
 #: Outcomes. Every one of them is written to the record, including the boring
 #: ones — `doctor` cannot tell "checked, nothing to do" from "never checked"
@@ -79,6 +141,11 @@ CHECK_INTERVAL_SECONDS = 20 * 3600
 OUTCOMES = (
     "disabled", "no-keyring", "too-soon", "current", "applied", "pending",
     "rolled-back", "repair-required", "interrupted", "failed",
+    # An update was found and deliberately not applied — the skill-side trigger
+    # checks while something is reading the tree it would swap. Calling this
+    # "current" told a machine with a pending update that it was up to date,
+    # because `report` reads the outcome and nothing else (audit F14).
+    "deferred",
 )
 
 
@@ -194,7 +261,7 @@ def _too_soon(state_root: Optional[Path], now: float) -> bool:
         # ahead turns the check off permanently and silently, which is a denial
         # of service that looks exactly like a healthy install.
         return False
-    return (now - when) < CHECK_INTERVAL_SECONDS
+    return (now - when) < check_interval_seconds()
 
 
 def check(
@@ -283,8 +350,12 @@ def _check_locked(
         return CheckResult(outcome="current")
     if not apply:
         return CheckResult(
-            outcome="current",
-            detail=f"{found.manifest.get('version')} is available and was not applied",
+            outcome="deferred",
+            detail=(
+                f"{found.manifest.get('version')} is available; it will be applied "
+                f"at the next session start, when nothing is reading the tree it "
+                f"replaces"
+            ),
         )
     return _apply(
         root=root, commit=found.commit,

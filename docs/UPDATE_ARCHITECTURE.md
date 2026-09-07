@@ -442,6 +442,60 @@ A note on ordering that matters for the roadmap: the context-helper trigger work
 surface exists at all** (zed, trae-work-cn, qoderwake, workbuddy, kimi-work). Those are exactly the machines
 that would otherwise never update. Building the hook trigger first would leave them behind.
 
+### 10.1 Which hosts the hook trigger actually reaches
+
+"Hosts with a real hook surface" is not the same set as "hosts AQG installs a session-start event for".
+Three managed-merge hosts have a hook surface and still get no hook-borne trigger. That gap is recorded
+here rather than left for whoever reads an installer next, because the first version of this feature
+shipped wired into exactly one host and the other twelve were missing silently.
+
+Each installer keeps its own hook table, so the trigger is wired in six places to reach twelve hosts. The
+set is pinned by `tests/behavior/test_update_check_host_coverage.py`, which fails if a host gains a hook
+surface and nobody decides what it should do.
+
+| Host | Installer | Mounted on | Reached |
+|---|---|---|---|
+| claude-code | `install_aqg_hooks.py` | `SessionStart` | yes |
+| codex | `install_aqg_codex_hooks.py` | `SessionStart` | yes |
+| cursor | `install_cursor_support.py` | `sessionStart` -> `cursor_aqg_hook.py` | yes |
+| codebuddy, workbuddy-ai | `install_aqg_work_clients.py` (JSON) | `SessionStart` -> `cursor_aqg_hook.py` | yes |
+| kimi-code | `install_aqg_work_clients.py` (TOML) | `SessionStart` -> `cursor_aqg_hook.py` | yes |
+| qoder-cli, qoder-cli-cn | `install_aqg_qoder.py` | `SessionStart` -> `qoder_hook_adapter.py` | yes |
+| trae, trae-cn, devin | `install_aqg_agent_clients.py` | `SessionStart` -> `agent_client_aqg_hook.py` | yes |
+| pi | `install_aqg_pi.py` | `session_start` extension handler | yes |
+| **qoder, qoder-cn** | `install_aqg_qoder.py` | -- | **no**: Desktop (`cli=False`) has no verified `SessionStart` surface, so AQG mounts no session-start event for it at all |
+| **qoderwork** | `install_aqg_work_clients.py` | -- | **no**: `SessionStart` parity with Qoder CLI is unproven, so its event set stops at `PreToolUse` / `PostToolUse` / `Stop` / `UserPromptSubmit` |
+
+The four cursor-family hosts mount one adapter command per lifecycle event instead of naming hook scripts,
+so for them the trigger lives in `cursor_aqg_hook.py::_trigger_update_check` rather than in a config row.
+It is started and not waited on: that adapter is one command for the WHOLE event and already spends up to
+20s on preflight and 15s on WIP recovery, against host budgets of 45s (Cursor) and 30s (the work clients),
+so a wait of any length there is taken out of a budget that is already tight — and an adapter killed
+mid-run hands the host no JSON at all.
+
+Two limits worth stating rather than discovering:
+
+- **Windows hosts mount it but do not run it.** The launcher's precondition is `command -v python3`, and a
+  Windows Python installs `python.exe` / `py.exe`. The context-helper nudge gates on the same thing, so a
+  Windows host is reached by neither path and updates only under `scripts/upgrade.sh`.
+- **Codex now triggers the update that invalidates its own trust pins.** Every Codex hook command embeds
+  a sha256 over `run_aqg_codex_hook.py` and that hook's script, verified before the runner loads; a
+  successful apply swaps the tree those paths resolve through, so the next hook exits 3 without running.
+  Every AQG gate on that host, the four blocking `PreToolUse` ones included, then stops evaluating until
+  `install_aqg_codex_hooks.py --apply` is re-run and the definitions re-approved in `/hooks`. This is a
+  property of the apply pipeline, not of the trigger — a Claude Code session on the same machine breaks
+  Codex's pins the same way, and has been able to since the trigger shipped — but mounting it on Codex
+  means Codex can now do it to itself with nobody watching. Two things would close it and neither is in
+  this section's scope: `pending[]` is not surfaced anywhere yet (§11 specifies the line;
+  `sessionstart_preflight.sh` does not carry it), and host reconciliation defers hook-config changes to a
+  human rather than re-pinning. `test_codex_bundle_digest_matches_installed_pin` catches a stale pin, but
+  only on a machine that has Codex installed — it skips in CI.
+- **The three uncovered hosts are reached on skill invocation, not on session start.**
+  `_aqgctx_nudge_update` in `scripts/_aqg_context.sh` calls the same `scripts.aqg_update.run` entry point,
+  so it shares the throttle file and the two paths cannot duplicate work. What they do not share is the
+  moment: a `qoder`, `qoder-cn` or `qoderwork` session that never invokes an AQG skill never checks. That
+  is a weaker guarantee than the hook path, not an equivalent one.
+
 ## 11. Prompt surfaces: what this mechanism has to change (answer: almost nothing)
 
 AQG is a prompt-dense product; every new line of text competes with every skill description for the same

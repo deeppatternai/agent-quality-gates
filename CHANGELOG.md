@@ -171,6 +171,23 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) loosely;
 
 ### Changed
 
+- **The managed update check runs hourly, and the interval is now a setting.**
+  It was twenty hours and hardcoded, so every adjustment to it was a code change
+  and a release. The default is one hour and `AQG_UPDATE_INTERVAL_SECONDS`
+  overrides it — a day of debugging wants minutes, a settled install may want
+  longer. The value is clamped between 60 seconds and 7 days; anything that is
+  not a whole number of seconds, including `0` and negatives, is treated as
+  unset and takes the default rather than raising, because this runs detached at
+  session start where an exception is a check that silently never happens. `0`
+  does **not** mean "check every time", and stopping the check remains
+  `AQG_NO_UPDATE_CHECK`'s job — the ceiling exists so that permanently
+  suppressing a signature-verifying updater stays reachable only through the
+  switch that leaves no record and is therefore the visible one. The accepted
+  cost of the new default is up to 24 git ref reads per install per day, where
+  the old one made about 1. The SessionStart launcher forwards the variable
+  through its `env -i` allowlist, which is the only path on which the interval is
+  ever consulted; `-E` was never what blocked it, since `-E` makes PYTHON\*
+  interpreter settings inert and does not touch ordinary environment reads.
 - **The audit trigger policy is being collapsed to one source.**
   `docs/policies/audit-trigger.md` now owns when to audit and how deeply for
   everything in this repository; the ladder previously lived in three drifted
@@ -201,6 +218,37 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) loosely;
   absent block, a block carrying a retired framing, and a hook that cannot reach
   the model. Everything new is WARN, never FAIL; a host that is not installed
   stays quiet.
+- **The managed update check now fires on every host that has a session start,
+  not just Claude Code.** `sessionstart_update_check.sh` shipped wired into one
+  installer; the other five each carry their own hook table and none of them was
+  asked, so twelve hook-capable hosts silently never checked for an update.
+  Codex, Cursor, CodeBuddy, WorkBuddy AI, Kimi Code, Qoder CLI (both locales),
+  Trae (both locales), Devin and Pi now mount it. The four Cursor-family hosts
+  mount one adapter command per lifecycle event rather than naming hook scripts,
+  so for them the trigger lives in `cursor_aqg_hook.py` and starts *before* the
+  adapter's no-workspace return — a session opened outside a repo is still a
+  session that should learn its checkout is stale. Everywhere it is a trigger
+  only, in no host's blocking set: a slow remote must never stop a session
+  starting. Qoder Desktop, Qoder CN Desktop and QoderWork get nothing, because
+  AQG installs no session-start event for them at all; that is recorded with its
+  reason in `docs/UPDATE_ARCHITECTURE.md` §10.1 and pinned by
+  `tests/behavior/test_update_check_host_coverage.py`, which fails when a host
+  gains a hook surface and nobody decides what it should do. Those three are
+  reached by `_aqgctx_nudge_update` in `scripts/_aqg_context.sh` instead, which
+  shares this check's throttle file — but on skill invocation, not on session
+  start, so a session that never invokes a skill never checks.
+  `docs/UPDATE_ARCHITECTURE.md` §10.1 states that difference rather than calling
+  the two paths equivalent, and records that a Windows host is reached by
+  neither: both gate on `command -v python3`, which a Windows Python does not
+  satisfy.
+- **`pytest` no longer starts a real update check.** With the trigger on twelve
+  hosts, the suites that drive those adapters as subprocesses were reaching the
+  network and writing the developer's own `aqg-state`; `check()` applies by
+  default, so a run whose 20-hour throttle had expired could stamp an
+  install-state that does not describe the tree it names. The root `conftest.py`
+  sets `AQG_NO_UPDATE_CHECK` for the whole run, `test_update_run.py` takes it
+  back off because it owns that channel, and the one test there that started a
+  real check without saying where its state goes now points at `tmp_path`.
 
 ### Upgrade note
 
@@ -217,6 +265,17 @@ A `stale rules block` warning means re-syncing the block from the current
 `examples/aqg-claude-rules.example.md` / `examples/aqg-codex-agents.example.md`.
 Cursor's block is installed by `install_cursor_support.py --apply` and needs no
 manual step.
+
+**Codex users: re-run the hook installer and re-trust.** The update check is a
+new member of the managed hook set, and Codex pins each hook's definition by a
+digest over the runner and that hook's script — so every existing pin is now
+stale and Codex is silently degraded until:
+
+```bash
+python3 "$AQG_ROOT/scripts/install_aqg_codex_hooks.py" --apply
+```
+
+then re-approve the definitions in Codex `/hooks`.
 
 **Codex users: expect two ladders in `~/.codex/AGENTS.md` for now.** The Decision
 Engine installs its own routing block into the same file

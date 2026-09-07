@@ -24,6 +24,7 @@ HOOK_SCRIPTS = frozenset(
         "posttooluse_security_review_reminder.sh",
         "precompact_closeout_reminder.sh",
         "sessionstart_preflight.sh",
+        "sessionstart_update_check.sh",
         "userpromptsubmit_handoff_mandate.sh",
         "wip_checkpoint_save.sh",
         "wip_checkpoint_recover.sh",
@@ -42,6 +43,13 @@ PROJECT_ARG_HOOKS = frozenset(
         "wip_checkpoint_recover.sh",
     }
 )
+#: The one hook whose whole job is to return. It forks a detached updater and
+#: exits, so anything but a fast return means something is stuck -- and unlike
+#: the other hooks here, nothing is lost by giving up on it. The rest stay
+#: unbounded: that predates this trigger, and putting a clock on a preflight
+#: that legitimately takes twenty seconds is a different change.
+UPDATE_CHECK_HOOK = "sessionstart_update_check.sh"
+UPDATE_CHECK_TIMEOUT_SECONDS = 10
 
 
 def _find_bash() -> str | None:
@@ -175,13 +183,14 @@ def main(argv: list[str] | None = None) -> int:
             env=env,
             capture_output=True,
             check=False,
+            timeout=UPDATE_CHECK_TIMEOUT_SECONDS if args.hook == UPDATE_CHECK_HOOK else None,
         )
         _, residual_stdout = _aqg_split_envelope(proc.stdout)
         if residual_stdout.strip():
             print(residual_stdout, end="" if residual_stdout.endswith("\n") else "\n")
         if proc.stderr:
             print(proc.stderr, end="", file=sys.stderr)
-    except OSError as exc:
+    except (OSError, subprocess.TimeoutExpired) as exc:
         return _degraded(args.hook, f"hook invocation failed: {type(exc).__name__}")
 
     if args.hook in BLOCKING_HOOKS:

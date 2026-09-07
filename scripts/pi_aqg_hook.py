@@ -24,6 +24,7 @@ HOOK_SCRIPTS = frozenset(
         "posttooluse_security_review_reminder.sh",
         "precompact_closeout_reminder.sh",
         "sessionstart_preflight.sh",
+        "sessionstart_update_check.sh",
         "userpromptsubmit_handoff_mandate.sh",
         "wip_checkpoint_save.sh",
         "wip_checkpoint_recover.sh",
@@ -32,6 +33,13 @@ HOOK_SCRIPTS = frozenset(
 PROJECT_ARG_HOOKS = frozenset(
     {"sessionstart_preflight.sh", "wip_checkpoint_save.sh", "wip_checkpoint_recover.sh"}
 )
+#: The one hook whose whole job is to return. It forks a detached updater and
+#: exits, so anything but a fast return means something is stuck -- and unlike
+#: the other hooks here, nothing is lost by giving up on it. The rest stay
+#: unbounded: that predates this trigger, and putting a clock on a preflight
+#: that legitimately takes twenty seconds is a different change.
+UPDATE_CHECK_HOOK = "sessionstart_update_check.sh"
+UPDATE_CHECK_TIMEOUT_SECONDS = 10
 
 
 def _read_payload() -> dict[str, object]:
@@ -152,15 +160,23 @@ def main(argv: list[str] | None = None) -> int:
     command = [bash, script.as_posix()]
     if args.hook in PROJECT_ARG_HOOKS:
         command.append(project_dir.as_posix())
-    proc = subprocess.run(
-        command,
-        input=json.dumps(payload, ensure_ascii=False),
-        text=True,
-        encoding="utf-8",
-        capture_output=True,
-        env=env,
-        check=False,
-    )
+    try:
+        proc = subprocess.run(
+            command,
+            input=json.dumps(payload, ensure_ascii=False),
+            text=True,
+            encoding="utf-8",
+            capture_output=True,
+            env=env,
+            check=False,
+            timeout=UPDATE_CHECK_TIMEOUT_SECONDS if args.hook == UPDATE_CHECK_HOOK else None,
+        )
+    except subprocess.TimeoutExpired:
+        # Only reachable for the update trigger, which is best-effort by design.
+        # Say so on stderr, where every other degradation in this adapter goes,
+        # and leave the session alone.
+        print(f"[aqg pi-adapter] degraded: {args.hook} did not return in time", file=sys.stderr)
+        return 0
     # Conservative: PI's stdout contract is not documented in this repo, and
     # before the hooks became model-visible its stdout was always empty. Suppress
     # the envelope so PI sees exactly what it saw before rather than a guess;

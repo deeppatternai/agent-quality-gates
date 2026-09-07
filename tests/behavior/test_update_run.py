@@ -20,13 +20,32 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 import pytest
 
 from scripts.aqg_update import run as run_mod
+
+
+def test_the_conftest_guard_names_the_switch_this_module_owns():
+    """`conftest.py` disarms the automatic channel for the whole suite by writing
+    the variable name as a string literal, so that collecting one test file does
+    not import the updater. A rename here would leave that literal pointing at
+    nothing and silently re-arm every other suite."""
+    assert run_mod.KILL_SWITCH == "AQG_NO_UPDATE_CHECK"
+
+
+# `conftest.py` disables the automatic channel for the whole run so that no
+# other suite's session-start adapter can start a real check against the
+# developer's state or the network. This suite owns that channel, and isolates
+# `AQG_STATE_ROOT`, the keyring and the remote per test, so it takes the switch
+# back off. Tests below that want it ON still just set it themselves: the
+# fixture applies before the test body.
+pytestmark = pytest.mark.usefixtures("live_update_channel")
 
 
 @pytest.fixture
@@ -82,6 +101,120 @@ def test_a_check_that_ran_recently_is_not_repeated(tmp_path, state_root, monkeyp
 def test_an_old_check_does_not_suppress_a_new_one(tmp_path, state_root, monkeypatch):
     stale = run_mod.CheckResult(outcome="current")
     run_mod.record(stale, state_root=state_root, at=0.0)
+    result = run_mod.check(
+        root=tmp_path, remote="origin", channel="stable",
+        keyring_path=tmp_path / "absent.json",
+    )
+    assert result.outcome == "no-keyring"
+
+
+# --- the interval that clock gate uses -----------------------------------------------------
+
+
+def test_the_default_interval_is_one_hour(monkeypatch):
+    """The default has to be a number this file states, not one a reader infers
+    from a record's age. Debugging wants it short; a release may want it long."""
+    monkeypatch.delenv(run_mod.INTERVAL_ENV, raising=False)
+    assert run_mod.check_interval_seconds() == 3600
+
+
+def test_the_interval_can_be_overridden_from_the_environment(monkeypatch):
+    """Otherwise every adjustment is a code change and a release."""
+    monkeypatch.setenv(run_mod.INTERVAL_ENV, "7200")
+    assert run_mod.check_interval_seconds() == 7200
+
+
+def test_an_override_of_surrounding_whitespace_is_still_read(monkeypatch):
+    """`FOO=" 300 "` out of a shell is a typo, not a request for the default."""
+    monkeypatch.setenv(run_mod.INTERVAL_ENV, "  300  ")
+    assert run_mod.check_interval_seconds() == 300
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        "", "   ", "soon", "1.5", "3600s", "0", "-1", "-3600",
+        # `int()` on its own accepts every one of these. A silently-honoured
+        # `3_600` is worse than a rejected one: it looks like it was ignored.
+        "3_600", "+ 60", "0x10", "६०", "٣٦٠٠", "６０",
+    ],
+)
+def test_an_unusable_override_falls_back_to_the_default(monkeypatch, raw):
+    """This runs on the SessionStart path, where a raised exception is a check
+    that silently never happens. A duration must be a positive whole number of
+    seconds; anything else is malformed input, and malformed input takes the
+    default rather than the process down."""
+    monkeypatch.setenv(run_mod.INTERVAL_ENV, raw)
+    assert run_mod.check_interval_seconds() == 3600
+
+
+@pytest.mark.parametrize("raw", ["1", "30", "59", "+30"])
+def test_an_override_below_the_floor_is_raised_to_it(monkeypatch, raw):
+    """A positive duration under the floor IS a request for a short interval —
+    honour it as far as the floor, which exists because anything smaller turns
+    every session start into a network round trip. Answering it with the
+    default would give the caller the opposite of what they asked for."""
+    monkeypatch.setenv(run_mod.INTERVAL_ENV, raw)
+    assert run_mod.check_interval_seconds() == run_mod.MIN_CHECK_INTERVAL_SECONDS == 60
+
+
+@pytest.mark.parametrize("raw", ["604801", "999999999", str(2 ** 63)])
+def test_an_override_above_the_ceiling_is_lowered_to_it(monkeypatch, raw):
+    """The mirror of the floor, and it is the one that matters. `_too_soon`
+    already defends the other operand of its comparison — a record dated a year
+    ahead does not suppress the check — so leaving the interval unbounded would
+    have reached the identical permanent, silent disablement of a self-updater
+    that verifies signatures, through the input this change adds. Stopping
+    checks is `AQG_NO_UPDATE_CHECK`'s job, and that switch is the one a person
+    looking for it can find."""
+    monkeypatch.setenv(run_mod.INTERVAL_ENV, raw)
+    assert run_mod.check_interval_seconds() == run_mod.MAX_CHECK_INTERVAL_SECONDS == 7 * 24 * 3600
+
+
+def test_the_clock_gate_actually_reads_the_override(tmp_path, state_root, monkeypatch):
+    """The constant being configurable is worth nothing if `_too_soon` still
+    closes over the old one. A record two hours old is stale under the one-hour
+    default and fresh under a three-hour override.
+
+    Each leg re-writes the record first, and that is the whole point. The first
+    version did not, and the `no-keyring` path calls `_finish`, which records at
+    `now` — so the second leg was reading a record it had just written seconds
+    ago, and passed under any interval at all. It went green against a mutant
+    whose gate compared against `DEFAULT_CHECK_INTERVAL_SECONDS` and ignored the
+    override entirely, which is precisely the defect this test exists to catch.
+    """
+    def outcome_with(interval):
+        run_mod.record(
+            run_mod.CheckResult(outcome="current"), state_root=state_root,
+            at=time.time() - 2 * 3600,
+        )
+        if interval is None:
+            monkeypatch.delenv(run_mod.INTERVAL_ENV, raising=False)
+        else:
+            monkeypatch.setenv(run_mod.INTERVAL_ENV, str(interval))
+        return run_mod.check(
+            root=tmp_path, remote="origin", channel="stable",
+            keyring_path=tmp_path / "absent.json",
+        ).outcome
+
+    # Fails in both directions: a longer interval must suppress the check, and a
+    # shorter one must let it through. One leg alone can be satisfied by an
+    # interval the gate never read.
+    assert outcome_with(None) == "no-keyring"
+    assert outcome_with(3 * 3600) == "too-soon"
+    assert outcome_with(60) == "no-keyring"
+
+
+def test_an_override_does_not_revive_a_future_timestamp(tmp_path, state_root, monkeypatch):
+    """The record is a file the user can write, and the future-timestamp guard
+    is what stops one dated a year ahead from turning the check off forever. A
+    configurable interval must not reintroduce the denial of service by
+    reaching the comparison before that guard."""
+    monkeypatch.setenv(run_mod.INTERVAL_ENV, "60")
+    run_mod.record(
+        run_mod.CheckResult(outcome="current"), state_root=state_root,
+        at=9_999_999_999.0,
+    )
     result = run_mod.check(
         root=tmp_path, remote="origin", channel="stable",
         keyring_path=tmp_path / "absent.json",
@@ -248,7 +381,24 @@ def test_the_hook_returns_immediately(tmp_path, monkeypatch):
     subprocess.run(
         ["bash", str(HOOK)],
         capture_output=True,
-        env={**os.environ, "AQG_ROOT": str(Path(__file__).resolve().parents[2])},
+        env={
+            **os.environ,
+            "AQG_ROOT": str(Path(__file__).resolve().parents[2]),
+            # This is the only test that starts a REAL check, and it used to
+            # say neither where its state goes nor which remote it talks to. Its
+            # detached child recorded into the developer's own `aqg-state`, and
+            # `check()` applies by default -- so it could stamp an install-state
+            # that does not describe the tree it names. Observed once.
+            #
+            # BOTH lines are needed, and a state root alone is worse than
+            # nothing: an empty one has no throttle record, so the 20-hour gate
+            # that used to suppress this by accident now lets it through on
+            # EVERY run. The unresolvable remote is what stops the child before
+            # it can fetch or apply, while leaving it real enough that a
+            # launcher which waited for it would still blow the assertion below.
+            "AQG_STATE_ROOT": str(tmp_path / "state"),
+            "AQG_UPDATE_REMOTE": "aqg-test-remote-that-does-not-exist",
+        },
         timeout=30,
     )
     assert time.monotonic() - started < 5.0
@@ -539,6 +689,91 @@ def test_the_launcher_scrubs_the_environment_it_hands_over(tmp_path):
     assert "env -i" in body, "the child inherits the caller's environment"
     assert "-E" in body, "PYTHON* variables are not ignored"
     assert "PYTHONPATH" not in body, "PYTHONPATH is forwarded"
+
+
+def test_the_launcher_forwards_the_interval_override(tmp_path):
+    """`env -i` scrubs the environment, so a variable the module reads is dead
+    on the one path where the interval is actually consulted unless the
+    launcher is told to carry it. Asserting the module alone would have shipped
+    an override that works in tests and nowhere else."""
+    assert f'{run_mod.INTERVAL_ENV}="${{{run_mod.INTERVAL_ENV}:-}}"' in _hook_code(), (
+        "the SessionStart launcher does not forward the interval override "
+        "through its `env -i` allowlist"
+    )
+
+
+def _forwarded_names() -> set:
+    """The variable names between `env -i` and the `sh -c` it execs.
+
+    Anchored to the argument list rather than scanned from the whole file: a
+    file-wide `NAME=` scan produces the same set whether or not `-i` is there,
+    and `env` without `-i` hands the child the entire parent environment.
+    """
+    body = _hook_code()
+    start = body.index("env -i") + len("env -i")
+    end = body.index("sh -c", start)
+    # A leading quote is tolerated: `env -i "PYTHONPATH=/x"` forwards it just as
+    # surely as the unquoted form, and must not slip past for want of a match.
+    return set(re.findall(r"""(?:^|\s)["']?([A-Za-z_][A-Za-z0-9_]*)=""", body[start:end]))
+
+
+def test_the_launcher_forwards_exactly_its_allowlist(tmp_path):
+    """A frozen set, not a denylist of the two names that came to mind.
+
+    The previous version asserted only that no `PYTHON*` or `LD_PRELOAD` entry
+    was present, which is thin in both directions: `LD_LIBRARY_PATH`, `LD_AUDIT`,
+    `BASH_ENV` (sourced by bash before a non-interactive `-c`), `IFS` and
+    `GIT_SSH_COMMAND` would all have passed it, and it was computed from a
+    file-wide scan that could not see `-i` disappear. Equality makes any change
+    to the perimeter a change someone has to make here, deliberately, too.
+    """
+    assert _forwarded_names() == {
+        "HOME", "PATH", "LANG",
+        "AQG_ROOT", "AQG_STATE_ROOT", "AQG_UPDATE_INTERVAL_SECONDS",
+    }
+
+
+def test_the_launcher_survives_a_hostile_interval_value(tmp_path):
+    """The one forwarded variable a user is invited to set, given a payload.
+
+    An audit called this construction a critical shell-metacharacter breakout —
+    a value containing a quote closing the quoted region early and injecting
+    `LD_PRELOAD=` into the `env` argument list. It is not: the result of a
+    parameter expansion is not re-parsed as shell syntax. But "not re-parsed" is
+    a language rule quoted in a review, and this is the perimeter around the
+    process that verifies release signatures, so it is asserted by running it.
+    """
+    fragment = "\n".join(
+        line for line in _hook_code().splitlines()
+        if "env -i" in line or "=" in line or "sh -c" in line
+    ).replace("nohup ", "").replace("</dev/null >/dev/null 2>&1 &", "")
+    fragment = fragment.replace(
+        "exec python3 -E -s -m scripts.aqg_update.run", "exec env"
+    )
+
+    payload = '\'" LD_PRELOAD=/tmp/evil.so $(touch {}) `id` ;echo pwned "\''.format(
+        tmp_path / "PWNED"
+    ).strip("'")
+    proc = subprocess.run(
+        ["bash", "-c", fragment],
+        capture_output=True, text=True, timeout=30,
+        env={**os.environ, "AQG_ROOT": str(tmp_path), run_mod.INTERVAL_ENV: payload},
+    )
+
+    child = dict(
+        line.split("=", 1) for line in proc.stdout.splitlines() if "=" in line
+    )
+    assert child.get(run_mod.INTERVAL_ENV) == payload, (
+        f"the value did not arrive intact: {proc.stdout!r} {proc.stderr!r}"
+    )
+    assert "LD_PRELOAD" not in child, f"injected into the child environment: {child}"
+    assert not (tmp_path / "PWNED").exists(), "the payload executed"
+    # The payload's own text appearing in `env`'s output is not a failure — it
+    # is the proof, because it is there as one variable's value and not as a
+    # variable of its own. What would be a failure is a NAME the allowlist does
+    # not have — `env` and `sh` add these four themselves, OLDPWD because the
+    # launcher's `cd "$AQG_ROOT"` is what makes `-m` resolve.
+    assert set(child) - {"PWD", "OLDPWD", "SHLVL", "_"} <= _forwarded_names(), child
 
 
 def test_the_launcher_does_not_depend_on_setsid(tmp_path):

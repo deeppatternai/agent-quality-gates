@@ -25,6 +25,21 @@
 # directory lives and where git finds ~/.gitconfig. Neither can be dropped and
 # have this work at all, so this is a smaller perimeter than "isolated" — an
 # audit was right to say the `env -i` reads as more than it delivers.
+#
+# AQG_UPDATE_INTERVAL_SECONDS is kept for a different reason: this launcher is
+# the only path on which the interval is ever consulted, so a variable the
+# runner reads but this list drops is an override that works in tests and
+# nowhere else.
+#
+# What makes forwarding it acceptable is not a claim about who can set it — an
+# audit was right to reject that as the justification. It is that the value
+# cannot reach anything but one integer: the runner matches it against
+# `[+-]?[0-9]+` before parsing, discards anything else, and clamps what is left
+# between MIN_ and MAX_CHECK_INTERVAL_SECONDS, so it can neither steer the
+# interpreter nor turn the check off forever. It never reaches a shell either:
+# the expansion below is the *result* of an expansion, not shell syntax, so a
+# value full of quotes and `$( )` arrives as one literal argv element — which
+# the launcher's own tests exercise with a payload rather than assert in prose.
 set -uo pipefail
 
 if [ -n "${AQG_NO_UPDATE_CHECK:-}" ]; then exit 0; fi
@@ -40,6 +55,7 @@ if [ ! -f "$AQG_ROOT/scripts/aqg_update/run.py" ]; then exit 0; fi
 nohup env -i \
   HOME="${HOME:-}" PATH="${PATH:-}" LANG="${LANG:-}" \
   AQG_ROOT="$AQG_ROOT" AQG_STATE_ROOT="${AQG_STATE_ROOT:-}" \
+  AQG_UPDATE_INTERVAL_SECONDS="${AQG_UPDATE_INTERVAL_SECONDS:-}" \
   sh -c 'cd "$AQG_ROOT" && exec python3 -E -s -m scripts.aqg_update.run' \
   </dev/null >/dev/null 2>&1 &
 exit 0

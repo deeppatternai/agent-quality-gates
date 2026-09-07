@@ -175,10 +175,63 @@ _aqgctx_resolve() {
 # caller's prior state could otherwise bypass AQG_REQUIRE_ENV=1 or carry
 # a stale path. Cleanup the function on every exit path including failure
 # (audit #1) so sourcing never leaves _aqgctx_resolve in caller's shell.
+# Nudge the managed update check, detached, from wherever a skill runs.
+#
+# Fourteen of the twenty-three registered hosts can take a SessionStart hook and
+# exactly one had the update trigger wired; six can never take one at all
+# (kimi-work, qoderwake, trae-work, trae-work-cn, workbuddy, zed). Wiring hosts
+# one at a time is a race nobody wins — every new client is another chance to
+# forget. This file is sourced by all sixteen skills' How To Run blocks, so it
+# reaches every host, including the ones with no hook mechanism.
+#
+# It is a NUDGE, not the check. Everything expensive — the interval, the fetch,
+# the signature — happens in the background process this starts. The rules are
+# the hook's rules, for the same reasons, plus one this file adds:
+#
+#   - NOTHING on stdout. A skill's How To Run block is a command the caller
+#     reads the output of; a stray line here corrupts it.
+#   - NEVER fail, never `exit`, never change $?. This file's contract
+#     (see the header) is that sourcing it cannot break the caller.
+#   - NO `setsid` — util-linux, absent on macOS.
+#   - Do NOT wait. A skill must not get slower because an update was checked.
+_aqgctx_nudge_update() {
+  [ -z "${AQG_NO_UPDATE_CHECK:-}" ] || return 0
+  [ -n "${aqg_root:-}" ] || return 0
+  [ -f "$aqg_root/scripts/aqg_update/run.py" ] || return 0
+  command -v python3 >/dev/null 2>&1 || return 0
+  # Drop the interpreter-steering set by NAME rather than clearing everything
+  # and adding back. `env -i` plus an allowlist got both halves wrong: an unset
+  # variable came through as empty (`HOME=""` is worse than no HOME — git reads
+  # it), and the proxy and TLS variables the fetch needs were missing, so every
+  # update behind a corporate proxy failed with all output discarded. Removing
+  # the few dangerous names keeps the many needed ones without a list to forget.
+  # `-E -s` closes the same door from the Python side.
+  #
+  # `--check-only`: this runs WHILE a skill is using the very root it would
+  # swap. Session start has no such problem — nothing is reading the tree yet —
+  # so that path still applies, and this one leaves the swap to it. An update
+  # can take one session longer to land; a tree that is half one version and
+  # half another while a skill walks it cannot be seen at all (audit F14).
+  #
+  # The subshell is what keeps this off the caller's books: without it the
+  # background PID lands in the caller's `$!` and, under job control, a job line
+  # goes to the caller's stderr.
+  (
+    AQG_ROOT="$aqg_root" nohup env \
+      -u PYTHONPATH -u PYTHONHOME -u PYTHONSTARTUP -u PYTHONEXECUTABLE \
+      -u LD_PRELOAD -u LD_LIBRARY_PATH -u DYLD_INSERT_LIBRARIES -u DYLD_LIBRARY_PATH \
+      sh -c 'cd "$AQG_ROOT" && exec python3 -E -s -m scripts.aqg_update.run --check-only' \
+      </dev/null >/dev/null 2>&1 &
+  ) 2>/dev/null
+  return 0
+}
+
 if _aqgctx_resolve; then
   export aqg_root  # audit #2: child processes must inherit resolved path
-  unset -f _aqgctx_resolve _aqgctx_physical _aqgctx_untruncated 2>/dev/null || true
+  # `|| true` so a nudge failure can never become the caller's exit status.
+  _aqgctx_nudge_update || true
+  unset -f _aqgctx_resolve _aqgctx_physical _aqgctx_untruncated _aqgctx_nudge_update 2>/dev/null || true
 else
-  unset -f _aqgctx_resolve _aqgctx_physical _aqgctx_untruncated 2>/dev/null || true
+  unset -f _aqgctx_resolve _aqgctx_physical _aqgctx_untruncated _aqgctx_nudge_update 2>/dev/null || true
   return 1
 fi

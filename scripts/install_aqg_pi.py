@@ -47,6 +47,7 @@ HOOK_SCRIPTS = (
     "posttooluse_security_review_reminder.sh",
     "precompact_closeout_reminder.sh",
     "sessionstart_preflight.sh",
+    "sessionstart_update_check.sh",
     "userpromptsubmit_handoff_mandate.sh",
     "wip_checkpoint_save.sh",
     "wip_checkpoint_recover.sh",
@@ -274,6 +275,11 @@ def _render_extension(aqg_root: Path) -> str:
         "  pi.on(\"session_start\", async (event, ctx) => {\n"
         "    await runAqg(\"sessionstart_preflight.sh\", { event, cwd: ctx.cwd, managedId: AQG_MANAGED_ID });\n"
         "    await runAqg(\"wip_checkpoint_recover.sh\", { event, cwd: ctx.cwd, managedId: AQG_MANAGED_ID });\n"
+        # Managed update check. `runAqg` reports `blocked` on a non-zero exit and
+        # this call ignores it, which is the whole point: the trigger backgrounds
+        # its work and returns, and a slow remote must never delay or fail a
+        # session start.
+        "    await runAqg(\"sessionstart_update_check.sh\", { event, cwd: ctx.cwd, managedId: AQG_MANAGED_ID });\n"
         "  });\n\n"
         "  pi.on(\"tool_call\", async (event, ctx) => {\n"
         "    const payload = { event, cwd: ctx.cwd, managedId: AQG_MANAGED_ID };\n"

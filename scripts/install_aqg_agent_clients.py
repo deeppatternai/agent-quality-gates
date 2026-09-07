@@ -54,6 +54,7 @@ HOOK_SCRIPTS = (
     "posttooluse_security_review_reminder.sh",
     "precompact_closeout_reminder.sh",
     "sessionstart_preflight.sh",
+    "sessionstart_update_check.sh",
     "userpromptsubmit_handoff_mandate.sh",
     "wip_checkpoint_save.sh",
     "wip_checkpoint_recover.sh",
@@ -783,6 +784,11 @@ def _hook_specs(aqg_root: Path, profile: ClientProfile) -> dict[str, list[dict[s
                 "hooks": [
                     entry("sessionstart_preflight.sh"),
                     entry("wip_checkpoint_recover.sh"),
+                    # Managed update check. A trigger only: it starts a detached
+                    # process and returns, so no session waits on a network round
+                    # trip, and it is kept out of BLOCKING_HOOKS so a slow remote
+                    # can never stop a session from starting.
+                    entry("sessionstart_update_check.sh"),
                 ],
             }
         ],
