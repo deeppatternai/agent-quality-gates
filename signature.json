@@ -1,0 +1,6 @@
+{
+  "algorithm": "rsa-pkcs1v15-sha256",
+  "key_id": "stable-2026-09",
+  "schema": 1,
+  "signature": "I7joDhzQk/9hGO3+RyotSxqFtkjtDucUwBIqYCJA+adFhjD8LhgP4vNMUYi7gDTmMCwnDLIqSF00rcIh4J+KGse5AMhHiqlDPFtos7IIiVT0/g/nyt+qdjLD9UbAsjasKZa3NcUsSuB8EAn9ESr8p4l/5Q14s/dGEp8kuT3c6usPbYcYgHhSZDL2PoaaSZxaDyqh4S611d9qWjLdEo3xWNN3xmM8b1wN7Au3n/coK4+yib74WkLSC3Zi6ue+tbpJINnsYmthaamZjvh1fyeVF8Yu6Z5rMocDde9lNq0AsirjnKrECtbcNVegpqU4+aTBDC3Kf8jwezk0Z7M6/d1FDYECwvdno0rvthsbk3XcUmw+lKyZKvwji35rX2PwpQZ7qq6Nz1eLyFDtrBQanLuVl7gCFFhgQ7kEFeRrxLNLq7dvnS3SVobMLdnkH3GaKqrMivVVnFlX1LIEI7E22HZw9ddv8XPZgnWHTKOxNNeiqgprnZlQNo0FlTLA3fSXfnHqC/dYnlhJ3VSiiBem69D2YZxn4k1y0UWcQyXBH+FsFnd3VOuSqt248sE5uWS2PPKdDyDH+i5U3rQvtgK8UbmVHjht/6YqmpyLxoE91YAEIFVAUAtaznI4GXZf4uDlsvR0zw3Wkz6VYCdkf23IszsyvjuyizHZVazfDfRZqByEgL8="
+}
