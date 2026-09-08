@@ -260,6 +260,9 @@ def check_pyyaml() -> CheckResult:
 def resolve_aqg_root() -> tuple[Path | None, str]:
     """Resolve in priority order: AQG_ROOT > the repo the doctor script lives in.
 
+    Hook verification requires the same stable entrance spelling used at install
+    time; physical-path equivalence must not hide a version-pinned definition.
+
     The source field is kept short ("AQG_ROOT env" / "AQG_ROOT env (empty)" /
     "AQG_ROOT env (not a directory)" / "derived from doctor location") to avoid
     stuttering in check_aqg_root output (finding #8).
@@ -271,10 +274,14 @@ def resolve_aqg_root() -> tuple[Path | None, str]:
             return None, "AQG_ROOT env (empty)"
         path = Path(stripped).expanduser()
         if path.is_dir():
-            return path.resolve(), "AQG_ROOT env"
+            # Hook definitions retain this entrance so managed upgrades can move it.
+            return path.absolute(), "AQG_ROOT env"
         return path, "AQG_ROOT env (not a directory)"
-    # the doctor script lives under scripts/, so one level up is the repo root
-    candidate = Path(__file__).resolve().parents[1]
+    # Match the installer's logical root even when AQG_ROOT is unset.
+    candidate = Path(__file__).absolute().parents[1]
+    if not (candidate / "VERSION").is_file():
+        # Retain discovery when only the doctor script is linked outside its repo.
+        candidate = Path(__file__).resolve().parents[1]
     if (candidate / "VERSION").is_file():
         return candidate, f"derived from doctor location ({candidate})"
     return None, "unresolved"
@@ -390,6 +397,18 @@ def check_skill_install(
                 fix=f"run installer to populate {target_dir}",
             )
         ]
+    # Containment compares physical paths; hook rendering keeps the entrance.
+    try:
+        resolved_root = aqg_root.resolve() if aqg_root is not None else None
+    except (OSError, RuntimeError) as exc:
+        return [
+            CheckResult(
+                "FAIL",
+                f"{label}_root",
+                f"cannot resolve AQG_ROOT: {type(exc).__name__}",
+                fix="verify AQG_ROOT points to a resolvable checkout",
+            )
+        ]
     results = [CheckResult("PASS", f"{label}_root", str(target_dir))]
     for name in expected_names:
         skill_path = target_dir / name
@@ -417,7 +436,7 @@ def check_skill_install(
                     )
                 )
                 continue
-            if aqg_root is None or aqg_root not in resolved.parents and aqg_root != resolved:
+            if resolved_root is None or resolved_root not in resolved.parents and resolved_root != resolved:
                 results.append(
                     CheckResult(
                         "WARN",

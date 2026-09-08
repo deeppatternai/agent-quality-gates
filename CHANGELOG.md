@@ -6,6 +6,24 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) loosely;
 
 ## [Unreleased]
 
+## [0.14.5] - 2026-09-08
+
+### Fixed
+
+- Doctor preserves the managed AQG entrance when verifying Codex hooks, so a
+  valid symlink-based install no longer reports `codex_hooks: stale` while the
+  installer reports success. Skill ownership still uses resolved physical paths.
+- Root resolution failures receive an AQG_ROOT diagnostic, and standalone
+  symlinks to the Doctor script retain checkout discovery.
+- Definitions pinned to a physical version or carrying an outdated hook digest
+  still require explicit reapplication; verification does not relax hook trust.
+
+### Verification
+
+- Development verification: 124 focused regression tests passed. Six existing
+  Windows JSON-fixture failures were reproduced on the unchanged baseline.
+  macOS hardware and Codex runtime discovery/trust remain unverified.
+
 ## [0.14.4] - 2026-09-08
 
 ### Fixed

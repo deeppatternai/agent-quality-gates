@@ -1001,6 +1001,157 @@ def test_doctor_passes_complete_codex_hook_install(tmp_path):
     assert "/hooks" in result.detail
 
 
+def _doctor_managed_install(root, home, *, env_root):
+    env = os.environ.copy()
+    env.pop("AQG_ROOT", None)
+    if env_root is not None:
+        env["AQG_ROOT"] = env_root
+    env.update(HOME=str(home), USERPROFILE=str(home), CODEX_HOME=str(home / ".codex"))
+    proc = subprocess.run(
+        [
+            sys.executable, "-B", str(root / "scripts/aqg_doctor.py"),
+            "--json", "--no-cli",
+            "--codex-hooks-file", str(home / "hooks.json"),
+            "--claude-settings-file", str(home / "settings.json"),
+            "--codex-skills-dir", str(home / "codex-skills"),
+            "--claude-skills-dir", str(home / "claude-skills"),
+        ],
+        cwd=home, env=env, capture_output=True, text=True, encoding="utf-8", timeout=30,
+    )
+    assert proc.returncode in (0, 1), proc.stdout + proc.stderr
+    return {item["name"]: item for item in json.loads(proc.stdout)["results"]}
+
+
+@pytest.mark.parametrize("root_source", ["absolute", "relative", "home", "doctor-location"])
+def test_doctor_and_installer_agree_on_managed_root(tmp_path, root_source):
+    root = tmp_path / "managed root"
+    root.symlink_to(REPO, target_is_directory=True)
+    target = tmp_path / "hooks.json"
+    assert installer.main(["--apply", "--aqg-root", str(root), "--target", str(target)]) == 0
+    assert installer.main(["--verify", "--aqg-root", str(root), "--target", str(target)]) == 0
+
+    env_root = {
+        "absolute": str(root), "relative": root.name,
+        "home": "~/" + root.name, "doctor-location": None,
+    }[root_source]
+    results = _doctor_managed_install(root, tmp_path, env_root=env_root)
+
+    assert results["codex_hooks"]["status"] == "PASS", results["codex_hooks"]
+
+
+def test_doctor_skill_containment_through_managed_root(tmp_path):
+    root = tmp_path / "managed-root"
+    root.symlink_to(REPO, target_is_directory=True)
+    skills = tmp_path / "skills"
+    skills.mkdir()
+    (skills / "inside").symlink_to(root / "skills/aqg-code-construction", target_is_directory=True)
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "SKILL.md").write_text("fixture", encoding="utf-8")
+    (skills / "outside").symlink_to(outside, target_is_directory=True)
+    missing = tmp_path / "empty-root"
+    missing.mkdir()
+    (skills / "missing").symlink_to(missing, target_is_directory=True)
+
+    results = {item.name: item for item in doctor.check_skill_install(
+        label="skill", target_dir=skills, expected_names=("inside", "outside"), aqg_root=root,
+    )}
+    assert results["skill:inside"].status == "PASS", results["skill:inside"]
+    assert results["skill:outside"].status == "WARN"
+    empty_root = tmp_path / "empty-root-link"
+    empty_root.symlink_to(missing, target_is_directory=True)
+    result = doctor.check_skill_install(
+        label="skill", target_dir=skills, expected_names=("missing",), aqg_root=empty_root,
+    )[-1]
+    assert result.status == "FAIL"
+    assert "missing SKILL.md" in result.detail
+
+
+@pytest.mark.parametrize("error", [OSError("unavailable root"), RuntimeError("root link loop")])
+def test_doctor_reports_root_resolution_error_without_blaming_skill(tmp_path, monkeypatch, error):
+    skills = tmp_path / "skills"
+    skills.mkdir()
+    (skills / "inside").symlink_to(REPO / "skills/aqg-code-construction", target_is_directory=True)
+    root = tmp_path / "managed-root"
+    real_resolve = type(root).resolve
+
+    def resolve(path, *args, **kwargs):
+        if path == root:
+            raise error
+        return real_resolve(path, *args, **kwargs)
+
+    monkeypatch.setattr(type(root), "resolve", resolve)
+    results = doctor.check_skill_install(
+        label="skill", target_dir=skills, expected_names=("inside",), aqg_root=root,
+    )
+    failures = [result for result in results if result.status == "FAIL"]
+    assert len(failures) == 1
+    assert failures[0].name == "skill_root"
+    assert "AQG_ROOT" in failures[0].detail
+    assert "AQG_ROOT" in failures[0].fix
+
+
+def test_doctor_file_symlink_falls_back_to_checkout(tmp_path, monkeypatch):
+    script = tmp_path / "bin/aqg-doctor"
+    script.parent.mkdir()
+    script.symlink_to(SCRIPTS / "aqg_doctor.py")
+    monkeypatch.delenv("AQG_ROOT", raising=False)
+    monkeypatch.setattr(doctor, "__file__", str(script))
+    root, _source = doctor.resolve_aqg_root()
+    assert root == REPO
+    target = tmp_path / "hooks.json"
+    assert installer.cmd_apply(target, REPO, Path(sys.executable)) == 0
+    assert doctor.check_codex_hooks(target, root).status == "PASS"
+
+
+def test_doctor_explicit_non_checkout_root_does_not_fall_back(tmp_path, monkeypatch):
+    monkeypatch.setenv("AQG_ROOT", str(tmp_path))
+    root, source = doctor.resolve_aqg_root()
+    assert root == tmp_path
+    results = doctor.check_aqg_root(root, source)
+    assert any(item.name == "version" and item.status == "FAIL" for item in results)
+
+
+def test_doctor_preserves_upgrade_following_and_detects_real_hook_drift(tmp_path, monkeypatch):
+    versions = [tmp_path / "versions" / name for name in ("v1", "v2")]
+    for version in versions:
+        (version / "scripts").mkdir(parents=True)
+        (version / "VERSION").write_text(version.name, encoding="utf-8")
+        shutil.copy2(SCRIPTS / installer.RUNNER_NAME, version / "scripts")
+        shutil.copytree(REPO / "agent-packs/claude-code/hooks", version / "agent-packs/claude-code/hooks")
+    root = tmp_path / "managed-root"
+    root.symlink_to(versions[0], target_is_directory=True)
+    monkeypatch.setenv("AQG_ROOT", str(root))
+    target = tmp_path / "hooks.json"
+    python = Path(sys.executable)
+    assert installer.cmd_apply(target, root, python) == 0
+    original = target.read_bytes()
+
+    # Moving the entrance with identical hook content needs no config rewrite.
+    root.unlink()
+    root.symlink_to(versions[1], target_is_directory=True)
+    assert installer.cmd_verify(target, root, python) == 0
+    assert doctor.check_codex_hooks(target, doctor.resolve_aqg_root()[0]).status == "PASS"
+    assert target.read_bytes() == original
+
+    # The physical-version workaround must remain stale, even at the same version.
+    assert installer.cmd_apply(target, root.resolve(), python) == 0
+    assert doctor.check_codex_hooks(target, doctor.resolve_aqg_root()[0]).status == "FAIL"
+    assert installer.cmd_apply(target, root, python) == 0
+    assert doctor.check_codex_hooks(target, doctor.resolve_aqg_root()[0]).status == "PASS"
+
+    # Content changes still invalidate the reviewed bundle; path handling must
+    # never turn an actual digest mismatch into PASS.
+    policy = root / "agent-packs/claude-code/hooks" / installer.CODEX_HOOK_SCRIPTS[0]
+    policy.write_bytes(policy.read_bytes() + b"\n# changed fixture policy\n")
+    assert installer.cmd_verify(target, root, python) == 1
+    result = doctor.check_codex_hooks(target, doctor.resolve_aqg_root()[0])
+    assert result.status == "FAIL" and "stale" in result.detail
+    assert installer.cmd_apply(target, root, python) == 0
+    assert installer.cmd_verify(target, root, python) == 0
+    assert doctor.check_codex_hooks(target, doctor.resolve_aqg_root()[0]).status == "PASS"
+
+
 def test_doctor_warns_when_claude_skills_are_installed_without_hooks(monkeypatch, tmp_path):
     home = tmp_path / "home"
     (home / ".claude" / "skills" / "aqg-startup-preflight").mkdir(parents=True)
