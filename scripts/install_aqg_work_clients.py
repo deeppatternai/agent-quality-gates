@@ -23,7 +23,8 @@ except ModuleNotFoundError:
     from scripts._aqg_backup import BackupError, BackupSession, migrate_legacy
 
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
+# Persist the managed entrance in client configuration, not its current target.
+REPO_ROOT = Path(__file__).absolute().parent.parent
 CURSOR_ADAPTER = REPO_ROOT / "scripts" / "cursor_aqg_hook.py"
 # Version-controlled skill roster manifest (same file check_fixture_mix.py anchors
 # its I6 deletion-guard floor to) — the required-source set for an install.
@@ -960,7 +961,7 @@ def _install_mcp(client_root: Path, aqg_root: Path) -> bool:
         raise InstallError(f"mcpServers must be a JSON object: {mcp_path}")
     expected = {
         "command": "python3",
-        "args": [str((aqg_root / "scripts" / "aqg_doctor.py").resolve()), "--no-cli"],
+        "args": [str((aqg_root / "scripts" / "aqg_doctor.py").absolute()), "--no-cli"],
         "description": "AQG diagnostic connector placeholder; lifecycle gates remain hook/rule driven.",
     }
     if servers.get("aqg-support") == expected:
@@ -975,10 +976,10 @@ def _install_mcp(client_root: Path, aqg_root: Path) -> bool:
 def _quoted_command(event: str, aqg_root: Path) -> str:
     args = [
         str(Path(sys.executable).resolve()),
-        str(CURSOR_ADAPTER.resolve()),
+        str((aqg_root / "scripts" / "cursor_aqg_hook.py").absolute()),
         _event_for_adapter(event),
         "--aqg-root",
-        str(aqg_root.resolve()),
+        str(aqg_root.absolute()),
     ]
     if os.name == "nt":
         return subprocess.list2cmdline(args)
@@ -1259,7 +1260,7 @@ def _check_collisions(client_root: Path, profile: WorkClientProfile, skills_root
 
 def _apply(args: argparse.Namespace) -> int:
     profile = PROFILES[args.client]
-    aqg_root = args.aqg_root.expanduser().resolve()
+    aqg_root = args.aqg_root.expanduser().absolute()
     client_root = _client_root(args, profile)
     resolution = _skills_root(args, profile, client_root)
     skills_root = resolution.skills_root

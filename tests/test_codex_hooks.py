@@ -10,6 +10,7 @@ import importlib.util
 import json
 import os
 import shlex
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -95,6 +96,40 @@ def test_specs_cover_every_required_codex_lifecycle_gate():
     assert installer._owned_script(handoff_hooks[0]["hooks"][0]) == (
         "userpromptsubmit_handoff_mandate.sh"
     )
+
+
+def test_hook_reinstall_keeps_the_managed_root_spelling(tmp_path):
+    root = tmp_path / "logical-root"
+    root.symlink_to(REPO, target_is_directory=True)
+    assert installer._resolve_aqg_root(str(root)) == root
+    assert claude_installer._resolve_aqg_root(str(root)) == root
+    specs = installer._aqg_hook_specs(root, python_executable=Path(sys.executable))
+    for blocks in specs.values():
+        for block in blocks:
+            for hook in block["hooks"]:
+                assert "logical-root" in hook["command"]
+                assert "logical-root" in hook["commandWindows"]
+
+
+def test_codex_sessionstart_pins_one_invocation_to_its_version(tmp_path):
+    # Persisted commands follow the logical entrance, but a running invocation
+    # must not mix generations. run.check maps this physical root back to the
+    # entrance; test_reinstall_auto_update exercises that real update path.
+    target = tmp_path / "versions" / ("a" * 40)
+    scripts = target / "scripts"
+    scripts.mkdir(parents=True)
+    shutil.copy2(SCRIPTS / "run_aqg_codex_hook.py", scripts)
+    hook = target / "agent-packs/claude-code/hooks/sessionstart_update_check.sh"
+    hook.parent.mkdir(parents=True)
+    hook.write_text('if [ -L "$AQG_ROOT" ]; then echo logical-root; else echo pinned-version; fi\n', encoding="utf-8")
+    root = tmp_path / "logical-root"
+    root.symlink_to(target, target_is_directory=True)
+    result = subprocess.run(
+        [sys.executable, "-B", str(root / "scripts/run_aqg_codex_hook.py"), hook.name],
+        input=json.dumps({"hook_event_name": "SessionStart", "cwd": str(tmp_path)}),
+        capture_output=True, text=True, check=True, timeout=15,
+    )
+    assert json.loads(result.stdout)["hookSpecificOutput"]["additionalContext"] == "pinned-version"
 
 
 def test_apply_preserves_user_hooks_and_is_a_true_second_run_noop(tmp_path, capsys):
@@ -970,6 +1005,7 @@ def test_doctor_warns_when_claude_skills_are_installed_without_hooks(monkeypatch
     home = tmp_path / "home"
     (home / ".claude" / "skills" / "aqg-startup-preflight").mkdir(parents=True)
     monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("USERPROFILE", str(home))
     monkeypatch.setenv("CODEX_HOME", str(home / ".codex"))
     args = doctor.parse_args(
         [

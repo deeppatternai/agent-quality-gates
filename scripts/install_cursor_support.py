@@ -26,7 +26,8 @@ except ModuleNotFoundError:
     from scripts._aqg_backup import BackupSession, migrate_legacy
 
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
+# Hook configuration must retain the swappable entrance used to run installer.
+REPO_ROOT = Path(__file__).absolute().parent.parent
 ADAPTER = REPO_ROOT / "scripts" / "cursor_aqg_hook.py"
 MANAGED_MARKER = ".aqg-cursor-managed.json"
 LINK_MARKER_DIR = "managed-links"
@@ -511,10 +512,10 @@ def _install_rule(cursor_root: Path) -> bool:
 def _quoted_command(event: str) -> str:
     args = [
         str(Path(sys.executable).resolve()),
-        str(ADAPTER.resolve()),
+        str(ADAPTER.absolute()),
         event,
         "--aqg-root",
-        str(REPO_ROOT.resolve()),
+        str(REPO_ROOT.absolute()),
     ]
     if os.name == "nt":
         return subprocess.list2cmdline(args)

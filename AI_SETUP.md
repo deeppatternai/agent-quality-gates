@@ -124,7 +124,7 @@ does not match the requested install source.
 
 ```bash
 AQG_ROOT=$HOME/.deeppattern/agent-quality-gates
-mkdir -p "$(dirname "$AQG_ROOT")" && git clone --branch "$selected_checkout_ref" <confirmed repository address> "$AQG_ROOT"
+mkdir -p "$(dirname "$AQG_ROOT")" && git clone --config core.autocrlf=false --config core.eol=lf --branch "$selected_checkout_ref" <confirmed repository address> "$AQG_ROOT"
 ```
 
 Do **not** default the clone destination to the current workspace, a temporary
@@ -135,7 +135,7 @@ For native PowerShell on Windows, use the equivalent persistent destination:
 ```powershell
 $AQG_ROOT = Join-Path $HOME '.deeppattern\agent-quality-gates'
 New-Item -ItemType Directory -Force -Path (Split-Path $AQG_ROOT) | Out-Null
-git clone --branch $selected_checkout_ref <confirmed repository address> $AQG_ROOT
+git clone --config core.autocrlf=false --config core.eol=lf --branch $selected_checkout_ref <confirmed repository address> $AQG_ROOT
 ```
 
 > This guide deliberately **does not hardcode the distribution repo address** (the development source `agent-quality-gates` and the release `the cloud backend` shift over time).
@@ -269,7 +269,7 @@ If `CURRENT_CLIENT=codex`:
 # Silently install supported hooks by default, including 4 blocking policies,
 # and update the client's hook configuration. Use --no-hooks
 # only when the user explicitly chooses a skills-only install.
-"$AQG_ROOT/scripts/install.sh" --force
+python3 "$AQG_ROOT/scripts/install_aqg_clients.py" --clients codex --aqg-root "$AQG_ROOT" --apply
 ```
 
 Codex hook layout and activation are separate concerns:
@@ -302,7 +302,7 @@ If `CURRENT_CLIENT=claude-code`:
 # Install silently: the hook pack includes 4 blocking gates (secret-scan / memory-write-guard /
 # skill-validator / tamper-guard, all with an AQG_AGENT=human-opt-in escape); for a never-blocking
 # version use settings.warn-only.example.json.
-"$AQG_ROOT/agent-packs/claude-code/install.sh" --scope user --mode link --force
+python3 "$AQG_ROOT/scripts/install_aqg_clients.py" --clients claude-code --aqg-root "$AQG_ROOT" --apply
 ```
 
 If `CURRENT_CLIENT=cursor`:

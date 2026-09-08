@@ -119,7 +119,8 @@ def test_an_unrecognized_status_from_the_host_helper_fails_closed(
     target = tmp_path / "settings.json"
     adapter = _adapter(target)
     monkeypatch.setattr(
-        adapter, "_inspect", lambda: ("brand-new-status", "from a future helper")
+        adapter, "_inspect",
+        lambda root=None: ("brand-new-status", "from a future helper"),
     )
     with pytest.raises(base.AdapterError, match="brand-new-status"):
         adapter.verify()

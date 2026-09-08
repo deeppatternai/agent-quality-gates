@@ -6,6 +6,26 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) loosely;
 
 ## [Unreleased]
 
+## [0.14.4] - 2026-09-08
+
+### Fixed
+
+- Windows installs now preserve native profile resolution and exact hook bytes,
+  migrate to a usable directory link, and atomically switch signed versions.
+- Hooks and rules keep the managed entrance across version changes. Target-tree
+  evidence no longer causes redundant merges; legacy physically pinned Codex
+  hooks remain protected while changed digests through the entrance stay pending.
+- Interrupted migration retains its original diagnostic and recovery instructions.
+- AQG and DE install entrances share the managed-layout contract; new runtime,
+  regression tests and Windows guidance are included in the public distribution.
+
+### Verification
+
+- Native isolated tests cover clean reinstall, signed content updates, real
+  SessionStart background updates, changed-digest refusal and 13 other hook
+  configurations following a root swap. See docs/WINDOWS_AUTO_UPDATE.md for
+  supported clients, requirements and configuration-reconciliation limits.
+
 ## [0.14.3] - 2026-09-07
 
 ### Fixed

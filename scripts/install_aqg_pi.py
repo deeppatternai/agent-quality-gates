@@ -59,7 +59,8 @@ class InstallError(RuntimeError):
 
 
 def _resolve_aqg_root(value: str | None) -> Path:
-    root = Path(value).expanduser().resolve() if value else Path(__file__).resolve().parent.parent
+    # The generated extension must follow the entrance across version swaps.
+    root = Path(value).expanduser().absolute() if value else Path(__file__).absolute().parent.parent
     if not (root / "VERSION").is_file() or not (root / "skills").is_dir():
         raise InstallError(f"invalid AQG root: {root}")
     return root
@@ -243,9 +244,9 @@ def _install_skill(source: Path, target: Path, root: Path, mode: str) -> bool:
 def _command_argv(aqg_root: Path, script: str) -> list[str]:
     return [
         sys.executable,
-        str((aqg_root / "scripts" / "pi_aqg_hook.py").resolve()),
+        str((aqg_root / "scripts" / "pi_aqg_hook.py").absolute()),
         "--aqg-root",
-        str(aqg_root.resolve()),
+        str(aqg_root.absolute()),
         "--hook",
         script,
         "--managed-id",

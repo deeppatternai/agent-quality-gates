@@ -195,7 +195,8 @@ class InstallError(RuntimeError):
 
 
 def _resolve_aqg_root(value: str | None) -> Path:
-    root = Path(value).expanduser().resolve() if value else Path(__file__).resolve().parent.parent
+    # Settings must keep following the managed entrance across version swaps.
+    root = Path(value).expanduser().absolute() if value else Path(__file__).absolute().parent.parent
     if not (root / "VERSION").is_file() or not (root / "skills").is_dir():
         raise InstallError(f"invalid AQG root: {root}")
     return root
@@ -720,11 +721,11 @@ def _load_json(path: Path, default: dict[str, object]) -> dict[str, object]:
 def _hook_command(aqg_root: Path, client_id: str, script: str) -> str:
     values = [
         sys.executable,
-        str((aqg_root / "scripts" / "agent_client_aqg_hook.py").resolve()),
+        str((aqg_root / "scripts" / "agent_client_aqg_hook.py").absolute()),
         "--client",
         "trae" if client_id.startswith("trae") else "devin",
         "--aqg-root",
-        str(aqg_root.resolve()),
+        str(aqg_root.absolute()),
         "--hook",
         script,
         "--managed-id",

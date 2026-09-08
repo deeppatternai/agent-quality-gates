@@ -79,9 +79,10 @@ def test_routing_never_replaces_a_link_we_did_not_create(source, dest, tmp_path)
     elsewhere.mkdir()
     link = dest / "aqg-code-construction"
     link.symlink_to(elsewhere, target_is_directory=True)
+    original = os.readlink(link)
     with pytest.raises(route_mod.RouteError, match="not a route"):
         route_mod.route(name="aqg-code-construction", source_root=source, dest_root=dest)
-    assert Path(os.readlink(link)) == elsewhere
+    assert os.readlink(link) == original
 
 
 def test_routing_a_skill_the_checkout_does_not_ship_is_refused(source, dest):

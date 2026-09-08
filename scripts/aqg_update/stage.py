@@ -155,9 +155,12 @@ _GIT_CONVERSION_OFF = (
 
 
 def _git(*args: str, cwd: Path) -> str:
+    # A commit-named generation is deeper than the initial clone. Native Git
+    # otherwise rejects valid release paths once this crosses MAX_PATH.
+    platform_config = ("-c", "core.longpaths=true") if os.name == "nt" else ()
     try:
         proc = subprocess.run(
-            ["git", *_GIT_CONVERSION_OFF, *args],
+            ["git", *_GIT_CONVERSION_OFF, *platform_config, *args],
             cwd=str(cwd),
             text=True,
             capture_output=True,
@@ -250,7 +253,63 @@ def current_target(root: Path) -> Optional[Path]:
     # Absolutized against the LINK's directory, not the caller's cwd: a relative
     # link reported verbatim would be resolved against whatever directory the
     # caller happens to be in.
-    return raw if raw.is_absolute() else (root.parent / raw).resolve()
+    target = raw if raw.is_absolute() else (root.parent / raw).resolve()
+    # Windows readlink returns a \\?\ prefix even for an ordinary drive path.
+    # Resolve from the original spelling so ownership comparisons agree, but
+    # preserve a directly linked symlink for the version-tree refusal below.
+    if os.name == "nt" and not target.is_symlink():
+        return Path(os.path.realpath(root))
+    return target
+
+
+def _replace_root_link(source: str, root: Path) -> None:
+    """Replace the link without unlinking the live root, including on Windows.
+
+    MoveFileEx (used by os.replace) cannot replace a Windows directory link.
+    FileRenameInfoEx supplies POSIX replacement semantics for the reparse point
+    itself. Unsupported filesystems/Windows versions fail with the old root
+    intact; there is deliberately no unlink-then-rename fallback.
+    https://learn.microsoft.com/windows/win32/api/winbase/ns-winbase-file_rename_info
+    """
+    if os.name != "nt":
+        os.replace(source, root)
+        return
+
+    import ctypes
+    from ctypes import wintypes
+
+    class RenameInfo(ctypes.Structure):
+        _fields_ = [("Flags", wintypes.DWORD), ("RootDirectory", wintypes.HANDLE),
+                    ("FileNameLength", wintypes.DWORD), ("FileName", wintypes.WCHAR * 1)]
+
+    kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+    create = kernel.CreateFileW
+    create.argtypes = [wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD,
+                       ctypes.c_void_p, wintypes.DWORD, wintypes.DWORD, wintypes.HANDLE]
+    create.restype = wintypes.HANDLE
+    rename = kernel.SetFileInformationByHandle
+    rename.argtypes = [wintypes.HANDLE, ctypes.c_int, ctypes.c_void_p, wintypes.DWORD]
+    rename.restype = wintypes.BOOL
+    close = kernel.CloseHandle
+    close.argtypes = [wintypes.HANDLE]
+    close.restype = wintypes.BOOL
+
+    # DELETE access; share read/write/delete; OPEN_EXISTING; BACKUP_SEMANTICS
+    # permits a directory handle, OPEN_REPARSE_POINT prevents following it.
+    handle = create(source, 0x00010000, 0x7, None, 3, 0x02200000, None)
+    if handle == wintypes.HANDLE(-1).value:
+        raise ctypes.WinError(ctypes.get_last_error())
+    try:
+        name = str(root.absolute()).encode("utf-16-le")
+        buffer = ctypes.create_string_buffer(ctypes.sizeof(RenameInfo) + len(name))
+        info = RenameInfo.from_buffer(buffer)
+        info.Flags = 0x3  # REPLACE_IF_EXISTS | POSIX_SEMANTICS
+        info.FileNameLength = len(name)
+        ctypes.memmove(ctypes.addressof(buffer) + RenameInfo.FileName.offset, name, len(name))
+        if not rename(handle, 22, buffer, len(buffer)):  # FileRenameInfoEx
+            raise ctypes.WinError(ctypes.get_last_error())
+    finally:
+        close(handle)
 
 
 def swap_root(*, root: Path, target: Path) -> Optional[Path]:
@@ -311,7 +370,7 @@ def swap_root(*, root: Path, target: Path) -> Optional[Path]:
     os.close(fd)
     os.unlink(tmp_name)
     try:
-        os.symlink(target, tmp_name)
+        os.symlink(target, tmp_name, target_is_directory=True)
         # Re-validated immediately before the rename. `os.replace` onto a
         # directory fails, but onto a REGULAR FILE it succeeds and destroys it,
         # so the kernel does not enforce the refusal above on its own. This
@@ -321,7 +380,7 @@ def swap_root(*, root: Path, target: Path) -> Optional[Path]:
                 f"{root} became a non-symlink while the swap was in flight; "
                 f"refusing to replace it"
             )
-        os.replace(tmp_name, root)
+        _replace_root_link(tmp_name, root)
     except StageError:
         try:
             os.unlink(tmp_name)
@@ -335,6 +394,50 @@ def swap_root(*, root: Path, target: Path) -> Optional[Path]:
             pass
         raise StageError(f"cannot point {root} at {target}: {exc}") from exc
     return previous
+
+
+def _canonical_or_none(path: Path) -> Optional[Path]:
+    """`resolve()` where it works, ``None`` where it cannot. Never raises."""
+    try:
+        return Path(path).resolve()
+    except (OSError, RuntimeError, ValueError):
+        return None
+
+
+def _host_pinned_paths() -> Tuple[Path, ...]:
+    """Every path an installed host hook command executes, across all hosts.
+
+    Imported lazily: `hosts` imports this module for staging, so binding it at
+    module scope would be a cycle. Any failure yields ``()`` — pruning must not
+    be broken by a host that cannot answer, and the live tree stays protected
+    either way.
+    """
+    try:
+        from scripts.aqg_update import hosts as hosts_mod  # noqa: PLC0415
+    except ImportError:  # pragma: no cover - packaging variant
+        try:
+            from aqg_update import hosts as hosts_mod  # type: ignore[no-redef]
+        except ImportError as exc:
+            raise StageError(
+                f"cannot enumerate host hook pins, so no version tree can be "
+                f"shown to be unused: {exc}"
+            ) from exc
+    found: list[Path] = []
+    for client_id in hosts_mod.available_clients():
+        try:
+            found.extend(hosts_mod.adapter_for(client_id).pinned_command_paths())
+        except Exception as exc:  # aqg: top-level boundary
+            # RAISE, do not skip. The two enforcement points must fail in the
+            # SAME direction or the argument they share is void: the apply gate
+            # treats an adapter that cannot answer as "blocks", but a pruner
+            # that treated it as "pins nothing" would DELETE the tree a host
+            # was already deferred onto — the gate's caution undone later by
+            # the pruner's carelessness, on a machine that had been working.
+            raise StageError(
+                f"{client_id} could not report the paths its hooks execute, so "
+                f"no version tree can be shown to be unused: {exc}"
+            ) from exc
+    return tuple(found)
 
 
 def prune_versions(
@@ -368,6 +471,31 @@ def prune_versions(
         return ()
 
     keep_paths = {Path(p).resolve() for p in protected}
+    # Structural, like the live tree above: a caller that eventually wires
+    # pruning up will not know codex exists, and a version-pinned host's hook
+    # command names a tree by absolute path. Delete that tree and its hooks
+    # fail on every tool call, on a host that was working a moment earlier,
+    # with nothing having warned anyone.
+    for pin in _host_pinned_paths():
+        # Exactly the version tree that HOLDS the pin, not every ancestor up to
+        # `/`: this set is consulted as "do not delete", so it should name the
+        # thing being protected and nothing else.
+        #
+        # The RESOLVED spelling only, and that is sufficient rather than
+        # sloppy: `_is_version_tree` refuses a symlink, so an entry in this
+        # directory that is a link is never a prune candidate in the first
+        # place. Protecting its name as well would be code that cannot run.
+        # `test_a_symlinked_version_entry_is_never_a_prune_candidate` pins that
+        # premise, so if it ever changes this becomes reachable loudly.
+        spelling = _canonical_or_none(pin)
+        if spelling is None:
+            continue
+        try:
+            inside = spelling.relative_to(versions_dir.resolve())
+        except (ValueError, OSError):
+            continue  # outside this versions dir; protects nothing here
+        if inside.parts:
+            keep_paths.add((versions_dir / inside.parts[0]).resolve())
     if root is not None:
         live = current_target(Path(root))
         if live is not None:

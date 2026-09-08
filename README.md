@@ -2,7 +2,7 @@
 
 English | [中文](README.zh-CN.md)
 
-Current version: `0.14.3` (source of truth: `VERSION`; release notes in `CHANGELOG.md`).
+Current version: `0.14.4` (source of truth: `VERSION`; release notes in `CHANGELOG.md`).
 
 Agent Quality Gates (`AQG`) is a **quality-discipline toolkit** for AI coding workflows — it pushes quality from "review after writing" to "guard while writing." It **rides on top of your existing coding agent**, decoupled from any specific one, and has four parts:
 
@@ -102,10 +102,10 @@ Registry client skills default to link/symlink installs. Copy mode must be expli
 ### One command — Claude Code + Codex first install
 
 ```bash
-bash -lc 'set -euo pipefail; repo="$HOME/.deeppattern/agent-quality-gates"; if [ -d "$repo/.git" ]; then git -C "$repo" fetch --prune origin && git -C "$repo" checkout main && git -C "$repo" pull --ff-only; else mkdir -p "$(dirname "$repo")" && gh repo clone deeppatternai/agent-quality-gates "$repo"; fi; "$repo/scripts/install.sh" --force; "$repo/agent-packs/claude-code/install.sh" --scope user --mode link --force 2>/dev/null || true; python3 "$repo/scripts/aqg_doctor.py" --no-cli'
+bash -lc 'set -euo pipefail; repo="$HOME/.deeppattern/agent-quality-gates"; if [ ! -e "$repo" ] && [ ! -L "$repo" ]; then mkdir -p "$(dirname "$repo")"; gh repo clone deeppatternai/agent-quality-gates "$repo" -- --config core.autocrlf=false --config core.eol=lf; fi; export AQG_ROOT="$repo"; python3 "$repo/scripts/install_aqg_clients.py" --clients codex,claude-code --aqg-root "$repo" --apply; python3 "$repo/scripts/aqg_doctor.py" --no-cli'
 ```
 
-This updates or clones `$HOME/.deeppattern/agent-quality-gates`, installs the 16 `aqg-*` skills for Codex, installs/refreshes Codex lifecycle hooks, makes a best-effort Claude Code support install (skills plus supported hooks), then runs `aqg_doctor.py --no-cli` (target: `FAIL=0`). It does not configure Cursor or Qoder-family clients. For dirty-worktree refusal and strict install failure propagation, use `scripts/upgrade.sh` instead.
+This clones `$HOME/.deeppattern/agent-quality-gates` on first install, or reuses the existing checkout, then installs Codex and Claude Code through the shared wrapper and runs Doctor. A successful install at the default location attempts to create the managed version layout. Check the final automatic-update result; installation success alone does not prove migration succeeded. Existing managed versions are never checked out in place by this command. For an explicit upgrade, use `scripts/upgrade.sh`. See [Windows automatic updates](docs/WINDOWS_AUTO_UPDATE.md) for prerequisites and the updates that still require reconciliation.
 
 Claude Code hooks require `AQG_ROOT` in the client environment. Codex hooks embed the reviewed checkout path and do not rely on shell inheritance:
 

@@ -445,7 +445,7 @@ def _perform(root: Path, versions_dir: Path, target: Path) -> None:
             except OSError as exc:
                 raise MigrateError(f"cannot clear {leftover}: {exc}") from exc
     try:
-        os.symlink(str(target), str(staged_link))
+        os.symlink(str(target), str(staged_link), target_is_directory=True)
     except OSError as exc:
         raise MigrateError(f"cannot create a symlink beside {root}: {exc}") from exc
 
@@ -475,7 +475,10 @@ def _perform(root: Path, versions_dir: Path, target: Path) -> None:
                         f"{versions_dir} is on a different filesystem from {root}, "
                         f"so the install cannot be moved there without copying it. "
                         f"Move the checkout onto one filesystem first") from exc
-                raise MigrateError(f"cannot move {root} to {target}: {exc}") from exc
+                hint = ""
+                if os.name == "nt" and getattr(exc, "winerror", None) in (5, 32):
+                    hint = " Close applications reading AQG files, check directory permissions, and retry; the checkout was preserved."
+                raise MigrateError(f"cannot move {root} to {target}: {exc}.{hint}") from exc
             moved = True
             try:
                 os.rename(str(staged_link), str(root))

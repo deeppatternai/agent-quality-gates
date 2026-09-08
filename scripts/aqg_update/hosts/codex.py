@@ -45,6 +45,13 @@ class CodexAdapter(HostAdapter):
     #: the same sources the Claude pack ships.
     _HOOK_SOURCES = "agent-packs/claude-code/hooks"
 
+    #: The inspector compares command paths and pinned digests against the live
+    #: root. It cannot yet compare staged bytes while rendering logical paths.
+    #: The planner's byte-equality proof covers unchanged inputs; changed inputs
+    #: still require reconciliation. Only physically pinned commands can defer
+    #: that reconciliation while another version becomes live.
+    hook_command_is_root_relative = False
+
     #: Codex takes the repo-root `skills/` wrappers, not the Claude pack's.
     _SKILL_SOURCES = "skills"
 
@@ -79,10 +86,24 @@ class CodexAdapter(HostAdapter):
             else install_aqg_codex_hooks._resolve_aqg_root(None)
         )
 
-    def _inspect(self) -> Tuple[str, str]:
+    def pinned_command_paths(self) -> Tuple[Path, ...]:
+        """Report every owned path for pruning; the apply gate checks stability."""
+        try:
+            return install_aqg_codex_hooks.owned_command_paths(self._hooks_path)
+        except Exception:  # aqg: top-level boundary
+            # Reporting nothing is the conservative answer here: the gate then
+            # blocks and the pruner then protects nothing extra, which is the
+            # behaviour that existed before this method.
+            return ()
+
+    def _inspect(self, root: Optional[Path] = None) -> Tuple[str, str]:
         """Ask Codex's own installer what state its hooks file is in. Read-only."""
+        # The caller's tree when it named one — during an update that is the
+        # STAGED target, because whether these hooks are complete is a question
+        # about the tree that is about to be live, not the one that is.
         root = require_aqg_root(
-            self._aqg_root, client_id=self.client_id, needs=(self._HOOK_SOURCES,)
+            root if root is not None else self._aqg_root,
+            client_id=self.client_id, needs=(self._HOOK_SOURCES,)
         )
         try:
             return install_aqg_codex_hooks.inspect_install(self._hooks_path, root)

@@ -117,7 +117,7 @@ rg "INSTALL_MODE=installed-supported|--installed-supported|multi-client-all" AI_
 
 ```bash
 AQG_ROOT=$HOME/.deeppattern/agent-quality-gates
-mkdir -p "$(dirname "$AQG_ROOT")" && git clone --branch "$selected_checkout_ref" <已确认的仓库地址> "$AQG_ROOT"
+mkdir -p "$(dirname "$AQG_ROOT")" && git clone --config core.autocrlf=false --config core.eol=lf --branch "$selected_checkout_ref" <已确认的仓库地址> "$AQG_ROOT"
 ```
 
 **不要**默认 clone 到当前 workspace、Codex 临时任务目录、project worktree 或
@@ -128,7 +128,7 @@ Windows 原生 PowerShell 使用等价的持久路径：
 ```powershell
 $AQG_ROOT = Join-Path $HOME '.deeppattern\agent-quality-gates'
 New-Item -ItemType Directory -Force -Path (Split-Path $AQG_ROOT) | Out-Null
-git clone --branch $selected_checkout_ref <已确认的仓库地址> $AQG_ROOT
+git clone --config core.autocrlf=false --config core.eol=lf --branch $selected_checkout_ref <已确认的仓库地址> $AQG_ROOT
 ```
 
 > 本指南刻意**不硬写分发仓地址**（开发源 `agent-quality-gates` 与发布版 `the cloud backend` 会随阶段变）。
@@ -245,7 +245,7 @@ test -d "$PROJECT_ROOT" || { echo "PROJECT_ROOT does not exist" >&2; exit 2; }
 ```bash
 # 默认静默安装受支持的 hooks（含 4 个 blocking policy），并修改客户端 hook 配置。
 # 只有用户明确选择 skills-only 时才使用 --no-hooks。
-"$AQG_ROOT/scripts/install.sh" --force
+python3 "$AQG_ROOT/scripts/install_aqg_clients.py" --clients codex --aqg-root "$AQG_ROOT" --apply
 ```
 
 Codex hook 的落盘位置与实际生效是两件事：
@@ -274,7 +274,7 @@ model-side fallback 和说明。
 # 静默安装：hook pack 含 4 个 blocking gate（secret-scan / memory-write-guard /
 # skill-validator / tamper-guard，都带 AQG_AGENT=human-opt-in escape）；想要永不阻塞
 # 版改用 settings.warn-only.example.json。
-"$AQG_ROOT/agent-packs/claude-code/install.sh" --scope user --mode link --force
+python3 "$AQG_ROOT/scripts/install_aqg_clients.py" --clients claude-code --aqg-root "$AQG_ROOT" --apply
 ```
 
 若 `CURRENT_CLIENT=cursor`：

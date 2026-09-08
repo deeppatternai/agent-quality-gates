@@ -113,17 +113,17 @@ if not _AQG_BLOCKING_HOOK_SCRIPTS <= set(AQG_HOOK_SCRIPTS):
 def _resolve_aqg_root(arg_root: Optional[str]) -> Optional[Path]:
     """Resolve AQG repo root via arg > env > sentinel walk-up from this script."""
     if arg_root:
-        p = Path(arg_root).resolve()
+        p = Path(arg_root).expanduser().absolute()
         if (p / "VERSION").is_file():
             return p
         return None
     env_root = os.environ.get("AQG_ROOT")
     if env_root:
-        p = Path(env_root).resolve()
+        p = Path(env_root).expanduser().absolute()
         if (p / "VERSION").is_file():
             return p
     # Walk up from this script.
-    p = Path(__file__).resolve().parent
+    p = Path(__file__).absolute().parent
     for _ in range(8):
         if (p / "VERSION").is_file() and (p / "scripts").is_dir():
             return p

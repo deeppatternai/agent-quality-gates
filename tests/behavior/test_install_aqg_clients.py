@@ -2244,6 +2244,7 @@ def test_apply_with_synthetic_home_never_touches_the_real_home(
     fixture_home = tmp_path / "fixture-home"
     fixture_home.mkdir()
     monkeypatch.setenv("HOME", str(decoy_home))
+    monkeypatch.setenv("USERPROFILE", str(decoy_home))
 
     rc = installer.main(
         [

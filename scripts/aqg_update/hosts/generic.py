@@ -75,7 +75,7 @@ class GenericAdapter(HostAdapter):
         _require_no_hook_host(client_id)
         self.client_id = client_id
 
-    def _inspect(self) -> Tuple[str, str]:
+    def _inspect(self, root: Optional[Path] = None) -> Tuple[str, str]:
         # Re-checked here, not only in the constructor: `client_id` is a public
         # attribute, so a validated instance can be reassigned afterwards. A
         # guard that runs once on a mutable field protects the constructor, not

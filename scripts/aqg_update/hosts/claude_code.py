@@ -38,6 +38,9 @@ class ClaudeCodeAdapter(HostAdapter):
     #: Where this host's canonical hook scripts live under the checkout.
     _HOOK_SOURCES = "agent-packs/claude-code/hooks"
 
+    #: `$AQG_ROOT`-relative, so target-relative inspection is meaningful.
+    hook_command_is_root_relative = True
+
     #: Where its skills are shipped from, relative to the root.
     _SKILL_SOURCES = "agent-packs/claude-code/skills"
 
@@ -70,14 +73,18 @@ class ClaudeCodeAdapter(HostAdapter):
             else install_aqg_hooks._resolve_aqg_root(None)
         )
 
-    def _inspect(self) -> Tuple[str, str]:
+    def _inspect(self, root: Optional[Path] = None) -> Tuple[str, str]:
         """Ask the host's own installer what state it is in. Read-only.
 
         Wrapped so a test can substitute a status this contract has not seen —
         the boundary where a future helper state would otherwise leak upward.
         """
+        # The caller's tree when it named one — during an update that is the
+        # STAGED target, because whether these hooks are complete is a question
+        # about the tree that is about to be live, not the one that is.
         root = require_aqg_root(
-            self._aqg_root, client_id=self.client_id, needs=(self._HOOK_SOURCES,)
+            root if root is not None else self._aqg_root,
+            client_id=self.client_id, needs=(self._HOOK_SOURCES,)
         )
         try:
             return install_aqg_hooks.inspect_install(self._settings_path, root)

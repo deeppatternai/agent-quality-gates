@@ -469,6 +469,7 @@ def test_the_installer_and_doctor_agree_on_the_codex_rules_path(tmp_path: Path) 
 
 
 @pytest.mark.parametrize("client,parts", CLIENTS)
+@pytest.mark.skipif(os.name == "nt", reason="POSIX permission bits are not a Windows ACL contract")
 def test_apply_preserves_the_files_permission_mode(
     client: str, parts: tuple[str, str], tmp_path: Path
 ) -> None:
@@ -518,10 +519,7 @@ def test_verify_names_relocation_instead_of_blaming_the_user(
     """
     _run(tmp_path, "--client", client, "--apply")
     target = _target(tmp_path, parts)
-    target.write_text(
-        target.read_text(encoding="utf-8").replace(str(REPO), "/somewhere/else"),
-        encoding="utf-8",
-    )
+    target.write_bytes(target.read_bytes().replace(str(REPO).encode(), b"/somewhere/else"))
 
     result = _run(tmp_path, "--client", client, "--verify")
 

@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-当前版本：`0.14.3`（权威源：`VERSION`；release notes 见 `CHANGELOG.md`）。
+当前版本：`0.14.4`（权威源：`VERSION`；release notes 见 `CHANGELOG.md`）。
 
 Agent Quality Gates（`AQG`）是给 AI 编码工作流用的**质量纪律工具箱** —— 把质量从"写完再审"推到"边写边守"。它**骑在你现有的 coding agent 之上**、与任何具体 agent 解耦，四大件：
 
@@ -102,10 +102,10 @@ registry 客户端的 skills 默认使用 link/symlink 安装。copy 模式必�
 ### 一条命令 —— Claude Code + Codex 首装
 
 ```bash
-bash -lc 'set -euo pipefail; repo="$HOME/.deeppattern/agent-quality-gates"; if [ -d "$repo/.git" ]; then git -C "$repo" fetch --prune origin && git -C "$repo" checkout main && git -C "$repo" pull --ff-only; else mkdir -p "$(dirname "$repo")" && gh repo clone deeppatternai/agent-quality-gates "$repo"; fi; "$repo/scripts/install.sh" --force; "$repo/agent-packs/claude-code/install.sh" --scope user --mode link --force 2>/dev/null || true; python3 "$repo/scripts/aqg_doctor.py" --no-cli'
+bash -lc 'set -euo pipefail; repo="$HOME/.deeppattern/agent-quality-gates"; if [ ! -e "$repo" ] && [ ! -L "$repo" ]; then mkdir -p "$(dirname "$repo")"; gh repo clone deeppatternai/agent-quality-gates "$repo" -- --config core.autocrlf=false --config core.eol=lf; fi; export AQG_ROOT="$repo"; python3 "$repo/scripts/install_aqg_clients.py" --clients codex,claude-code --aqg-root "$repo" --apply; python3 "$repo/scripts/aqg_doctor.py" --no-cli'
 ```
 
-它会更新或 clone `$HOME/.deeppattern/agent-quality-gates`，为 Codex 安装 16 个 `aqg-*` skill，并默认安装/刷新 Codex lifecycle hooks；同时尽力安装 Claude Code support（skills 加 supported hooks），最后运行 `aqg_doctor.py --no-cli`（目标 `FAIL=0`）。它不配置 Cursor/Qoder 家族。若需要 dirty-worktree 拒绝和严格传播安装失败，请改用 `scripts/upgrade.sh`。
+首次安装会 clone 到 `$HOME/.deeppattern/agent-quality-gates`，已有安装则复用当前 checkout，再通过统一 wrapper 安装 Codex 和 Claude Code 并运行 Doctor。默认目录安装成功后会尝试建立可切换的版本目录；必须检查最后的自动更新结果，安装成功不代表目录转换成功。该命令不会在受管版本中执行 checkout。主动升级使用 `scripts/upgrade.sh`。前提与仍需协调的更新类型见[Windows 自动更新](docs/WINDOWS_AUTO_UPDATE.md)。
 
 Claude Code hooks 需要在客户端环境里 export `AQG_ROOT`。Codex hooks 固化已审阅 checkout 路径，不依赖 shell 继承该变量：
 

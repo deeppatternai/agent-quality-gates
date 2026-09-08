@@ -87,6 +87,48 @@ def _expected_link_text(source_root: Path, name: str) -> str:
     return str(source_root / name)
 
 
+def _windows_print_name(link: Path) -> str:
+    """Read the original spelling; Windows normalizes the substitution name.
+
+    os.readlink alone loses '..' and doubled separators on Windows. Ownership
+    needs both the effective target and the exact text written by our installer.
+    """
+    import ctypes
+    import struct
+    from ctypes import wintypes
+
+    kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel.CreateFileW.argtypes = (wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD,
+                                  wintypes.LPVOID, wintypes.DWORD, wintypes.DWORD, wintypes.HANDLE)
+    kernel.CreateFileW.restype = wintypes.HANDLE
+    kernel.DeviceIoControl.argtypes = (wintypes.HANDLE, wintypes.DWORD, wintypes.LPVOID,
+                                      wintypes.DWORD, wintypes.LPVOID, wintypes.DWORD,
+                                      ctypes.POINTER(wintypes.DWORD), wintypes.LPVOID)
+    kernel.DeviceIoControl.restype = wintypes.BOOL
+    kernel.CloseHandle.argtypes = (wintypes.HANDLE,)
+    kernel.CloseHandle.restype = wintypes.BOOL
+    handle = kernel.CreateFileW(str(link), 0, 7, None, 3, 0x02200000, None)
+    if handle == ctypes.c_void_p(-1).value:
+        raise ctypes.WinError(ctypes.get_last_error())
+    try:
+        buffer = ctypes.create_string_buffer(16384)
+        count = wintypes.DWORD()
+        if not kernel.DeviceIoControl(handle, 0x900A8, None, 0, buffer, len(buffer),
+                                      ctypes.byref(count), None):
+            raise ctypes.WinError(ctypes.get_last_error())
+        data = buffer.raw[:count.value]
+        if len(data) < 20:
+            raise OSError("truncated symlink reparse data")
+        tag, size, _, _, _, offset, length, flags = struct.unpack_from("<IHHHHHHI", data)
+        start, end = 20 + offset, 20 + offset + length
+        if (tag != 0xA000000C or flags != 0 or size + 8 > len(data)
+                or offset % 2 or length % 2 or not length or end > size + 8):
+            raise OSError("not an absolute symlink with a valid print name")
+        return data[start:end].decode("utf-16-le")
+    finally:
+        kernel.CloseHandle(handle)
+
+
 def _is_our_route(link: Path, source_root: Path) -> bool:
     """Whether *link* is a symlink whose text is exactly what `route` writes.
 
@@ -103,7 +145,21 @@ def _is_our_route(link: Path, source_root: Path) -> bool:
         raw = os.readlink(link)
     except OSError:
         return False
-    return raw == _expected_link_text(source_root, link.name)
+    expected = _expected_link_text(source_root, link.name)
+    if os.name != "nt":
+        return raw == expected
+    try:
+        if _windows_print_name(link) != expected:
+            return False
+    except (OSError, UnicodeError):
+        return False
+    if raw == expected:
+        return True
+    # Windows readlink returns the native substitution name. Accept only the
+    # exact extended spelling of OUR expected path; never resolve or collapse
+    # the supplied text (which could hide '..', aliases, or another skill).
+    extended = "\\\\?\\UNC\\" + expected[2:] if expected.startswith("\\\\") else "\\\\?\\" + expected
+    return raw == extended
 
 
 def route(*, name: str, source_root: Path, dest_root: Path) -> bool:

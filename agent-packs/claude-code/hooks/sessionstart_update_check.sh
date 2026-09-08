@@ -54,6 +54,7 @@ if [ ! -f "$AQG_ROOT/scripts/aqg_update/run.py" ]; then exit 0; fi
 # development checkout's keyring while checking an install somewhere else.
 nohup env -i \
   HOME="${HOME:-}" PATH="${PATH:-}" LANG="${LANG:-}" \
+  USERPROFILE="${USERPROFILE:-}" \
   AQG_ROOT="$AQG_ROOT" AQG_STATE_ROOT="${AQG_STATE_ROOT:-}" \
   AQG_UPDATE_INTERVAL_SECONDS="${AQG_UPDATE_INTERVAL_SECONDS:-}" \
   sh -c 'cd "$AQG_ROOT" && exec python3 -E -s -m scripts.aqg_update.run' \

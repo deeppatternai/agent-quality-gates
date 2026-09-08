@@ -109,9 +109,9 @@ def _resolve_aqg_root(value: str | None) -> Path:
         if candidate:
             root = Path(candidate).expanduser()
             if (root / "VERSION").is_file():
-                return root.resolve()
+                return root.absolute()
             raise InstallError(f"not an AQG checkout (no VERSION file): {root}")
-    root = Path(__file__).resolve().parent.parent
+    root = Path(__file__).absolute().parent.parent
     if not (root / "VERSION").is_file():
         raise InstallError(
             f"not an AQG checkout (no VERSION file): {root} — pass --aqg-root"

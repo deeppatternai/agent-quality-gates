@@ -732,3 +732,21 @@ def test_the_shipped_keyring_carries_no_private_material():
     for entry in document["keys"]:
         unexpected = sorted(set(entry) - allowed)
         assert not unexpected, f"unexpected fields in a shipped key entry: {unexpected}"
+
+
+def test_fresh_windows_style_clone_preserves_signed_blob_bytes(tmp_path):
+    """A user's CRLF preference must not change signed distribution content."""
+    import hashlib
+    repo = Path(__file__).resolve().parents[2]
+    if not (repo / ".git").exists():
+        pytest.skip("not a git checkout; the property under test needs one")
+    clone = tmp_path / "clone"
+    subprocess.run([
+        "git", "clone", "-q", "--no-local", "-c", "core.autocrlf=true",
+        "-c", "core.eol=crlf", "-c", "core.longpaths=true", str(repo), str(clone),
+    ], capture_output=True, check=True)
+    head = subprocess.check_output(["git", "-C", str(clone), "rev-parse", "HEAD"]).decode().strip()
+    roster = acquire_mod.commit_roster(clone, head)
+    differing = [path for path, entry in roster.items()
+                 if hashlib.sha256((clone / path).read_bytes()).hexdigest() != entry["sha256"]]
+    assert not differing, f"CRLF clone changed signed blob bytes: {differing[:5]}"

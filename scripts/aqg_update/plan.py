@@ -13,19 +13,19 @@ also a **class 0**: AQG-owned bookkeeping (activating the new root, writing
 install state) which touches nothing a host owns. It is named here rather than
 squeezed into the five, so a consumer switching on the class meets no surprise.
 
-**Evidence answers a question about the tree it ran in.** `verify` compares a
-host's configuration against the canonical hook set of the root it executed
-against — so `complete` means "matches the version installed now", not "matches
-the target". Any host whose last applied version or commit differs from the
-target's therefore gets a merge regardless of how healthy it looks. Getting this
-wrong meant a release that changed the hook set would install none of it.
+**Evidence answers a question about the tree it inspected.** Target-relative
+`complete` avoids a merge when the live installer can still describe the target's
+definitions. For live-relative evidence, byte-identical hook inputs prove that
+the complete configuration remains valid. A version bump alone is not evidence
+of changed hook definitions.
 
 Two absences are deliberately NOT actions:
 
-* **Class 1 and 2 are free** — edited hook scripts and edited skill content are
+* **Linked content follows the root** — edited scripts and skill content are
   reached through the root symlink, so they go live when `activate_root` runs.
   That step IS in the plan; a plan whose correctness rests on a step it does not
-  contain cannot be checked by the layer that executes it.
+  contain cannot be checked by the layer that executes it. Codex pins hook
+  script digests in configuration, so those edits still require reconciliation.
 * **A rename has no signal of its own.** It is observable only as a prune plus a
   route, and only against a recorded previous roster — which is why
   `install-state.json` exists at all.
@@ -44,11 +44,43 @@ from pathlib import Path
 from typing import Any, Mapping, Optional, Tuple
 
 try:  # invoked as a package (tests, `python3 -m`)
-    from scripts.aqg_update import skills_route
+    from scripts.aqg_update import migrate, skills_route
+    from scripts.aqg_update.hosts import hook_inputs
     from scripts.aqg_update.hosts.base import HOOK_STATUSES, Evidence
 except ImportError:  # invoked with scripts/ itself on sys.path
-    from aqg_update import skills_route  # type: ignore[no-redef]
+    from aqg_update import migrate, skills_route  # type: ignore[no-redef]
+    from aqg_update.hosts import hook_inputs  # type: ignore[no-redef]
     from aqg_update.hosts.base import HOOK_STATUSES, Evidence  # type: ignore[no-redef]
+
+
+def _same_tree(recorded: Optional[str], target: Path) -> bool:
+    """Do these two names point at one directory?
+
+    The adapter records the root it inspected already canonicalised, so it is
+    tempting to compare it to `target` as text. That is wrong whenever the two
+    sides were spelled differently — `/tmp/x` against `/private/tmp/x`, a path
+    through a symlinked parent, a trailing `..`. (NOT case: `resolve()` does not
+    case-fold, so two casings of one name on a case-insensitive volume still
+    compare unequal here. That is a known residual, not something this closes.)
+    They name one tree; text comparison calls them strangers, the planner falls
+    back to the version check, and `merge_hooks` is planned for a host whose
+    hooks were just verified against the very tree the swap is going to. That
+    plan is host-touching, so nothing is applied and the update stalls — the
+    exact failure this comparison exists to end.
+
+    So canonicalise BOTH sides here, with the same function that wrote the
+    recorded value. Canonicalising twice is harmless; canonicalising once is
+    the bug.
+    """
+    if recorded is None:
+        return False
+    try:
+        return migrate._canonical(Path(recorded)) == migrate._canonical(Path(target))
+    except (OSError, RuntimeError, ValueError):
+        # A recorded root that cannot even be spelled is not evidence about
+        # the target — and must not take the planner down with it.
+        return False
+
 
 #: Hook states meaning "AQG should install or repair hooks here".
 _HOOKS_NEED_WORK = frozenset({"missing", "stale"})
@@ -250,6 +282,7 @@ def build_plan(
     target: Path,
     evidence: Mapping[str, Evidence],
     target_commit: str,
+    current: Optional[Path] = None,
 ) -> Plan:
     """Return the actions an update to *target* would perform.
 
@@ -330,6 +363,10 @@ def build_plan(
 
     for client_id in planned_hosts:
         status = evidence[client_id].hooks_status
+        # No hooks, no skills destination, no installation record: this host was
+        # not selected for AQG. An update must not plan its first installation.
+        if status == "missing" and rosters[client_id] is None and client_id not in recorded_hosts:
+            continue
         if status not in HOOK_STATUSES:
             raise PlanError(
                 f"{client_id}: unmodelled hook status {status!r}; this planner "
@@ -352,17 +389,46 @@ def build_plan(
             raise PlanError(
                 f"{client_id}: no planning rule for hook status {status!r}"
             )
-        stale_for_target = status != "not-applicable" and (
+        # Evidence about the TARGET answers this on its own. Evidence about any
+        # other tree does not, and the version comparison is the fallback for
+        # exactly that case — not a rule of its own.
+        #
+        # It used to be the only rule, and `install_moved` is true for every
+        # real update, so `merge_hooks` was planned every time. It is
+        # host-touching, so `_apply` applied nothing, so no update ever
+        # completed on any machine — the same shape as the roster stall it
+        # outlived. Asking about the tree the swap is going to is what makes
+        # "complete" mean something; the target is staged and on disk before
+        # evidence is collected.
+        about_the_target = _same_tree(
+            evidence[client_id].hooks_checked_against, target
+        )
+        if about_the_target and current is not None:
+            # The running inspector uses the LIVE installer's definitions.
+            # Reading staged script paths does not prove it knows a new event
+            # roster or command format implemented by a changed installer.
+            about_the_target = hook_inputs.unchanged(
+                client_id, Path(current), target, include_script_bodies=False,
+            )
+        stale_for_target = status != "not-applicable" and not about_the_target and (
             install_moved or _recorded_version(state, client_id) != target_version
         )
+        if status == "complete" and current is not None and hook_inputs.unchanged(
+            client_id, Path(current), target
+        ):
+            stale_for_target = False
         if status in _HOOKS_NEED_WORK or stale_for_target:
             reason = (
                 f"managed hook set is {status}"
                 if status in _HOOKS_NEED_WORK
                 else (
-                    f"evidence was gathered against "
-                    f"{_recorded_version(state, client_id)}, not the target "
-                    f"{target_version}"
+                    # Name the TREE, not a version. Inferring the cause from
+                    # `recorded_version` printed "version mismatch" even for a
+                    # staged payload that could not be read at all — the one
+                    # case an operator most needs spelled out.
+                    f"evidence describes "
+                    f"{evidence[client_id].hooks_checked_against or 'no named tree'}"
+                    f", not the target {target}"
                 )
             )
             actions.append(

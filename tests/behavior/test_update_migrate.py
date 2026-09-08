@@ -19,6 +19,7 @@ running session dereferences, so the contracts here are about refusing:
 from __future__ import annotations
 
 import os
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -284,11 +285,8 @@ def test_an_install_path_with_a_quote_in_it_still_works(tmp_path):
     install = awkward / "install"
     (install / "scripts").mkdir(parents=True)
     for name in ("aqg_update",):
-        subprocess.run(
-            ["cp", "-R", str(UPGRADE.parent / name), str(install / "scripts" / name)],
-            check=True,
-        )
-    subprocess.run(["cp", str(UPGRADE), str(install / "scripts")], check=True)
+        shutil.copytree(UPGRADE.parent / name, install / "scripts" / name)
+    shutil.copy2(UPGRADE, install / "scripts")
     (install / "VERSION").write_text("1\n", encoding="utf-8")
     for args in (
         ("init", "-q", "-b", "main"), ("config", "user.email", "t@e.com"),
@@ -367,6 +365,8 @@ def test_an_unwritable_parent_is_refused_before_anything_moves(tmp_path):
     """The rename needs write on the PARENT, not on the root. Learning that
     after the confirmation, with the tree already moved, is the wrong order.
     """
+    if os.name == "nt":
+        pytest.skip("POSIX mode bits do not make a Windows directory unwritable")
     if os.geteuid() == 0:
         pytest.skip("root can write regardless of mode")
     root = _checkout(tmp_path)

@@ -247,7 +247,8 @@ def test_an_unmodelled_status_from_the_host_helper_fails_closed(
     private detail."""
     adapter = _adapter(client_id, tmp_path)
     monkeypatch.setattr(
-        adapter, "_inspect", lambda: ("brand-new-status", "from a future helper")
+        adapter, "_inspect",
+        lambda root=None: ("brand-new-status", "from a future helper"),
     )
     with pytest.raises(base.AdapterError, match="brand-new-status"):
         adapter.verify()

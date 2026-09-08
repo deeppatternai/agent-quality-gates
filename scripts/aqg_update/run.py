@@ -57,11 +57,11 @@ from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
 try:  # invoked as a package (tests, `python3 -m`)
     from scripts.aqg_update import acquire, dispatch, plan as plan_mod, stage, state, trust
-    from scripts.aqg_update import transaction
+    from scripts.aqg_update import transaction, migrate
     from scripts.aqg_update import hosts as hosts_mod
 except ImportError:  # invoked with scripts/ itself on sys.path
     from aqg_update import acquire, dispatch, plan as plan_mod, stage, state, trust  # type: ignore[no-redef]
-    from aqg_update import transaction  # type: ignore[no-redef]
+    from aqg_update import transaction, migrate  # type: ignore[no-redef]
     from aqg_update import hosts as hosts_mod  # type: ignore[no-redef]
 
 #: Set this to anything non-empty to stop the automatic channel entirely.
@@ -311,7 +311,8 @@ def check(
     try:
         return _finish(
             _check_locked(
-                root=Path(root), remote=remote, channel=channel,
+                root=(Path(root).absolute() if Path(root).is_symlink() else migrate.logical_root(root)),
+                remote=remote, channel=channel,
                 keyring=keyring, state_root=state_root, apply=apply,
             ),
             state_root, now,
@@ -365,8 +366,24 @@ def _check_locked(
     )
 
 
+def _state_file(state_root: Optional[Path]) -> Optional[Path]:
+    """The install-state path under an explicit root, directory created.
+
+    ``state.state_root(create=True)`` creates the default root; an explicit one
+    got no such treatment, so naming a root that did not exist yet failed the
+    write — and a failed state write is `repair-required`, i.e. the new version
+    is live but cannot refuse an older release.
+    """
+    if state_root is None:
+        return None
+    root = Path(state_root)
+    root.mkdir(parents=True, exist_ok=True)
+    return root / state.STATE_FILENAME
+
+
 def _record_installed(
-    *, channel: str, version, commit: str, sequence, key_id, pending
+    *, channel: str, version, commit: str, sequence, key_id, pending,
+    state_root: Optional[Path] = None,
 ) -> None:
     """Write what is live, in the shape `state.validate_state` demands.
 
@@ -376,6 +393,11 @@ def _record_installed(
     the automatic channel and one a human pushed through `upgrade.sh` are not
     equally attested and nothing else distinguishes them.
     """
+    # `state_root` reaches THIS write, not only the last-check file beside it.
+    # It did not, so `_apply(state_root=...)` moved one of the two files it
+    # names and silently wrote the more important one to the real home — which
+    # is how the test suite came to overwrite a developer's own install record,
+    # resetting `release_sequence` (the anti-rollback floor) to 0.
     state.write_state({
         "schema": 1,
         "channel": channel,
@@ -386,7 +408,7 @@ def _record_installed(
         "applied_by": str(key_id),
         "hosts": {},
         "pending": list(pending),
-    })
+    }, path=_state_file(state_root))
 
 
 def _apply(
@@ -440,9 +462,10 @@ def _apply(
         )
 
     dropped: List[str] = []
-    evidence = _collect_evidence(installed, dropped)
+    evidence = _collect_evidence(installed, dropped, target_root=target)
     built = plan_mod.build_plan(
-        state=installed, target=target, evidence=evidence, target_commit=commit
+        state=installed, target=target, evidence=evidence, target_commit=commit,
+        current=live,
     )
     # Two different shapes: an Action that would change a host's configuration,
     # and a Deferred the PLANNER declined to plan at all. Both mean a human has
@@ -460,6 +483,46 @@ def _apply(
         + [f"{d.client_id}: {d.reason}" for d in built.deferred]
         + [f"{item} (adapter could not report; treated as unknown)" for item in dropped]
     )
+    # Which of those actually have to stop the swap. A host whose hook command
+    # never followed the root cannot be stranded by moving it, so holding the
+    # whole machine for its pending merge buys nothing and costs every other
+    # host its update. See `_split_outstanding`.
+    _root_relative, _pinned = _host_facts(hosts_mod.available_clients())
+    blocking, deferrable = _split_outstanding(
+        built.actions, root_relative=_root_relative, pinned=_pinned
+    )
+    # A planner refusal and an unreadable adapter are not host spellings; they
+    # are "nobody knows", and they block as they always did.
+    must_stop = bool(blocking) or bool(built.deferred) or bool(dropped)
+    recorded_pending = outstanding
+    # Not under `host_reconciliation`: that path already strips every
+    # host-touching action and records the report, and running both would
+    # silently change what IT records. One handoff or the other, never both.
+    if deferrable and not must_stop and not host_reconciliation:
+        # The swap proceeds; these leave the plan and stay in the report, the
+        # same handoff `host_reconciliation` already performs below.
+        deferred_ids = {id(a) for a in deferrable}
+        built = plan_mod.Plan(
+            actions=tuple(a for a in built.actions if id(a) not in deferred_ids),
+            deferred=built.deferred,
+        )
+        # Reported, never RECORDED. `build_plan` refuses to plan while state
+        # carries pending items — rightly, because half-applied work makes a
+        # roster a lie — so writing a deferral there would make the next update
+        # refuse on account of the last one's human approval. Trading one stall
+        # for another. This is recomputed from the host's own file every run,
+        # which is the same lesson the roster fix learned: read reality, do not
+        # keep a ledger nobody clears.
+        outstanding = tuple(
+            line for line in outstanding
+            if not any(line.startswith(f"{a.client_id}: ") for a in deferrable)
+        ) + tuple(
+            f"{a.client_id}: still running the previous version's hooks. Its "
+            f"command is pinned to the tree it was installed from, so it keeps "
+            f"working; approve the new hook set in that host to move it forward"
+            for a in deferrable
+        )
+        recorded_pending = ()
     if outstanding and host_reconciliation:
         # Handed to the caller, not to the transaction. The dispatcher refuses a
         # route with no destination rather than guessing one, and the caller is
@@ -471,7 +534,7 @@ def _apply(
             ),
             deferred=(),
         )
-    elif outstanding:
+    elif must_stop:
         # NOTHING is applied. Swapping the root while holding this back would
         # leave the host describing the old tree and serving the new one, and an
         # AQG hook whose script vanished from under the root fails into `|| true`
@@ -499,7 +562,8 @@ def _apply(
         # the thing a rollback attack replays — was accepted on every machine.
         record_state=lambda: _record_installed(
             channel=channel, version=version, commit=commit,
-            sequence=sequence, key_id=key_id, pending=list(outstanding),
+            sequence=sequence, key_id=key_id, pending=list(recorded_pending),
+            state_root=state_root,
         ),
         # `absolute`, never `resolve`: the root IS the symlink being replaced,
         # so resolving it hands the swap the version tree it points at — which
@@ -523,7 +587,10 @@ def _apply(
         detail=detail,
         # Handed back even on success: the caller promised to reconcile these,
         # so it needs to know what they are.
-        pending=outstanding if host_reconciliation else (),
+        # Deferrals are handed back even without `host_reconciliation`: the
+        # update DID apply, and the one thing left is a human approval that
+        # nothing else will ever mention.
+        pending=outstanding if (host_reconciliation or deferrable) else (),
     )
 
 
@@ -543,8 +610,92 @@ def _apply(
 HOST_TOUCHING_KINDS = frozenset({"route_skill", "prune_skill", "merge_hooks"})
 
 
-def _collect_evidence(installed, dropped: Optional[List[str]] = None) -> Dict[str, Any]:
+#: The only host-touching kind a pinned host may defer. Skills live UNDER the
+#: root, so a pending route follows the swap for every host regardless of how
+#: that host spells its hook command; only the hook set is at issue.
+_DEFERRABLE_KINDS = frozenset({"merge_hooks"})
+
+
+def _physical_pins(paths):
+    """A digest pins bytes; only direct physical paths also pin a generation.
+
+    Indirect and mixed configurations block deferral. Keep their full path list
+    in the adapter so pruning still protects any old physical generation they
+    use. Resolving here is read-only; never replace a logical command with its
+    current target and then claim the original command was stable.
+    """
+    try:
+        return bool(paths) and all(
+            Path(path).absolute() == Path(path).resolve(strict=True) for path in paths
+        )
+    except (OSError, RuntimeError, ValueError):
+        return False
+
+
+def _split_outstanding(actions, *, root_relative, pinned):
+    """Which host-touching actions must stop the apply, and which need not.
+
+    The blocking rule exists because swapping the root while a hook change
+    waits leaves a host "describing the old tree and serving the new one". That
+    reason is a property of how a host SPELLS its hook command, and it is false
+    for a version-PINNED one: codex names an absolute path into
+    ``versions/<sha>/`` plus the digest of the files at it, and refuses to run
+    on a mismatch. Such a command never follows the root, so the swap cannot
+    strand it — it keeps executing the tree it was written for, intact and
+    integrity-checked, until a human approves the new one in Codex ``/hooks``.
+    That approval is the design, not a defect; freezing every other host until
+    it happens is.
+
+    Deferral is sound only while that tree still exists, so the pins are
+    checked here as well as protected in ``stage.prune_versions``: each use
+    verifies the other's assumption instead of trusting it.
+
+    Fail closed on every unknown. A host missing from either mapping, one that
+    declares no pins, or one whose pins have gone — all block, because "we do
+    not know" is not "it is safe".
+    """
+    blocking, deferrable = [], []
+    for action in actions:
+        if action.kind not in HOST_TOUCHING_KINDS:
+            continue
+        client_id = action.client_id
+        pins = tuple(pinned.get(client_id, ()))
+        may_defer = (
+            action.kind in _DEFERRABLE_KINDS
+            and root_relative.get(client_id, True) is False
+            and _physical_pins(pins)
+        )
+        (deferrable if may_defer else blocking).append(action)
+    return tuple(blocking), tuple(deferrable)
+
+
+def _host_facts(client_ids):
+    """`(root_relative, pinned)` for each host, asking each adapter itself."""
+    root_relative, pinned = {}, {}
+    for client_id in client_ids:
+        try:
+            adapter = hosts_mod.adapter_for(client_id)
+            root_relative[client_id] = bool(adapter.hook_command_is_root_relative)
+            pinned[client_id] = tuple(adapter.pinned_command_paths())
+        except Exception:  # aqg: top-level boundary
+            # Left out of both maps, which `_split_outstanding` reads as
+            # "blocks" — an adapter that cannot answer must not buy a deferral.
+            continue
+    return root_relative, pinned
+
+
+def _collect_evidence(
+    installed,
+    dropped: Optional[List[str]] = None,
+    target_root: Optional[Path] = None,
+) -> Dict[str, Any]:
     """Ask every host what it currently looks like. Read-only, and forgiving.
+
+    *target_root* is the tree the update is going TO, and passing it is what
+    makes a hook status mean anything: "complete" against the tree that is live
+    now says nothing about whether the host's settings will still be complete
+    once the root swaps. Without it the planner falls back to re-merging on any
+    version change — which is every update, which is why none ever applied.
 
     A host whose adapter cannot answer must not stop the update for the others:
     the planner already treats an unknown host conservatively, and losing one
@@ -571,7 +722,8 @@ def _collect_evidence(installed, dropped: Optional[List[str]] = None) -> Dict[st
     for client_id in hosts_mod.available_clients():
         try:
             evidence[client_id] = hosts_mod.adapter_for(client_id).verify(
-                state=dict(installed) if isinstance(installed, Mapping) else None
+                state=dict(installed) if isinstance(installed, Mapping) else None,
+                target_root=target_root,
             )
         except Exception as exc:  # aqg: top-level boundary
             # Dropped from the evidence — an absent entry is a host the planner

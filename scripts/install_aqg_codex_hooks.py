@@ -69,9 +69,9 @@ def _resolve_aqg_root(value: str | None) -> Path | None:
         candidates.append(Path(value))
     if os.environ.get("AQG_ROOT"):
         candidates.append(Path(os.environ["AQG_ROOT"]))
-    candidates.extend(Path(__file__).resolve().parents)
+    candidates.extend(Path(__file__).absolute().parents)
     for candidate in candidates:
-        resolved = candidate.expanduser().resolve()
+        resolved = candidate.expanduser().absolute()
         if (resolved / "VERSION").is_file() and (resolved / "scripts").is_dir():
             return resolved
     return None
@@ -155,7 +155,8 @@ def _hook(
 
 
 def _aqg_hook_specs(aqg_root: Path, *, python_executable: Path) -> dict[str, list[dict[str, Any]]]:
-    root = aqg_root.resolve()
+    # Hooks must follow the managed root when the active version changes.
+    root = aqg_root.expanduser().absolute()
     python_executable = python_executable.expanduser().resolve()
     if not python_executable.is_file():
         raise FileNotFoundError(f"Python executable missing: {python_executable}")
@@ -483,6 +484,52 @@ def cmd_is_installed(target: Path) -> int:
     except ValueError:
         return EXIT_INVALID
     return EXIT_OK if any(_owned_script(hook) for _, _, hook in _iter_entries(config.get("hooks", {}))) else EXIT_GENERIC
+
+
+def owned_command_paths(target: Path) -> tuple[Path, ...]:
+    """Absolute paths the AQG-owned hook commands in *target* will execute.
+
+    These are what makes a Codex install version-PINNED: the command names the
+    runner and policy script by absolute path and carries their combined
+    ``--bundle-sha256``, so it keeps executing the tree it was written for even
+    after the AQG root symlink moves. Two callers need to know that:
+
+    * the apply gate, so a pending hook change for this host does not freeze
+      the whole machine (the swap cannot strand a command that never followed
+      the root); and
+    * ``prune_versions``, so the tree those paths live in is never deleted.
+
+    Read through ``_owned_script`` rather than by pattern-matching the command
+    text, because a looser match would also claim hooks a user wrote by hand —
+    and neither deferring nor protecting is a decision AQG may make about
+    configuration it does not own.
+
+    Unreadable or unowned config yields ``()``. Callers treat "no pins" as
+    "no evidence a swap is safe", so silence here is the conservative answer.
+    """
+    try:
+        config = _load_config(target)
+    except (ValueError, OSError):
+        return ()
+    found: list[Path] = []
+    for _event, _matcher, hook in _iter_entries(config.get("hooks", {})):
+        if not _owned_script(hook):
+            continue
+        # Only THIS platform's variant. A config carrying both is normal, and
+        # its Windows paths do not exist on a POSIX machine — collecting them
+        # into one set that a caller then requires to exist IN FULL would make
+        # every such host permanently undeferrable, and would ask the pruner to
+        # protect trees that are not there.
+        key, windows = (
+            ("commandWindows", True) if os.name == "nt" else ("command", False)
+        )
+        argv = _parse_command(hook.get(key), windows=windows)
+        # The verified form is `python -c VERIFY_CODE runner policy ...`;
+        # argv[3] and argv[4] are the two files the digest covers and the only
+        # ones the command opens.
+        if argv and len(argv) == 10 and argv[1] == "-c":
+            found.extend(Path(part).expanduser() for part in argv[3:5])
+    return tuple(sorted(set(found)))
 
 
 def inspect_install(

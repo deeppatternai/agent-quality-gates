@@ -728,7 +728,7 @@ def test_the_launcher_forwards_exactly_its_allowlist(tmp_path):
     to the perimeter a change someone has to make here, deliberately, too.
     """
     assert _forwarded_names() == {
-        "HOME", "PATH", "LANG",
+        "HOME", "PATH", "LANG", "USERPROFILE",
         "AQG_ROOT", "AQG_STATE_ROOT", "AQG_UPDATE_INTERVAL_SECONDS",
     }
 

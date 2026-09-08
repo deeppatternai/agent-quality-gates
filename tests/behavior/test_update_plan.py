@@ -129,6 +129,18 @@ def test_a_first_run_with_no_state_plans_a_full_route(tmp_path):
     assert not result.has_no_actions
 
 
+def test_an_absent_unrecorded_host_does_not_request_hook_install(tmp_path):
+    tree = _tree(tmp_path / "v", version="0.15.0", skills=("aqg-code-construction",))
+    result = _plan(None, tree, {"codex": _evidence("missing", "codex", routed=None)})
+    assert not [action for action in result.actions if action.client_id == "codex"]
+
+
+def test_a_recorded_host_with_missing_hooks_is_still_repaired(tmp_path):
+    tree = _tree(tmp_path / "v", version="0.15.0", skills=())
+    result = _plan(_state(), tree, {"claude-code": _evidence("missing", routed=None)})
+    assert "merge_hooks" in {action.kind for action in result.actions}
+
+
 # --- the skill roster diff ------------------------------------------------------
 
 
@@ -442,6 +454,32 @@ def test_the_root_activation_is_part_of_the_plan(tmp_path):
     kinds = [a.kind for a in result.actions]
     assert "activate_root" in kinds
     assert kinds.index("activate_root") < kinds.index("record_state")
+
+
+@pytest.mark.parametrize("installer_changed", [False, True])
+def test_target_evidence_requires_the_same_installer_definition(tmp_path, installer_changed):
+    """The live inspector cannot certify a new installer's event definitions."""
+    current = _tree(tmp_path / "current", version="0.15.0", skills=())
+    target = _tree(tmp_path / "target", version="0.16.0", skills=())
+    for tree in (current, target):
+        installer = tree / "scripts/install_aqg_hooks.py"
+        installer.parent.mkdir(parents=True, exist_ok=True)
+        installer.write_text("definitions\n", encoding="utf-8")
+        hook = tree / "agent-packs/claude-code/hooks/policy.sh"
+        hook.parent.mkdir(parents=True)
+        hook.write_text(tree.name, encoding="utf-8")
+    if installer_changed:
+        (target / "scripts/install_aqg_hooks.py").write_text("new event\n", encoding="utf-8")
+    evidence = base.Evidence(
+        client_id="claude-code", hooks_status="complete", hooks_detail="",
+        recorded_version="0.15.0", routed_skills=(),
+        hooks_checked_against=str(target),
+    )
+    result = plan_mod.build_plan(
+        state=None, target=target, current=current, target_commit="b" * 40,
+        evidence={"claude-code": evidence},
+    )
+    assert bool([a for a in result.actions if a.kind == "merge_hooks"]) == installer_changed
 
 
 def test_a_malformed_hosts_map_is_a_typed_refusal(tmp_path):

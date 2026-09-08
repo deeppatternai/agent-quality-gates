@@ -91,9 +91,10 @@ class InstallError(RuntimeError):
 
 def _resolve_aqg_root(value: str | None) -> Path:
     if value:
-        candidate = Path(value).resolve()
+        candidate = Path(value).expanduser().absolute()
     else:
-        candidate = Path(__file__).resolve().parent.parent
+        candidate = Path(__file__).absolute().parent.parent
+    # Persist the swappable entrance in settings, not versions/<commit>.
     if not (candidate / "VERSION").is_file() or not (candidate / "skills").is_dir():
         raise InstallError(f"invalid AQG root: {candidate}")
     return candidate

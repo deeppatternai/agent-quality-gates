@@ -35,7 +35,7 @@ from pathlib import Path
 
 import pytest
 
-from scripts.aqg_update import migrate, plan as plan_mod, skills_route
+from scripts.aqg_update import migrate, plan as plan_mod, skills_route, stage
 from scripts.aqg_update.hosts import base as base_mod
 from scripts.aqg_update.hosts.base import AdapterError, Evidence
 from scripts.aqg_update.hosts.claude_code import ClaudeCodeAdapter
@@ -70,6 +70,7 @@ def managed(tmp_path, monkeypatch):
     # fixture that leaves it pointing at the real home is not modelling an
     # install.
     monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("USERPROFILE", str(home))
     monkeypatch.setattr(Path, "home", staticmethod(lambda: home))
     return {"home": home, "root": root, "tree": tree, "versions": versions,
             "skills": home / ".claude" / "skills"}
@@ -142,9 +143,8 @@ def test_the_installer_writes_the_logical_spelling(managed):
     """
     _install(managed)
     link = managed["skills"] / "aqg-code-construction"
-    assert os.readlink(link) == str(
-        managed["root"] / "agent-packs/claude-code/skills/aqg-code-construction"
-    ), (
+    expected = str(managed["root"] / "agent-packs/claude-code/skills/aqg-code-construction")
+    assert os.readlink(link) == ("\\\\?\\" + expected if os.name == "nt" else expected), (
         f"the link names a version directory, so it stops being recognised as "
         f"ours at the next release: {os.readlink(link)}"
     )
@@ -164,8 +164,7 @@ def test_routes_are_still_ours_after_a_version_swap(managed):
     # exist — and every hook resolves `$AQG_ROOT` on every tool call, so that
     # window is exactly the thing the symlink layout exists to avoid.
     staged = managed["root"].with_name("root.tmp")
-    staged.symlink_to(new_tree)
-    os.replace(staged, managed["root"])
+    stage.swap_root(root=managed["root"], target=new_tree)
 
     assert _adapter(managed)._observed_routes() == before, (
         "the routes stopped being recognised after a swap, so every update "

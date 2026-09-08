@@ -90,6 +90,14 @@ class Evidence:
     An adapter that cannot answer raises instead; ``run._collect_evidence``
     already turns that into a reported ``dropped`` host, so absence never has to
     double as failure.
+
+    ``hooks_checked_against`` names the tree ``hooks_status`` describes. It
+    exists because "complete" is only useful if you know what it is complete
+    FOR: computed against the tree that is live now, it says nothing about
+    whether the host's settings will still be complete once the root swaps —
+    which is why the planner used to re-merge on every version change, and why
+    no update could ever apply. ``None`` means the adapter did not say, and the
+    planner falls back to that conservative merge rather than guessing.
     """
 
     client_id: str
@@ -97,6 +105,7 @@ class Evidence:
     hooks_detail: str
     recorded_version: Optional[str]
     routed_skills: Optional[Tuple[str, ...]] = None
+    hooks_checked_against: Optional[str] = None
 
     def __post_init__(self) -> None:
         # On the type, not in a helper: a guard an adapter can bypass by picking
@@ -244,13 +253,31 @@ def require_aqg_root(
                 f"{client_id}: AQG checkout at {root} is missing {relative}, which "
                 f"this host's canonical hook set is built from"
             )
-    return root
+    # Inspect command paths against the swappable entrance, even when the
+    # context helper launched us with a pinned physical AQG_ROOT.
+    return migrate.logical_root(root)
 
 
 class HostAdapter(ABC):
     """One host's mechanics behind the dispatcher's vocabulary."""
 
     client_id: str = ""
+
+    #: Does this host's hook command name the AQG root *relatively* — via
+    #: ``$AQG_ROOT`` or an equivalent indirection — so that "complete against
+    #: the staged target" still holds once the root symlink is swapped?
+    #:
+    #: The planner's target-relative rule rests on this and on nothing else,
+    #: and it is a property of how each host SPELLS its command, which
+    #: ``verify`` cannot observe: ``verify`` stamps the root it PASSED, never
+    #: the root the adapter USED. ``generic._inspect`` takes ``root`` and
+    #: ignores it, and so may a future or third-party adapter.
+    #:
+    #: Default False so the guarantee is opt-in and the failure direction is
+    #: closed: no declaration, no provenance, and the planner keeps its
+    #: conservative merge. Codex is why this is a declaration rather than an
+    #: assumption — its command embeds an absolute versioned path.
+    hook_command_is_root_relative: bool = False
 
     #: Opt-in for an adapter that serves several hosts and therefore sets
     #: ``client_id`` per instance. It is an explicit declaration rather than a
@@ -270,13 +297,18 @@ class HostAdapter(ABC):
             )
 
     @abstractmethod
-    def _inspect(self) -> Tuple[str, str]:
+    def _inspect(self, root: Optional[Path] = None) -> Tuple[str, str]:
         """Return ``(status, detail)`` for this host's managed hooks. Read-only.
 
         The documented seam. ``verify`` is concrete precisely so that routing
         through the status check is a property of the base class rather than
         something each adapter re-implements identically — and so a contract
         test may substitute it without reaching past the contract.
+
+        *root* is the tree to compare the host's configuration against, and it
+        is not always the one that is live: during an update the caller passes
+        the STAGED target, because "are these hooks complete" is only an
+        answerable question once you say complete for what.
         """
 
     def _observed_routes(self) -> Optional[Tuple[str, ...]]:
@@ -293,10 +325,79 @@ class HostAdapter(ABC):
         """
         return None
 
-    def verify(self, *, state: Optional[Dict[str, Any]] = None) -> Evidence:
-        """Report what is installed on this host. Read-only."""
-        status, detail = self._inspect()
-        return self._evidence(hooks_status=status, hooks_detail=detail, state=state)
+    def pinned_command_paths(self) -> Tuple[Path, ...]:
+        """Absolute paths this host's INSTALLED hook commands will execute.
+
+        Non-empty means the host is version-pinned: its commands name a tree
+        directly instead of following the AQG root, so a root swap does not
+        change what they run. Two callers depend on that — the apply gate, to
+        decide a pending hook change for this host cannot strand it, and
+        ``prune_versions``, to refuse to delete the tree those paths live in.
+
+        Empty by default, and empty is NOT "safe to swap": it is "this host has
+        not said", which every caller must read as the conservative answer.
+        """
+        return ()
+
+    def verify(
+        self,
+        *,
+        state: Optional[Dict[str, Any]] = None,
+        target_root: Optional[Path] = None,
+    ) -> Evidence:
+        """Report what is installed on this host. Read-only.
+
+        *target_root* is the tree the update is going TO. Passed through
+        ``verify`` rather than through ``adapter_for`` on purpose: a root is
+        host-neutral, unlike a settings path, and this is already the method
+        that takes what the caller knows and the adapter cannot.
+        """
+        # Target-relative when the target can answer, live-relative otherwise.
+        # The fallback matters: an unusable target must degrade to exactly the
+        # behaviour that existed before this parameter — the planner sees no
+        # `hooks_checked_against` and plans its conservative merge — and must
+        # NOT become an adapter failure. A raised error here lands in
+        # `run._collect_evidence`'s `dropped`, which is an outstanding item,
+        # which holds the whole apply: a worse stall than the one this exists
+        # to remove, reached by a stricter check.
+        root = target_root if self.hook_command_is_root_relative else None
+        try:
+            status, detail = self._inspect(root)
+        except Exception as exc:  # aqg: top-level boundary
+            if root is None:
+                raise
+            # Deliberately every exception, not just `AdapterError`. The rule
+            # stated above is "an unusable target must degrade"; catching one
+            # type enforces it for one type and lets every other kind of
+            # unusable target become a DROPPED host — which holds the apply
+            # for every host on the machine, the worse stall, reached by a
+            # stricter check. `require_aqg_root` raises only `AdapterError`
+            # today, so this closes the class, not an instance.
+            # The TARGET could not answer — it is not a checkout this adapter
+            # can read a canonical hook set out of. Ask the live tree instead
+            # and record that, so the planner falls back to its conservative
+            # merge. Only the target is retried away: if the live tree cannot
+            # answer either, the second call raises and the host is reported
+            # dropped, which is the correct outcome and the pre-existing one.
+            root = None
+            status, detail = self._inspect(None)
+            # The discarded exception was the only evidence that the
+            # signature-verified staged tree could not be read. Dropping it
+            # launders a corrupt payload into an ordinary re-merge, on a
+            # channel whose defining failure mode is a stall nobody could see.
+            # Name what actually went wrong. A bare `except Exception`
+            # that keeps only "unreadable" turns a programming error in
+            # `_inspect` — a parser bug, a typo in a new adapter — into
+            # an indistinguishable "conservative fallback", and the one
+            # string an operator ever sees says nothing about which.
+            detail = (
+                f"staged target unreadable ({type(exc).__name__}: {exc}), "
+                f"live-relative: {detail}"
+            )
+        return self._evidence(
+            hooks_status=status, hooks_detail=detail, state=state,
+            hooks_checked_against=root,
+        )
 
     def _evidence(
         self,
@@ -304,6 +405,7 @@ class HostAdapter(ABC):
         hooks_status: str,
         hooks_detail: str,
         state: Optional[Dict[str, Any]],
+        hooks_checked_against: Optional[Path] = None,
     ) -> Evidence:
         """Convenience constructor. The status check lives on ``Evidence``."""
         return Evidence(
@@ -312,4 +414,14 @@ class HostAdapter(ABC):
             hooks_detail=hooks_detail,
             recorded_version=recorded_version_for(self.client_id, state),
             routed_skills=self._observed_routes(),
+            hooks_checked_against=(
+                None if hooks_checked_against is None
+                else str(_canonical_path(hooks_checked_against))
+            ),
         )
+
+
+def _canonical_path(path: Path) -> Path:
+    """One spelling, so the planner's comparison is about trees and not text."""
+    return migrate._canonical(Path(path))
+

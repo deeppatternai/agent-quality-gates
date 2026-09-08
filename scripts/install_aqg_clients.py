@@ -917,7 +917,20 @@ def print_plan(
 
 
 def _run_command(command: str, env: dict[str, str]) -> None:
-    subprocess.run(command, shell=True, check=True, env=env)
+    if os.name != "nt":
+        subprocess.run(command, shell=True, check=True, env=env)
+        return
+    # Registry commands are POSIX shell programs. shell=True on Windows uses
+    # cmd.exe, which passes literal $AQG_ROOT paths to native Python.
+    # Match the hook runners' Git-for-Windows discovery, including machines
+    # where only git.exe (not bash.exe) is on PATH.
+    from scripts.run_aqg_codex_hook import _find_bash
+
+    bash = _find_bash()
+    if not bash:
+        print("ERROR: Git for Windows Bash is required for AQG installation", file=sys.stderr)
+        raise subprocess.CalledProcessError(127, command)
+    subprocess.run([bash, "--noprofile", "--norc", "-c", command], check=True, env=env)
 
 
 def _group_commands_by_client(
@@ -1009,10 +1022,12 @@ def _execution_env(context: RunContext, project_root: str | None, home: Path) ->
     env = os.environ.copy()
     env["AQG_ROOT"] = context.aqg_root
     # Every child adapter defaults its own --home to Path.home(), which reads
-    # HOME from the process environment. Overriding it here is what makes the
+    # HOME on POSIX and USERPROFILE on Windows. Overriding it here makes the
     # top-level --home actually constrain apply/verify/uninstall/is-installed
     # instead of only detection and display (2026-09-03 host-recovery incident).
     env["HOME"] = str(home.expanduser().resolve())
+    if os.name == "nt":
+        env["USERPROFILE"] = env["HOME"]
     if project_root:
         env["PROJECT_ROOT"] = project_root
     return env
@@ -1033,9 +1048,8 @@ def _print_detection_conflicts(detection: DetectionResult) -> None:
 def _ensure_update_layout(aqg_root: object, *, install_succeeded: bool) -> None:
     """Leave the install in the shape the update engine will accept.
 
-    Both install paths land here — `scripts/install.sh` runs this script, and
-    decision-engine's `de-aqg-install` invokes it directly — and neither
-    produced the layout `_apply` requires.
+    AQG's AI_SETUP and DE's AI_SETUP / one-line installers call this wrapper.
+    The lower-level per-client installers do not convert the checkout.
 
     **Only after a successful install.** This reshapes a directory another
     team's installer created and owns. Doing it when their commands failed
@@ -1054,21 +1068,45 @@ def _ensure_update_layout(aqg_root: object, *, install_succeeded: bool) -> None:
     if not install_succeeded:
         return
     try:
-        from scripts.aqg_update.migrate import ensure_managed_layout
+        from scripts.aqg_update.migrate import SIGNPOST_FILENAME, ensure_managed_layout
     except ImportError as exc:  # aqg: top-level boundary
         print(f"NOTE: automatic updates unavailable: {exc}", file=sys.stderr)
         return
 
-    root = Path(aqg_root).expanduser() if aqg_root else Path(__file__).resolve().parents[1]
-    result = ensure_managed_layout(root)
+    root = (Path(aqg_root).expanduser() if aqg_root else Path(__file__).resolve().parents[1]).absolute()
+    # Native Windows holds a non-delete-sharing handle on the process cwd.
+    # Release our own handle before moving the tree, then restore the user's
+    # location through the logical root, on both success and refusal.
+    restore_cwd = None
+    if os.name == "nt":
+        cwd = Path.cwd()
+        if cwd.is_relative_to(root):
+            restore_cwd = cwd
+            os.chdir(root.parent)
+    try:
+        result = ensure_managed_layout(root)
+    finally:
+        if restore_cwd is not None:
+            try:
+                os.chdir(restore_cwd)
+            except OSError as exc:
+                # A failed migration AND failed rollback can leave the root
+                # missing. Preserve its original diagnostic and recovery note.
+                print(f"NOTE: cannot restore working directory {restore_cwd}: {exc}", file=sys.stderr)
     if result.managed:
         print(f"Automatic updates: enabled. {result.reason}")
         return
+    recovery = (
+        f"AQG works normally; it will not update itself. To enable it "
+        f"later: {root}/scripts/upgrade.sh --migrate"
+        if root.is_dir() else
+        f"The AQG entry is unavailable. Follow the recovery instructions in "
+        f"{root.parent / SIGNPOST_FILENAME} before retrying."
+    )
     print(
         f"NOTE: automatic updates are NOT enabled for {root}.\n"
         f"      {result.reason}\n"
-        f"      AQG works normally; it will not update itself. To enable it "
-        f"later: {root}/scripts/upgrade.sh --migrate",
+        f"      {recovery}",
         file=sys.stderr,
     )
 
@@ -1153,7 +1191,8 @@ def main(argv: list[str] | None = None) -> int:
     results = _execute_commands(commands, env)
     _print_execution_summary(results)
     exit_code = _exit_code_for_results(results)
-    _ensure_update_layout(args.aqg_root, install_succeeded=(exit_code == 0))
+    if action == ACTION_APPLY:
+        _ensure_update_layout(args.aqg_root, install_succeeded=(exit_code == 0))
     return exit_code
 
 
