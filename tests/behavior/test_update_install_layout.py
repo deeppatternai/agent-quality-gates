@@ -95,7 +95,8 @@ def test_ensuring_the_layout_converts_a_fresh_install(tmp_path):
     assert result.changed is True, result.reason
     assert result.managed is True
     assert root.is_symlink()
-    assert root.resolve() == (root.parent / "versions" / head).resolve()
+    assert root.resolve() == (root.parent / "versions/0.1.0").resolve()
+    assert _git(root, "rev-parse", "HEAD").strip() == head
     # The content came along, rather than the link pointing at an empty shell.
     assert (root / "marker.txt").read_text(encoding="utf-8") == "first\n"
 
@@ -316,7 +317,7 @@ def test_an_install_made_the_installer_way_can_actually_be_updated(
 
     # Exactly what the install path now does — no hand-built layout.
     assert migrate_mod.ensure_managed_layout(root, managed=True).changed is True
-    first = root.resolve().name
+    first = _git(root, "rev-parse", "HEAD").strip()
 
     # A second commit upstream: the content the update must bring across.
     (origin / "marker.txt").write_text("second\n", encoding="utf-8")
@@ -374,7 +375,8 @@ def test_an_install_made_the_installer_way_can_actually_be_updated(
     )
 
     assert result.outcome == "applied", result.detail
-    assert root.resolve().name == second, "the root still points at the old version"
+    assert root.resolve().name == "0.14.2"
+    assert _git(root, "rev-parse", "HEAD").strip() == second, "the root still points at the old version"
     assert (root / "marker.txt").read_text(encoding="utf-8") == "second\n", (
         "the symlink moved but the content a user reads did not"
     )

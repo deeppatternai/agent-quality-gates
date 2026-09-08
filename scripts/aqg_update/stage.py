@@ -40,6 +40,7 @@ version needs state that lives above here).
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import subprocess
 import tempfile
@@ -49,6 +50,34 @@ from typing import Iterable, Optional, Tuple
 #: A materialized version is recognizable by the sentinel every AQG checkout has.
 #: Used to refuse pointing the root at a directory that is not one.
 VERSION_SENTINEL = "VERSION"
+
+
+def is_release_name(name: str) -> bool:
+    """A bounded, portable version label, never an arbitrary manifest path."""
+    # Keep the existing 40-character path budget on Windows, including suffixes.
+    return isinstance(name, str) and len(name) <= 40 and re.fullmatch(
+        r"[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z]+(?:[.-][0-9A-Za-z]+)*)?"
+        r"(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?", name,
+    ) is not None
+
+
+def version_name(version: str, commit: str, versions_dir: Path) -> str:
+    """Prefer a release label; distinguish reissued versions without overwriting.
+
+    Non-version labels retain the legacy commit spelling. An unreadable or
+    same-commit occupied target is left to stage_version's existing refusal.
+    """
+    if not is_release_name(version):
+        return commit
+    occupied = Path(versions_dir) / version
+    if _is_version_tree(occupied):
+        try:
+            if version_commit(occupied) != commit:
+                suffixed = f"{version}-{commit[:12]}"
+                return suffixed if is_release_name(suffixed) else commit
+        except StageError:
+            pass  # Let staging refuse the occupied name; never reuse its tree.
+    return version
 
 
 class StageError(RuntimeError):
@@ -210,6 +239,14 @@ def stage_version(
             ) from exc
         raise
     return target
+
+
+def version_commit(path: Path) -> str:
+    """Read this generation's HEAD, refusing Git discovery in its ancestors."""
+    path = Path(path)
+    if Path(_git("rev-parse", "--show-toplevel", cwd=path)).resolve() != path.resolve():
+        raise StageError(f"{path} is not the root of a Git checkout")
+    return _git("rev-parse", "HEAD", cwd=path)
 
 
 def discard_version(*, repo: Path, target: Path) -> None:

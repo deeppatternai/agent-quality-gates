@@ -503,7 +503,7 @@ def test_a_verified_release_is_staged_swapped_and_recorded(tmp_path, state_root,
         keyring_path=keyring, state_root=state_root,
     )
     assert result.outcome == "applied", result.detail
-    assert os.path.realpath(root) == str((tmp_path / "install/versions" / second).resolve())
+    assert os.path.realpath(root) == str((tmp_path / "install/versions/0.17.0").resolve())
     assert (Path(os.path.realpath(root)) / "VERSION").read_text().strip() == "0.17.0"
     assert _last(state_root)["outcome"] == "applied"
 
@@ -919,7 +919,7 @@ def test_a_staging_directory_left_by_a_dead_run_is_not_reported_as_busy_forever(
         release_sequence = 9
 
     monkeypatch.setattr(run_mod.acquire, "available_release", lambda *a, **k: _Found())
-    (tmp_path / "install/versions" / second).mkdir(parents=True)
+    (tmp_path / "install/versions/0.17.0").mkdir(parents=True)
     result = run_mod.check(
         root=root, remote="origin", channel="stable",
         keyring_path=_write_keyring(tmp_path), state_root=state_root,
@@ -1094,3 +1094,197 @@ def test_applying_a_release_records_the_sequence_so_an_older_one_is_refused(
     assert seen["floor"] == 9, (
         f"the anti-rollback comparison still runs against {seen['floor']!r}"
     )
+
+
+def test_manual_upgrade_reads_the_target_version_and_preserves_old_tree(tmp_path, state_root, monkeypatch):
+    root, first, second = _install(tmp_path)
+    old = root.resolve()
+    _clean_plan(monkeypatch, second)
+    result = run_mod.apply_commit(root=root, commit=second, state_root=state_root)
+    assert result.outcome == 'applied', result.detail
+    assert root.resolve().name == '0.17.0'
+    assert old.name == first and (old / 'VERSION').read_text().strip() == '0.16.0'
+    record = run_mod.state.read_state()
+    assert record['installed_commit'] == second
+    assert record['installed_version'] == '0.17.0'
+    again = run_mod.apply_commit(root=root, commit=second, state_root=state_root)
+    assert again.outcome == 'current', again.detail
+    assert root.resolve().name == '0.17.0'
+
+
+@pytest.mark.parametrize('short_name', [False, True])
+def test_current_commit_and_rollback_work_with_both_directory_names(tmp_path, state_root, monkeypatch, short_name):
+    root, first, second = _install(tmp_path)
+    if short_name:
+        old = root.resolve()
+        target = old.with_name('0.16.0')
+        root.unlink()
+        old.rename(target)
+        root.symlink_to(target, target_is_directory=True)
+    old = root.resolve()
+    _clean_plan(monkeypatch, second)
+    same = run_mod.apply_commit(root=root, commit=first, version='0.16.0', state_root=state_root)
+    assert same.outcome == 'current', same.detail
+    monkeypatch.setattr(run_mod, '_smoke', lambda root: False)
+    failed = run_mod.apply_commit(root=root, commit=second, version='0.17.0', state_root=state_root)
+    assert failed.outcome == 'rolled-back', failed.detail
+    assert root.resolve() == old
+    assert (root / 'VERSION').read_text().strip() == '0.16.0'
+
+
+@pytest.mark.parametrize('label, full_hash', [
+    ('0.17.0', False), ('0.17.0-rc.1+build.5', False), ('1.2.3-' + 'x' * 30, True),
+])
+def test_same_version_different_commit_gets_suffix_without_overwriting(tmp_path, state_root, monkeypatch, label, full_hash):
+    root, first, second = _install(tmp_path)
+    _clean_plan(monkeypatch, second)
+    assert run_mod.apply_commit(root=root, commit=second, version=label, state_root=state_root).outcome == 'applied'
+    old = root.resolve()
+    origin = tmp_path / 'origin'
+    (origin / 'new-marker').write_text('new generation', encoding='utf-8')
+    def git(path, *args):
+        return subprocess.check_output(['git', '-c', 'core.longpaths=true', '-C', str(path), *args], stderr=subprocess.PIPE).decode().strip()
+    git(origin, 'add', 'new-marker')
+    git(origin, 'commit', '-m', 'same version new content')
+    third = git(origin, 'rev-parse', 'HEAD')
+    git(root, 'fetch', 'origin')
+    _clean_plan(monkeypatch, third)
+    result = run_mod.apply_commit(root=root, commit=third, version=label, state_root=state_root)
+    assert result.outcome == 'applied', result.detail
+    assert root.resolve().name == (third if full_hash else label + '-' + third[:12])
+    if not full_hash:
+        assert run_mod.stage.is_release_name(root.resolve().name)
+    assert (root / 'new-marker').read_text() == 'new generation'
+    assert git(old, 'rev-parse', 'HEAD') == second
+    assert not (old / 'new-marker').exists()
+
+
+@pytest.mark.parametrize('label', ['../escape', r'..\escape', 'C:stream', '/tmp/escape', 'CON', 'release', '1.2.3.' , '1.2.3-' + 'x' * 150])
+def test_non_version_labels_keep_commit_directory_names(tmp_path, state_root, monkeypatch, label):
+    root, first, second = _install(tmp_path)
+    _clean_plan(monkeypatch, second)
+    result = run_mod.apply_commit(root=root, commit=second, version=label, state_root=state_root)
+    assert result.outcome == 'applied', result.detail
+    assert root.resolve() == root.parent / 'versions' / second
+
+
+@pytest.mark.parametrize('prior_sequence', [None, 5, 9, 12])
+def test_matching_head_records_verified_metadata_without_reinstalling(tmp_path, state_root, monkeypatch, prior_sequence):
+    root, first, second = _install(tmp_path)
+    _clean_plan(monkeypatch, second)
+    assert run_mod.apply_commit(root=root, commit=second, state_root=state_root).outcome == 'applied'
+    live = root.resolve()
+    path = run_mod._state_file(state_root)
+    if prior_sequence is None:
+        path.unlink()
+    else:
+        prior = run_mod.state.read_state()
+        prior.update(release_sequence=prior_sequence, applied_by='previous', hosts={'codex': {}}, pending=['keep this pending item'])
+        run_mod.state.write_state(prior)
+    before = path.read_bytes() if path.exists() else None
+    class Found:
+        manifest = {'version': '0.17.0'}
+        commit = second
+        key_id = 'k'
+        release_sequence = 9
+    monkeypatch.setattr(run_mod.acquire, 'available_release', lambda *a, **k: Found())
+    result = run_mod.check(root=root, remote='origin', channel='stable', keyring_path=_write_keyring(tmp_path), state_root=state_root, now=10000)
+    assert result.outcome == 'current', result.detail
+    assert root.resolve() == live
+    recorded = run_mod.state.read_state()
+    assert recorded['release_sequence'] == max(prior_sequence or 0, 9)
+    assert recorded['installed_commit'] == second
+    if prior_sequence is not None:
+        assert recorded['hosts'] == {'codex': {}} and recorded['pending'] == ['keep this pending item']
+    if prior_sequence is None or prior_sequence < 9:
+        assert recorded['applied_by'] == 'k'
+    else:
+        assert path.read_bytes() == before
+    snapshot = path.read_bytes()
+    assert run_mod.apply_commit(root=root, commit=second, state_root=state_root).outcome == 'current'
+    assert path.read_bytes() == snapshot  # Manual sequence zero cannot erase verified state.
+    observed = []
+    monkeypatch.setattr(run_mod.acquire, 'available_release', lambda *a, **k: observed.append(k['installed_sequence']))
+    run_mod.check(root=root, remote='origin', channel='stable', keyring_path=_write_keyring(tmp_path), state_root=state_root, now=20000)
+    assert observed == [recorded['release_sequence']]
+
+
+def test_matching_head_metadata_write_failure_is_not_reported_current(tmp_path, state_root, monkeypatch):
+    root, first, second = _install(tmp_path)
+    _clean_plan(monkeypatch, second)
+    assert run_mod.apply_commit(root=root, commit=second, state_root=state_root).outcome == 'applied'
+    live, before = root.resolve(), run_mod._state_file(state_root).read_bytes()
+    class Found:
+        manifest = {'version': '0.17.0'}
+        commit = second
+        key_id = 'k'
+        release_sequence = 9
+    monkeypatch.setattr(run_mod.acquire, 'available_release', lambda *a, **k: Found())
+    def fail(*args, **kwargs):
+        raise OSError('fixture refuses state write')
+    monkeypatch.setattr(run_mod.state, 'write_state', fail)
+    result = run_mod.check(root=root, remote='origin', channel='stable', keyring_path=_write_keyring(tmp_path), state_root=state_root)
+    assert result.outcome == 'repair-required', result.detail
+    assert root.resolve() == live
+    assert run_mod._state_file(state_root).read_bytes() == before
+
+
+@pytest.mark.parametrize('changed', ['sequence', 'live-root'])
+def test_matching_head_rechecks_state_and_identity_under_the_transaction_lock(tmp_path, state_root, monkeypatch, changed):
+    root, first, second = _install(tmp_path)
+    old = root.resolve()
+    _clean_plan(monkeypatch, second)
+    assert run_mod.apply_commit(root=root, commit=second, state_root=state_root).outcome == 'applied'
+    before = run_mod._state_file(state_root).read_bytes()
+    class Found:
+        manifest = {'version': '0.17.0'}
+        commit = second
+        key_id = 'k'
+        release_sequence = 9
+    monkeypatch.setattr(run_mod.acquire, 'available_release', lambda *a, **k: Found())
+    apply = run_mod.transaction.apply_plan
+    def change_before_lock(*args, **kwargs):
+        if changed == 'sequence':
+            latest = run_mod.state.read_state()
+            latest.update(release_sequence=12, applied_by='newer-release')
+            run_mod.state.write_state(latest)
+        else:
+            run_mod.stage.swap_root(root=root, target=old)
+        return apply(*args, **kwargs)
+    monkeypatch.setattr(run_mod.transaction, 'apply_plan', change_before_lock)
+    result = run_mod.check(root=root, remote='origin', channel='stable', keyring_path=_write_keyring(tmp_path), state_root=state_root)
+    if changed == 'sequence':
+        assert result.outcome == 'current', result.detail
+        recorded = run_mod.state.read_state()
+        assert recorded['release_sequence'] == 12
+        assert recorded['applied_by'] == 'newer-release'
+    else:
+        assert result.outcome == 'repair-required', result.detail
+        assert root.resolve() == old
+        assert run_mod._state_file(state_root).read_bytes() == before
+
+
+def test_a_parent_repository_cannot_supply_the_live_generation_identity(tmp_path, state_root):
+    root, first, second = _install(tmp_path)
+    fake = tmp_path / 'origin/versions/0.17.0'
+    fake.mkdir(parents=True)
+    (fake / 'VERSION').write_text('0.17.0', encoding='utf-8')
+    root.unlink()
+    root.symlink_to(fake, target_is_directory=True)
+    result = run_mod.apply_commit(root=root, commit=second, version='0.17.0', state_root=state_root)
+    assert result.outcome == 'failed', result.detail
+    assert root.resolve() == fake
+
+
+def test_missing_committed_version_is_refused_without_changing_live_tree(tmp_path, state_root):
+    root, first, second = _install(tmp_path)
+    origin = tmp_path / 'origin'
+    subprocess.run(['git', '-C', str(origin), 'rm', 'VERSION'], capture_output=True, check=True)
+    subprocess.run(['git', '-C', str(origin), 'commit', '-m', 'missing sentinel'], capture_output=True, check=True)
+    commit = subprocess.check_output(['git', '-C', str(origin), 'rev-parse', 'HEAD']).decode().strip()
+    subprocess.run(['git', '-C', str(root), 'fetch', 'origin'], capture_output=True, check=True)
+    live = root.resolve()
+    result = run_mod.apply_commit(root=root, commit=commit, state_root=state_root)
+    assert result.outcome == 'failed'
+    assert root.resolve() == live
+    assert (root / 'VERSION').read_text().strip() == '0.16.0'

@@ -6,6 +6,26 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) loosely;
 
 ## [Unreleased]
 
+## [0.14.6] - 2026-09-08
+
+### Changed
+
+- New managed version directories use readable release labels, with a short
+  commit suffix for reissued versions and full-commit fallback for unsafe labels.
+  Existing hash directories remain available for hooks and rollback. An old
+  updater installs this release into a hash directory; later updates use labels.
+- Live revision checks use the checkout's actual Git identity. Mixed-layout
+  migration verifies ownership of newly admitted short-name directories.
+- Repeated verified updates reconcile newer release metadata under the existing
+  transaction lock without reinstalling or lowering the recorded release sequence.
+
+### Verification
+
+- Development verification: 328 tests passed, 2 skipped. Seven existing Windows
+  path-assertion failures were reproduced on the unchanged baseline; one known
+  Git Bash environment assertion was excluded after baseline reproduction.
+  Native macOS execution remains unverified.
+
 ## [0.14.5] - 2026-09-08
 
 ### Fixed

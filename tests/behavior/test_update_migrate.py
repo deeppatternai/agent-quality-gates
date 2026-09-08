@@ -65,7 +65,8 @@ def test_a_plain_checkout_becomes_a_symlink_into_versions(tmp_path):
 
     assert root.is_symlink()
     assert result.versions_dir == tmp_path / "versions"
-    assert os.path.realpath(root) == str((tmp_path / "versions" / commit).resolve())
+    assert os.path.realpath(root) == str((tmp_path / "versions/0.16.0").resolve())
+    assert _head(root) == commit
 
 
 def test_the_files_survive_and_are_the_same_ones(tmp_path):
@@ -211,7 +212,7 @@ def test_a_dry_run_changes_nothing(tmp_path):
     """A one-way change to somebody's install deserves a way to see it first."""
     root = _checkout(tmp_path)
     plan = migrate_mod.migrate(root, dry_run=True)
-    assert plan.target.name == _head(root)
+    assert plan.target.name == "0.16.0"
     assert root.is_dir() and not root.is_symlink()
     assert not (tmp_path / "versions").exists()
 
@@ -410,3 +411,41 @@ def test_cleanliness_is_rechecked_under_the_lock(tmp_path, monkeypatch):
     monkeypatch.setattr(migrate_mod, "_require_clean_checkout", counting)
     migrate_mod.migrate(root)
     assert len(calls) >= 2, "the tree was checked once and used later"
+
+
+def test_migration_accepts_genuine_mixed_generations_and_preserves_them(tmp_path):
+    root = _checkout(tmp_path)
+    versions = tmp_path / 'versions'
+    legacy = _checkout(versions, name='a' * 40)
+    short = versions / '0.15.0'
+    subprocess.run(['git', '-C', str(legacy), 'worktree', 'add', '--detach', str(short), 'HEAD'], capture_output=True, check=True)
+    result = migrate_mod.migrate(root)
+    assert result.target.name == '0.16.0'
+    assert (legacy / 'VERSION').is_file() and (short / 'VERSION').is_file()
+    assert migrate_mod.migrate(root).target == result.target
+
+
+def test_a_version_shaped_stranger_is_not_adopted(tmp_path):
+    root = _checkout(tmp_path)
+    (tmp_path / 'versions/0.15.0').mkdir(parents=True)
+    with pytest.raises(migrate_mod.MigrateError, match='versions'):
+        migrate_mod.migrate(root)
+    assert not root.is_symlink()
+
+
+@pytest.mark.parametrize('foreign_worktree', [False, True])
+def test_a_short_name_with_a_version_file_is_not_enough_to_claim_ownership(tmp_path, foreign_worktree):
+    root = _checkout(tmp_path)
+    stranger = tmp_path / 'versions/0.15.0'
+    stranger.parent.mkdir()
+    if foreign_worktree:
+        foreign = _checkout(tmp_path, name='foreign')
+        subprocess.run(['git', '-C', str(foreign), 'worktree', 'add', '--detach', str(stranger), 'HEAD'], capture_output=True, check=True)
+    else:
+        (stranger / 'scripts').mkdir(parents=True)
+        (stranger / 'VERSION').write_text('0.15.0', encoding='utf-8')
+        (stranger / 'scripts/_aqg_context.sh').write_text('# not ours', encoding='utf-8')
+    with pytest.raises(migrate_mod.MigrateError, match='versions'):
+        migrate_mod.migrate(root)
+    assert not root.is_symlink()
+    assert (stranger / 'VERSION').is_file()

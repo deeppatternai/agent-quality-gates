@@ -383,7 +383,7 @@ def _state_file(state_root: Optional[Path]) -> Optional[Path]:
 
 def _record_installed(
     *, channel: str, version, commit: str, sequence, key_id, pending,
-    state_root: Optional[Path] = None,
+    state_root: Optional[Path] = None, hosts=None,
 ) -> None:
     """Write what is live, in the shape `state.validate_state` demands.
 
@@ -406,7 +406,7 @@ def _record_installed(
         "release_sequence": int(sequence),
         "installed_at": datetime.now(timezone.utc).isoformat(),
         "applied_by": str(key_id),
-        "hosts": {},
+        "hosts": hosts if hosts is not None else {},
         "pending": list(pending),
     }, path=_state_file(state_root))
 
@@ -420,7 +420,7 @@ def _apply(
     key_id: str = "unsigned-manual",
 ) -> CheckResult:
     # Derived from where the root currently POINTS, not from a layout guessed
-    # off its own path: the root is a symlink into `versions/<sha>`, so the
+    # off its own path: the root is a symlink into a version directory, so the
     # directory that holds versions is that target's parent. Computing it as
     # `root.resolve().parent / "versions"` produced `versions/versions/<sha>` —
     # caught by the end-to-end test, and by nothing before it.
@@ -434,20 +434,45 @@ def _apply(
             ),
         )
     versions_dir = live.parent
-    if live.name == commit:
+    if stage.version_commit(live) == commit:
+        if provenance == "verified release" and sequence > (installed or {}).get("release_sequence", -1):
+            def record_verified_metadata():
+                # The transaction holds the install lock. Another updater may
+                # have advanced the tree/state since acquisition; never regress it.
+                latest = state.read_state() or {}
+                if sequence <= latest.get("release_sequence", -1):
+                    return
+                if stage.version_commit(Path(root)) != commit:
+                    raise state.StateError("live revision changed before metadata commit")
+                _record_installed(
+                    channel=channel, version=version, commit=commit, sequence=sequence,
+                    key_id=key_id, pending=latest.get("pending", []),
+                    hosts=latest.get("hosts", {}), state_root=state_root,
+                )
+            result = transaction.apply_plan(
+                plan_mod.Plan(actions=(), deferred=()),
+                resources=dispatch.Resources(target=live, root=Path(root).absolute()),
+                record_state=record_verified_metadata, smoke=lambda: _smoke(Path(root)),
+            )
+            return CheckResult(
+                outcome={"committed": "current", "busy": "pending", "rolled-back": "rolled-back",
+                         "repair-required": "repair-required"}.get(result.status, "failed"),
+                detail=result.detail,
+            )
         # Already live. Staging unconditionally turned the most ordinary thing a
         # user does — running the upgrade twice — into "a staged tree already
         # exists", reported as work needing a human.
         return CheckResult(
             outcome="current", detail=f"{version} is already the live version"
         )
+    name = stage.version_name(version, commit, versions_dir)
     try:
         target = stage.stage_version(
             repo=Path(root), commit=commit,
-            versions_dir=versions_dir, name=commit,
+            versions_dir=versions_dir, name=name,
         )
     except stage.StageError as exc:
-        # A commit-named directory is a name COLLISION, not a lock: it cannot
+        # An occupied generation name is a COLLISION, not a lock: it cannot
         # distinguish "another run holds this right now" from "a run crashed and
         # left it behind". Reporting the second as a transient conflict makes a
         # permanent condition look like a race that will clear itself.
@@ -456,7 +481,7 @@ def _apply(
             detail=str(exc),
             pending=(
                 f"a staged tree for {commit[:12]} is already there, left "
-                f"behind or in use: {versions_dir / commit}. Remove it if "
+                f"behind or in use: {versions_dir / name}. Remove it if "
                 f"no update is running.",
             ),
         )
@@ -776,7 +801,8 @@ def apply_commit(
         )
     try:
         return _apply(
-            root=Path(root), commit=commit, version=version or commit[:12],
+            root=Path(root), commit=commit,
+            version=version or stage._git("show", f"{commit}:VERSION", cwd=Path(root)),
             installed=state.read_state(), state_root=state_root,
             host_reconciliation=host_reconciliation,
             provenance="manual, unsigned",

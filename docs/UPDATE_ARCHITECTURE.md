@@ -188,8 +188,8 @@ back from the journal.
 | 0 | **admission** | acquire the OS advisory install lock; refuse if another apply holds it; check throttle; resolve channel | exit quietly (not an error — another process has it) |
 | 1 | **acquire** | fetch the target ref; verify signature and sequence against the pinned keyring; **no mutation whatsoever** | abort, record, leave the install untouched |
 | 2 | **plan** | diff `install-state.json` against the target → an ordered, per-host action list; classify each item 1–5 (§1) | abort with a readable plan dump |
-| 3 | **stage** | materialize the target as `versions/<commit>/` beside the live root; run repo-internal checks there | discard the staged tree; nothing was live |
-| 4 | **apply-repo** | **atomically swap** the `AQG_ROOT` symlink to `versions/<commit>` | swap back — one `rename(2)`, no intermediate state |
+| 3 | **stage** | materialize the target as `versions/<version>/` beside the live root; run repo-internal checks there | discard the staged tree; nothing was live |
+| 4 | **apply-repo** | **atomically swap** the `AQG_ROOT` symlink to the staged version | swap back — one `rename(2)`, no intermediate state |
 | 5 | **apply-hosts** | per adapter, in registry order, each idempotent and individually journaled: route/prune skills, then (only for class 5) merge hook config, then rules block | roll back **that host**; continue to the next; record in `pending[]` |
 | 6 | **smoke** | `aqg_doctor.py --no-cli` against the new root | roll back phases 4–5 |
 | 7 | **commit** | write `install-state.json`, clear the journal, prune old `versions/` beyond N | — |
@@ -203,7 +203,21 @@ is not atomic across files, so an in-place reset has a window in which a concurr
 half-updated tree. DE has no such exposure — only its own launcher reads its checkout, and the launcher
 holds the lock.
 
-So: stage into `versions/<commit>/`, then one `rename(2)` on the symlink.
+So: stage into `versions/<version>/`, then one `rename(2)` on the symlink.
+
+New generations use readable release labels such as `0.14.5`. If that name already
+holds a different commit, the new generation uses `0.14.5-<12-char-commit>`; occupied
+targets are never reused or overwritten. Unsafe, non-version or oversized labels
+fall back to the full commit name. Full commits, signatures and anti-rollback
+sequences remain authoritative in manifests/state; the live revision is read from Git.
+Automatic updates take the label from the verified manifest; manual updates and
+migration read the committed `VERSION` file. Labels do not establish content identity.
+An already-live verified commit can advance release metadata through the existing
+transaction without staging again; manual repeats cannot lower the verified sequence.
+Legacy commit-named directories remain in place for hooks and rollback. Migration
+accepts both layouts. An old updater still creates a commit-named directory when
+installing the first release with this naming support; subsequent updates use the
+new names without an uninstall or a separate compatibility release.
 
 **Disk layout** — use `git worktree` so a single object store is shared rather than copying the 26 MB `.git`
 N times:

@@ -2,7 +2,7 @@
 
 docs/UPDATE_ARCHITECTURE.md §5. Every install in the field is an ordinary git
 checkout at ``AQG_ROOT``. The managed-update engine needs ``AQG_ROOT`` to be a
-**symlink** into ``versions/<sha>/``, because that is what makes an update an
+**symlink** into a version directory, because that is what makes an update an
 atomic ``os.replace`` of one link rather than an edit of a tree that every
 running session is reading. Nothing bridged the two, which meant the automatic
 channel could not apply anything to any install that exists.
@@ -49,9 +49,9 @@ from pathlib import Path
 from typing import Optional
 
 try:  # invoked as a package (tests, `python3 -m`)
-    from scripts.aqg_update import lock
+    from scripts.aqg_update import lock, stage
 except ImportError:  # invoked with scripts/ itself on sys.path
-    from aqg_update import lock  # type: ignore[no-redef]
+    from aqg_update import lock, stage  # type: ignore[no-redef]
 
 VERSIONS_DIRNAME = "versions"
 
@@ -59,8 +59,7 @@ VERSIONS_DIRNAME = "versions"
 #: staring at a directory listing wondering where their install went.
 SIGNPOST_FILENAME = "AQG-MIGRATION-INTERRUPTED.txt"
 
-#: A directory name under `versions/` is a full commit sha and nothing else, so
-#: `stage.prune_versions` and this module agree about what belongs there.
+#: Legacy directories and non-version labels retain full commit names.
 _SHA_LENGTH = 40
 
 
@@ -110,13 +109,12 @@ def _require_clean_checkout(root: Path) -> str:
     if modified:
         raise MigrateError(
             f"{root} has uncommitted changes ({len(modified)}); the version "
-            f"directory is named after a commit, and naming it after one whose "
-            f"contents it does not hold would make every later check disagree")
+            f"directory must hold the exact committed contents")
     if untracked:
         raise MigrateError(
             f"{root} has untracked files ({len(untracked)}, e.g. "
             f"{untracked[0][3:]!r}); they would be carried into a tree named "
-            f"after a commit that never contained them")
+            f"for a commit that never contained them")
 
     head = _git(root, "rev-parse", "HEAD")
     if head.returncode != 0:
@@ -125,6 +123,20 @@ def _require_clean_checkout(root: Path) -> str:
     if len(commit) != _SHA_LENGTH or not all(c in "0123456789abcdef" for c in commit):
         raise MigrateError(f"{root}: git returned an unusable HEAD {commit!r}")
     return commit
+
+
+def _owned_release_tree(entry: Path, versions_dir: Path) -> bool:
+    """A short label alone cannot give AQG ownership of another tool's tree."""
+    if not stage.is_release_name(entry.name) or not stage._is_version_tree(entry):
+        return False
+    if not (entry / "scripts/_aqg_context.sh").is_file():
+        return False
+    try:
+        stage.version_commit(entry)
+        common = Path(stage._git("rev-parse", "--git-common-dir", cwd=entry))
+        return (entry / common).resolve().is_relative_to(versions_dir.resolve())
+    except (stage.StageError, OSError, ValueError):
+        return False
 
 
 def _require_usable_versions_dir(versions_dir: Path) -> None:
@@ -137,8 +149,11 @@ def _require_usable_versions_dir(versions_dir: Path) -> None:
         raise MigrateError(f"{versions_dir} exists and is not a directory")
     strangers = [
         entry.name for entry in versions_dir.iterdir()
-        if len(entry.name) != _SHA_LENGTH
-        or not all(c in "0123456789abcdef" for c in entry.name)
+        if not (
+            (len(entry.name) == _SHA_LENGTH
+             and all(c in "0123456789abcdef" for c in entry.name))
+            or _owned_release_tree(entry, versions_dir)
+        )
     ]
     if strangers:
         raise MigrateError(
@@ -368,7 +383,7 @@ def ensure_managed_layout(root: Path, *, managed: Optional[bool] = None) -> Layo
 
 
 def migrate(root: Path, *, dry_run: bool = False) -> Migration:
-    """Turn *root* into a symlink into ``versions/<sha>/``, or explain why not.
+    """Turn *root* into a version-or-commit directory link, or explain why not.
 
     Re-running is safe: an install already on the layout reports ``already`` and
     changes nothing, because a user who is unsure whether they migrated should
@@ -399,7 +414,9 @@ def migrate(root: Path, *, dry_run: bool = False) -> Migration:
     commit = _require_clean_checkout(root)
     _require_usable_versions_dir(versions_dir)
     _require_writable_parent(root)
-    target = versions_dir / commit
+    recorded = _git(root, "show", f"{commit}:VERSION")
+    version = recorded.stdout.decode("utf-8", "replace").strip() if recorded.returncode == 0 else ""
+    target = versions_dir / stage.version_name(version, commit, versions_dir)
     if target.exists() or target.is_symlink():
         raise MigrateError(
             f"{target} already exists; a previous migration may have stopped "
