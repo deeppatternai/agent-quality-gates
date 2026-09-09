@@ -21,7 +21,7 @@ collapsing them loses the distinction a human needs:
 * ``unchanged`` — the desired end state was already true. A prune of something
   that is not ours is *not* a failure; every run would look broken.
 * ``deferred`` — this layer cannot do it yet, and saying so is more honest than
-  either "done" or "failed". ``merge_hooks`` has no adapter verb behind it, and
+  either "done" or "failed". ``merge_hooks`` needs an explicitly prepared edit, and
   ``record_state`` belongs to the transaction, which holds the lock and knows
   whether the apply committed.
 * ``failed`` — it was attempted and refused. The run stops there and hands back
@@ -77,6 +77,7 @@ class Resources:
     target: Path
     root: Path
     skills_dest: Mapping[str, Path] = field(default_factory=dict)
+    hook_edits: Mapping = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         for label, value in (("target", self.target), ("root", self.root)):
@@ -91,6 +92,7 @@ class Resources:
                     f"path, got {value}"
                 )
         object.__setattr__(self, "skills_dest", MappingProxyType(dict(self.skills_dest)))
+        object.__setattr__(self, "hook_edits", MappingProxyType(dict(self.hook_edits)))
 
     @property
     def skills_source(self) -> Path:
@@ -169,6 +171,11 @@ def _apply_one(action: Action, resources: Resources) -> Outcome:
         )
 
     if action.kind == "merge_hooks":
+        edit = resources.hook_edits.get(action.client_id)
+        if edit is not None:
+            changed = edit.apply()
+            return Outcome(action=action, status='applied' if changed else 'unchanged',
+                           detail='AQG-owned hooks refreshed')
         return Outcome(
             action=action,
             status="deferred",
@@ -236,7 +243,8 @@ def execute(
     outcomes: list = []
     for action in plan.actions:
         if not apply:
-            deferred = action.kind in _ALWAYS_DEFERRED
+            deferred = action.kind in _ALWAYS_DEFERRED and not (
+                action.kind == 'merge_hooks' and action.client_id in resources.hook_edits)
             outcomes.append(
                 Outcome(
                     action=action,

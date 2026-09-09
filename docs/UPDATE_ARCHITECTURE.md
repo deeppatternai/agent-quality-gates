@@ -255,8 +255,9 @@ their dedicated inspectors. Cursor, CodeBuddy, WorkBuddy AI, Kimi Code, Qoder
 variants, QoderWork, Trae variants, Devin and Pi use read-only user-scope inspectors
 that compare managed entries with the existing installer renderers. Inspection
 does not execute staged installer code or change/approve host configuration.
-Unknown formats and changed definitions remain pending; unchanged hook inputs
-are checked before an ordinary root swap. Foreign entries are preserved.
+Unknown formats remain pending; unchanged hook inputs are checked before an
+ordinary root swap. Signed definition changes may prepare reversible AQG-owned
+hook edits as described below. Foreign entries are preserved.
 Read-only inspection can follow a symlinked configuration file; installer writes
 retain their own stricter path checks. Foreign-only configurations do not enroll
 an unrecorded host in updates. Recorded hosts with missing/unreadable managed
@@ -862,3 +863,49 @@ still need repair. There is no timer service; retries require another trigger.
 
 An older installed release must first receive this code through an existing
 update path or reinstall before these two new entrypoints can provide the trigger.
+
+### Owned hook refresh during a signed update
+
+Inspector output must not depend on whether an equivalent `python.exe` or
+`python3.exe` launched it. Sibling interpreter aliases are accepted only when
+the files exist and their bounded contents are identical; no configured command
+is executed to prove equivalence. The existing spelling is retained in a refresh.
+Qoder's validated shared-owner ledger determines which installed profiles are
+checked. An uninstalled sibling does not impose a second, incompatible hook set.
+
+Claude Code and the managed JSON/TOML/Pi adapters can prepare hook edits for an
+already installed host. Candidate installer definitions are rendered only after
+release verification, in an isolated subprocess. This is distinct from ordinary
+read-only inspection, which continues to use the running installer. Codex's
+interactive hook trust/digest approval remains a host action. Project-specific
+configurations and skill additions/removals retain their existing boundaries.
+
+Prepared JSON edits replace individual AQG-owned commands and preserve foreign
+commands, including those in the same matcher block, and unrelated settings.
+Kimi edits replace only the delimited AQG TOML block; Pi refreshes its dedicated
+AQG extension. Missing, symlinked, oversized, duplicate-key or ambiguous JSON
+configurations are refused before writing. Shared files receive one edit.
+
+The install lock covers backup, hook writes, root activation and verification.
+Backups are content-addressed files under the state's `hook-backups` directory;
+the journal records paths and hashes, never configuration contents. Files are
+rechecked before replacement. Apply or smoke failure restores the original bytes
+and root, clears the completed rollback journal and permits another trigger.
+After interruption, hook/root-only journals can recover automatically when
+backup hashes, allowed host paths, live root and installation state agree. The
+running trusted installer must also prove the snapshot's executable fields and
+unchanged foreign configuration; a hash stored beside a backup is insufficient.
+Only applying/smoking/rolling_back phases are eligible. Missing install state,
+definitions the running installer cannot prove, and explicit repair_required
+journals require manual repair. Completed transactions remove their snapshots.
+Each shared configuration is rendered once, with a 30-second subprocess timeout
+and a 90-second preparation budget (one in-flight renderer may finish after it).
+Candidate host verification runs after activation and before recording state;
+the existing installed-host roster is preserved. A
+concurrent user edit, unrelated root, legacy/unknown journal or ambiguous state
+requires repair rather than overwriting user data. Recoverable interruption does
+not bypass signature or sequence verification on the next update attempt.
+
+An already installed updater with the old mismatch logic still needs an installer
+repair or reinstall to receive this implementation before a new-version update
+can validate the repaired automatic path.

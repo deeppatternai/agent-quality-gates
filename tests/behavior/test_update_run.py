@@ -481,6 +481,44 @@ def _clean_plan(monkeypatch, target_commit):
     monkeypatch.setattr(run_mod.plan_mod, "build_plan", only_activate)
 
 
+def test_signed_apply_refreshes_hooks_and_retries_after_smoke_failure(tmp_path, state_root, monkeypatch):
+    from scripts.aqg_update.hosts.managed import ManagedAdapter
+    root, first, second = _install(tmp_path)
+    adapter = ManagedAdapter('cursor', home=tmp_path / 'home', aqg_root=Path(__file__).resolve().parents[2])
+    path, rendered = adapter.canonical_config()
+    path.parent.mkdir(parents=True)
+    original = json.loads(rendered)
+    original['hooks']['sessionStart'][0]['timeout'] = 1
+    original['user_config'] = 'preserve'
+    path.write_text(json.dumps(original), encoding='utf8')
+    before = path.read_bytes()
+    # The separate renderer tests exercise candidate definitions. This fixture
+    # is a minimal Git update tree, so provide its already-prepared host edit.
+    edit = adapter.prepare_hook_edit(Path(__file__).resolve().parents[2])
+    monkeypatch.setattr(adapter, 'prepare_hook_edit', lambda target: edit)
+    monkeypatch.setattr(run_mod.hosts_mod, 'available_clients', lambda: ('cursor',))
+    monkeypatch.setattr(run_mod.hosts_mod, 'adapter_for', lambda client: adapter)
+    monkeypatch.setattr(run_mod, '_smoke', lambda root: False)
+    roster = {'cursor': {'last_applied_version': '0.16.0'}}
+    run_mod._record_installed(channel='stable', version='0.16.0', commit=first,
+        sequence=8, key_id='old', pending=[], state_root=state_root, hosts=roster)
+    installed = run_mod.state.read_state(path=state_root/'install-state.json')
+    args = dict(root=root, commit=second, version='0.17.0', installed=installed,
+                state_root=state_root, sequence=9, key_id='fixture')
+    result = run_mod._apply(**args)
+    assert result.outcome == 'rolled-back', result.detail
+    assert path.read_bytes() == before
+    assert run_mod.stage.version_commit(root) == first
+    monkeypatch.setattr(run_mod, '_smoke', lambda root: True)
+    result = run_mod._apply(**args)
+    assert result.outcome == 'applied', result.detail
+    assert run_mod.stage.version_commit(root) == second
+    assert adapter.verify().hooks_status == 'complete'
+    assert json.loads(path.read_bytes())['user_config'] == 'preserve'
+    assert json.loads((state_root / 'install-state.json').read_bytes())['pending'] == []
+    assert json.loads((state_root / 'install-state.json').read_bytes())['hosts'] == roster
+
+
 def test_failed_planning_can_retry_same_release_without_reusing_residue(tmp_path, state_root, monkeypatch):
     root, first, second = _install(tmp_path)
     class Found:
@@ -1672,3 +1710,48 @@ def test_transaction_precondition_holds_lock_and_precedes_journal(tmp_path):
         journal=journal, lock_path=lock_path, precondition=guard)
     assert result.status == 'stale-plan'
     assert not journal.exists()
+
+
+def test_shared_qoder_config_is_rendered_once_before_apply(tmp_path, state_root, monkeypatch):
+    from scripts.aqg_update.hosts.managed import ManagedAdapter
+    from scripts.aqg_update.plan import Action, Plan
+    root, first, second = _install(tmp_path)
+    repo = Path(__file__).resolve().parents[2]
+    adapters = {c: ManagedAdapter(c, home=tmp_path/'home', aqg_root=repo)
+                for c in ('qoder', 'qoder-cli')}
+    adapter = adapters['qoder']
+    path, _ = adapter.canonical_config()
+    path.parent.mkdir(parents=True)
+    adapter.installer._write_owners(path.parent, ['qoder', 'qoder-cli'])
+    _, canonical = adapter.canonical_config()
+    path.write_text(canonical, encoding='utf8')
+    calls = []
+    def prepare(target):
+        calls.append(target)
+        return ManagedAdapter.prepare_hook_edit(adapter, repo)
+    for value in adapters.values():
+        monkeypatch.setattr(value, 'prepare_hook_edit', prepare)
+    monkeypatch.setattr(run_mod.hosts_mod, 'available_clients', lambda: tuple(adapters))
+    monkeypatch.setattr(run_mod.hosts_mod, 'adapter_for', adapters.__getitem__)
+    actions = [Action('merge_hooks', client, None, 5, 'new definition') for client in adapters]
+    actions.append(Action('activate_root', None, None, 0, 'activate'))
+    monkeypatch.setattr(run_mod.plan_mod, 'build_plan', lambda **kwargs: Plan(actions=tuple(actions)))
+    result = run_mod._apply(root=root, commit=second, version='0.17.0', installed=None,
+                           state_root=state_root, sequence=9, key_id='fixture')
+    assert result.outcome == 'applied', result.detail
+    assert len(calls) == 1
+    assert all(value.verify().hooks_status == 'complete' for value in adapters.values())
+
+
+def test_successful_update_retains_all_recorded_hosts(tmp_path, state_root, monkeypatch):
+    root, first, second = _install(tmp_path)
+    _clean_plan(monkeypatch, second)
+    monkeypatch.setattr(run_mod, '_collect_evidence', lambda *args, **kwargs: {})
+    roster = {'cursor': {'last_applied_version': '0.16.0'}, 'codex': {}, 'qoder-cli': {}}
+    run_mod._record_installed(channel='stable', version='0.16.0', commit=first,
+        sequence=8, key_id='old', pending=[], state_root=state_root, hosts=roster)
+    installed = run_mod.state.read_state(path=state_root/'install-state.json')
+    result = run_mod._apply(root=root, commit=second, version='0.17.0', installed=installed,
+                           state_root=state_root, sequence=9, key_id='fixture')
+    assert result.outcome == 'applied', result.detail
+    assert run_mod.state.read_state(path=state_root/'install-state.json')['hosts'] == roster

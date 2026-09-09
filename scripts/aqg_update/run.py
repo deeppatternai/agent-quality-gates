@@ -18,7 +18,7 @@ about what it must **not** do:
 
 **What "automatic" covers, precisely: only a plan that is COMPLETE.** If the
 planner produces anything this runner cannot carry out — a skill to route or
-prune, a hook set to merge — **nothing is applied at all**, and the whole list
+prune, or a hook set without an automatic edit adapter — **nothing is applied at all**, and the whole list
 is recorded as `pending` for a human.
 
 That is a correction, not a simplification. An earlier version swapped the root
@@ -31,7 +31,8 @@ that can silently disable a guardrail is worse than no automation.
 What is left automatic is still the common case. Under §1's payload classes, a
 hook script's body (class 1) and a skill's content (class 2) ride the root
 symlink for free — the swap *is* the whole update for them. Classes 3, 4 and 5
-change what a host is configured to point at, and those wait for a person.
+change what a host is configured to point at. Owned class-5 configuration is
+refreshed transactionally by opted-in adapters; other changes still wait.
 
 **Concurrency.** A separate check lock serializes acquisition through completion
 across agents. ``transaction.apply_plan`` retains the independent install lock;
@@ -409,7 +410,7 @@ def _admitted_check(*, root, remote, channel, keyring_path, state_root, now, app
         )), state_root, now, scope=scope, identity=identity)
 
     if apply:
-        gated = _transaction_gate(state_root)
+        gated = _transaction_gate(state_root, root=root)
         if gated is not None:
             if gated.outcome == 'busy':
                 return gated  # A live transaction is not a failed attempt.
@@ -551,16 +552,19 @@ def _transaction_paths(state_root):
     return storage / transaction.JOURNAL_FILENAME, storage / lock.LOCK_FILENAME
 
 
-def _transaction_gate(state_root):
+def _transaction_gate(state_root, *, root=None):
     """Read recovery state under the apply lock, before any current fast path."""
     journal, apply_lock = _transaction_paths(state_root)
     try:
         with lock.install_lock(path=apply_lock):
             if transaction.read_journal(journal) is not None:
+                if root is not None and transaction.recover_hook_update(
+                        journal, Path(root), state.read_state(path=journal.parent / state.STATE_FILENAME)):
+                    return None
                 return CheckResult(outcome='repair-required', detail=f'unresolved update journal: {journal}; repair before retrying')
     except lock.LockBusy:
         return CheckResult(outcome='busy', detail='another AQG update is in progress')
-    except transaction.TransactionError as exc:
+    except (OSError, ValueError, RuntimeError) as exc:
         return CheckResult(outcome='repair-required', detail=str(exc))
     return None
 
@@ -578,7 +582,7 @@ def _apply(
     # directory that holds versions is that target's parent. Computing it as
     # `root.resolve().parent / "versions"` produced `versions/versions/<sha>` —
     # caught by the end-to-end test, and by nothing before it.
-    gated = _transaction_gate(state_root)
+    gated = _transaction_gate(state_root, root=root)
     if gated is not None:
         return gated
     journal, apply_lock = _transaction_paths(state_root)
@@ -668,6 +672,35 @@ def _apply(
         blocking, deferrable = _split_outstanding(
             built.actions, root_relative=_root_relative, pinned=_pinned
         )
+        hook_edits = {}
+        if provenance == 'verified release' and not host_reconciliation:
+            by_path = {}
+            prepare_started = time.monotonic()
+            for action in blocking:
+                if action.kind != 'merge_hooks':
+                    continue
+                adapter = hosts_mod.adapter_for(action.client_id)
+                try:
+                    if time.monotonic() - prepare_started > 90:
+                        raise RuntimeError('hook preparation time budget exceeded; retry later')
+                    config_path = adapter.hook_configuration_path()
+                    edit = by_path.get(config_path)
+                    if edit is None:
+                        edit = adapter.prepare_hook_edit(target)
+                    if edit is None:
+                        continue  # This host still requires its own approval.
+                    previous = by_path.get(edit.path)
+                    if previous is not None and (previous.before, previous.after) != (edit.before, edit.after):
+                        raise ValueError('shared host renderers disagree about the configuration')
+                    by_path[edit.path] = previous or edit
+                    hook_edits[action.client_id] = by_path[edit.path]
+                except (OSError, ValueError, RuntimeError) as exc:
+                    return CheckResult(outcome='pending',
+                        detail=f'{version}: hook refresh could not be prepared: {exc}', pending=outstanding)
+            blocking = [a for a in blocking if not (
+                a.kind == 'merge_hooks' and a.client_id in hook_edits)]
+            outstanding = tuple(line for line in outstanding if not any(
+                line.startswith(f'{client}: merge_hooks') for client in hook_edits))
         # A planner refusal and an unreadable adapter are not host spellings; they
         # are "nobody knows", and they block as they always did.
         must_stop = bool(blocking) or bool(built.deferred) or bool(dropped)
@@ -748,13 +781,13 @@ def _apply(
             record_state=lambda: _record_installed(
                 channel=channel, version=version, commit=commit,
                 sequence=sequence, key_id=key_id, pending=list(recorded_pending),
-                state_root=state_root,
+                state_root=state_root, hosts=(installed or {}).get('hosts', {}),
             ),
             # `absolute`, never `resolve`: the root IS the symlink being replaced,
             # so resolving it hands the swap the version tree it points at — which
             # `stage.swap_root` then refuses, correctly, as a real directory it will
             # not destroy. The end-to-end test caught this; nothing before it could.
-            resources=dispatch.Resources(target=target, root=Path(root).absolute()),
+            resources=dispatch.Resources(target=target, root=Path(root).absolute(), hook_edits=hook_edits),
             smoke=lambda: _smoke(Path(root)),
         )
         committed = result.status == 'committed'

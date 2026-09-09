@@ -6,6 +6,32 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) loosely;
 
 ## [Unreleased]
 
+## [0.14.12] - 2026-09-09
+
+### Fixed
+
+- Accept byte-identical Python executable aliases in managed hook commands,
+  including Windows native, Git Bash and WSL path spellings. Foreign commands
+  no longer influence the interpreter comparison.
+- Check Qoder shared hook configurations against their installed owner profiles,
+  so a Qoder CLI-only installation does not require the desktop hook definition.
+
+### Changed
+
+- Signed updates can refresh existing AQG-owned hooks from the candidate's
+  installer definitions while preserving user hooks and unrelated settings.
+  Shared files are rendered once; Codex approval remains a host action.
+- Back up hook edits before writing, verify them after activation, restore only
+  files changed by the transaction on failure, and permit retries after rollback.
+  Interrupted recovery requires trusted configuration evidence and known install
+  state; ambiguous or explicitly repair-required transactions remain protected.
+- Preserve the installed-host roster and remove completed transaction backups.
+  Add the shared reconciliation module and its behavior tests to the public list.
+
+Existing installations blocked by the old inspector need a manual repair or
+reinstall to receive this updater before testing a later automatic update.
+Publication reuses development verification; it does not rerun test suites.
+
 ## [0.14.11] - 2026-09-09
 
 ### Changed

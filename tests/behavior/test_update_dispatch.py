@@ -95,7 +95,7 @@ def test_routing_a_skill_creates_the_route(world):
     assert [o.status for o in outcomes] == ["applied"]
     link = world.skills_dest["claude-code"] / "aqg-brand-new"
     assert link.is_symlink()
-    assert Path(os.readlink(link)) == world.target / "skills" / "aqg-brand-new"
+    assert _absolute_link_target(link) == world.target / "skills" / "aqg-brand-new"
 
 
 def test_routing_something_already_routed_reports_no_change(world):
@@ -130,7 +130,7 @@ def test_pruning_something_that_is_not_ours_reports_no_change(world):
 def test_activating_the_root_points_it_at_the_target(world):
     plan = _plan(_action("activate_root"))
     dispatch_mod.execute(plan, resources=world, apply=True)
-    assert Path(os.readlink(world.root)) == world.target
+    assert _absolute_link_target(world.root) == world.target
 
 
 # --- what it refuses or sets aside -------------------------------------------------
@@ -304,3 +304,14 @@ def test_a_relative_resource_path_is_refused(tmp_path, field):
     )
     with pytest.raises(dispatch_mod.DispatchError, match="absolute"):
         dispatch_mod.Resources(**kwargs)
+
+
+def _absolute_link_target(path):
+    # Preserve the absolute-symlink assertion; normalize Windows extended paths.
+    assert Path(os.readlink(path)).is_absolute()
+    target = os.readlink(path)
+    if target.startswith('\\\\?\\UNC\\'):
+        target = '\\\\' + target[8:]
+    elif target.startswith('\\\\?\\'):
+        target = target[4:]
+    return Path(target)

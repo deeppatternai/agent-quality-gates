@@ -311,6 +311,9 @@ def test_apply_asks_for_evidence_about_the_staged_target(monkeypatch, tmp_path):
     from scripts.aqg_update import stage as stage_mod
 
     monkeypatch.setattr(run_mod, "_collect_evidence", _spy)
+    # This wiring fixture has no Git objects; commit discovery is covered by
+    # the real-repository update tests, while this case must reach the spy.
+    monkeypatch.setattr(stage_mod, "version_commit", lambda path: "a" * 40)
 
     # The managed layout `_apply` requires: the root is a SYMLINK into
     # `versions/<sha>`, which is how it derives where to stage.

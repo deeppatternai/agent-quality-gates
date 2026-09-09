@@ -93,6 +93,13 @@ class ClaudeCodeAdapter(HostAdapter):
                 f"{self.client_id}: cannot inspect {self._settings_path}: {exc}"
             ) from exc
 
+    def prepare_hook_edit(self, target_root):
+        from .reconcile import prepare
+        return prepare(self, target_root)
+
+    def hook_configuration_path(self):
+        return self._settings_path
+
     def _observed_routes(self):
         """Read the routes off disk rather than trusting the install record.
 

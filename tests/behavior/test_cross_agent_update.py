@@ -8,6 +8,66 @@ from types import SimpleNamespace
 import pytest
 
 
+@pytest.mark.parametrize('client', ['cursor', 'codebuddy', 'qoder-cli', 'kimi-code', 'trae'])
+def test_python_executable_alias_does_not_change_hook_evidence(tmp_path, monkeypatch, client):
+    from scripts.aqg_update.hosts.managed import ManagedAdapter
+    import sys
+    executable = tmp_path / 'Python' / 'python.exe'
+    executable.parent.mkdir()
+    executable.write_bytes(b'identical interpreter fixture')
+    alias = executable.with_name('python3.exe')
+    alias.write_bytes(executable.read_bytes())
+    monkeypatch.setattr(sys, 'executable', str(alias))
+    adapter = ManagedAdapter(client, home=tmp_path, aqg_root=Path(__file__).resolve().parents[2])
+    path, expected = adapter.canonical_config()
+    path.parent.mkdir(parents=True)
+    path.write_text(expected, encoding='utf8')
+    monkeypatch.setattr(sys, 'executable', str(executable))
+    assert adapter.verify().hooks_status == 'complete'
+
+    assert path.read_text(encoding='utf8') == expected
+    alias.write_bytes(b'different executable')
+    assert adapter.verify().hooks_status == 'stale'
+
+
+def test_qoder_cli_only_owner_does_not_install_or_block_qoder(tmp_path):
+    from scripts.aqg_update.hosts.managed import ManagedAdapter
+    adapter = ManagedAdapter('qoder-cli', home=tmp_path, aqg_root=Path(__file__).resolve().parents[2])
+    path, expected = adapter.canonical_config()
+    path.parent.mkdir(parents=True)
+    path.write_text(expected, encoding='utf8')
+    adapter.installer._write_owners(path.parent, ['qoder-cli'])
+    sibling = ManagedAdapter('qoder', home=tmp_path, aqg_root=adapter.root)
+    assert sibling.verify().hooks_status == 'not-applicable'
+    assert adapter.verify().hooks_status == 'complete'
+
+    # The sibling's not-applicable evidence must also permit an actual plan.
+    from scripts.aqg_update.plan import build_plan
+    target = tmp_path / 'target'
+    (target / 'skills').mkdir(parents=True)
+    (target / 'VERSION').write_text('1.0.0')
+    built = build_plan(state=None, target=target, target_commit='abc',
+                       evidence={'qoder': sibling.verify(), 'qoder-cli': adapter.verify()})
+    assert not built.deferred
+    assert not any(action.client_id == 'qoder' for action in built.actions)
+
+
+def test_qoder_accepts_unresolved_interpreter_symlink(tmp_path, monkeypatch):
+    import sys
+    from scripts.aqg_update.hosts.managed import ManagedAdapter
+    executable = tmp_path / 'python.exe'
+    executable.write_bytes(b'interpreter fixture')
+    alias = tmp_path / 'python3.exe'
+    alias.symlink_to(executable)
+    monkeypatch.setattr(sys, 'executable', str(alias))
+    adapter = ManagedAdapter('qoder-cli', home=tmp_path, aqg_root=Path(__file__).resolve().parents[2])
+    path, configured = adapter.canonical_config()
+    path.parent.mkdir(parents=True)
+    path.write_text(configured, encoding='utf8')
+    monkeypatch.setattr(sys, 'executable', str(executable))
+    assert adapter.verify().hooks_status == 'complete'
+
+
 @pytest.mark.parametrize('module_path', [
     'scripts/agent_client_aqg_hook.py', 'scripts/pi_aqg_hook.py',
     'agent-packs/qoder/hooks/qoder_hook_adapter.py', 'scripts/cursor_aqg_hook.py',

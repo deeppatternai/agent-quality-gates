@@ -325,6 +325,14 @@ class HostAdapter(ABC):
         """
         return None
 
+    def prepare_hook_edit(self, target_root: Path):
+        """Opt-in reversible configuration edit; None preserves host approval."""
+        return None
+
+    def hook_configuration_path(self):
+        """Allowlisted path for recovering an opted-in hook transaction."""
+        return None
+
     def pinned_command_paths(self) -> Tuple[Path, ...]:
         """Absolute paths this host's INSTALLED hook commands will execute.
 
@@ -424,4 +432,3 @@ class HostAdapter(ABC):
 def _canonical_path(path: Path) -> Path:
     """One spelling, so the planner's comparison is about trees and not text."""
     return migrate._canonical(Path(path))
-

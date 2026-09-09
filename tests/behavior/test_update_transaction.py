@@ -89,14 +89,14 @@ def test_a_successful_apply_commits_and_clears_the_journal(world):
     A clean finish must leave none."""
     result = _run(world, _plan(_action("activate_root")))
     assert result.status == "committed"
-    assert Path(os.readlink(world["root"])) == world["second"]
+    assert _absolute_link_target(world["root"]) == world["second"]
     assert not world["journal"].exists()
 
 
 def test_an_empty_plan_commits_without_touching_anything(world):
     result = _run(world, _plan())
     assert result.status == "committed"
-    assert Path(os.readlink(world["root"])) == world["first"]
+    assert _absolute_link_target(world["root"]) == world["first"]
 
 
 # --- the lock -----------------------------------------------------------------------
@@ -110,7 +110,7 @@ def test_a_second_apply_stands_down_rather_than_waiting(world):
     with lock_mod.install_lock(path=world["lock"]):
         result = _run(world, _plan(_action("activate_root")))
     assert result.status == "busy"
-    assert Path(os.readlink(world["root"])) == world["first"]
+    assert _absolute_link_target(world["root"]) == world["first"]
     assert not world["journal"].exists()
 
 
@@ -162,7 +162,7 @@ def test_a_failed_apply_puts_the_root_back(world):
     )
     result = _run(world, plan)
     assert result.status == "rolled-back"
-    assert Path(os.readlink(world["root"])) == world["first"]
+    assert _absolute_link_target(world["root"]) == world["first"]
 
 
 def test_a_rollback_clears_the_journal(world):
@@ -200,14 +200,14 @@ def test_a_smoke_failure_rolls_the_root_back(world):
     plan = _plan(_action("activate_root"))
     result = _run(world, plan, smoke=lambda: False)
     assert result.status == "rolled-back"
-    assert Path(os.readlink(world["root"])) == world["first"]
+    assert _absolute_link_target(world["root"]) == world["first"]
 
 
 def test_a_smoke_that_raises_is_a_failure_not_a_pass(world):
     plan = _plan(_action("activate_root"))
     result = _run(world, plan, smoke=lambda: (_ for _ in ()).throw(RuntimeError("boom")))
     assert result.status == "rolled-back"
-    assert Path(os.readlink(world["root"])) == world["first"]
+    assert _absolute_link_target(world["root"]) == world["first"]
 
 
 # --- crash re-entry --------------------------------------------------------------------
@@ -276,7 +276,7 @@ def test_a_raising_dispatcher_still_undoes_what_it_applied(world, monkeypatch):
     )
     result = _run(world, plan)
     assert result.status in {"rolled-back", "repair-required"}
-    assert Path(os.readlink(world["root"])) == world["first"]
+    assert _absolute_link_target(world["root"]) == world["first"]
 
 
 def test_a_live_apply_makes_a_second_trigger_busy_not_confused(world, monkeypatch):
@@ -496,3 +496,14 @@ def test_an_apply_that_did_not_commit_records_nothing(world):
     )
     assert result.status == "rolled-back"
     assert not written, "a rolled-back apply recorded itself as installed"
+
+
+def _absolute_link_target(path):
+    # Preserve the absolute-symlink assertion; normalize Windows extended paths.
+    assert Path(os.readlink(path)).is_absolute()
+    target = os.readlink(path)
+    if target.startswith('\\\\?\\UNC\\'):
+        target = '\\\\' + target[8:]
+    elif target.startswith('\\\\?\\'):
+        target = target[4:]
+    return Path(target)
