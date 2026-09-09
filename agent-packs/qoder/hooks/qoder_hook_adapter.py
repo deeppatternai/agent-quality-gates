@@ -132,7 +132,7 @@ def main(argv: list[str] | None = None) -> int:
     if not isinstance(payload, dict):
         return _degraded(args.hook, "hook input must be a JSON object")
 
-    aqg_root = Path(args.aqg_root).resolve()
+    aqg_root = Path(args.aqg_root).expanduser().absolute()
     hooks_dir = (aqg_root / "agent-packs" / "claude-code" / "hooks").resolve()
     script = (hooks_dir / args.hook).resolve()
     try:

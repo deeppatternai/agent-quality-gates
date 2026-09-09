@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-当前版本：`0.14.4`（权威源：`VERSION`；release notes 见 `CHANGELOG.md`）。
+当前版本：`0.14.7`（权威源：`VERSION`；release notes 见 `CHANGELOG.md`）。
 
 Agent Quality Gates（`AQG`）是给 AI 编码工作流用的**质量纪律工具箱** —— 把质量从"写完再审"推到"边写边守"。它**骑在你现有的 coding agent 之上**、与任何具体 agent 解耦，四大件：
 
@@ -260,6 +260,24 @@ python3 scripts/check_evidence_closeout.py --strict path/to/pr.md       # scope 
 - `docs/DOCUMENTATION_OPERATING_MODEL.md` —— bugfix / decision / gate-rollout / audit-evidence 记录的落点。
 - `docs/INTEGRATION_GUIDE.md` · `docs/INSTALL_VERSIONING.md` —— 多机部署 + 钉 commit / tag 的安装策略。
 - `templates/` —— PR、bugfix、decision、gate-rollout、audit-evidence 记录模板。
+
+## 维护发布版本
+
+`VERSION` 是唯一权威源。在仓库根目录运行：
+
+```bash
+python3 scripts/set_version.py               # 同步中英文 README 的当前版本行
+python3 scripts/set_version.py 0.15.0        # 设置 VERSION 并同步（下一版本示例）
+python3 scripts/set_version.py --check       # 只读检查；漂移时退出码为 1
+```
+
+支持 SemVer，包括预发布号、构建后缀，以及可选的 `v` 前缀。
+`--check` 始终以 `VERSION` 为准，不能同时指定新版本。
+三个受管文件必须已存在。同步时也会将 `VERSION` 规范为版本号加一个 LF 换行；
+`--check` 会报告格式不规范。以后新增当前发布版本字段时，须显式加入脚本的标记表和测试。
+脚本写入前检查全部版本标记，并保留 README 换行格式。发布说明仍需单独编写；
+历史版本、schema/tool 版本、tag 和已签名 manifest 不会被改写。
+相关 push、PR CI 和 tag 发布流程都会运行 `--check`，发现漂移即失败。
 
 ## License（许可证）
 

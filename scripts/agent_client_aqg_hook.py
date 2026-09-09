@@ -163,7 +163,7 @@ def main(argv: list[str] | None = None) -> int:
     except (ValueError, json.JSONDecodeError) as exc:
         return _degraded(args.client, args.hook, str(exc))
 
-    aqg_root = Path(args.aqg_root).expanduser().resolve()
+    aqg_root = Path(args.aqg_root).expanduser().absolute()
     hooks_dir = (aqg_root / "agent-packs" / "claude-code" / "hooks").resolve()
     script = (hooks_dir / args.hook).resolve()
     try:

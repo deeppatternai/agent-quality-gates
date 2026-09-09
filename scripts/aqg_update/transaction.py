@@ -165,6 +165,7 @@ def apply_plan(
     lock_path: Optional[Path] = None,
     smoke: Optional[Callable[[], bool]] = None,
     record_state: Optional[Callable[[], None]] = None,
+    precondition: Optional[Callable[[], None]] = None,
 ) -> Result:
     """Take the lock, journal, apply, verify, and commit or undo.
 
@@ -196,6 +197,11 @@ def apply_plan(
                     f"before planning another update, which would treat "
                     f"half-applied work as settled"
                 )
+            if precondition is not None:
+                try:
+                    precondition()
+                except Exception as exc:  # aqg: top-level boundary
+                    return Result(status='stale-plan', detail=f'plan refused before mutation: {exc}')
             return _apply_locked(plan, resources, target_journal, smoke, record_state)
     except lock.LockBusy:
         # Not an error: a second trigger firing is the expected case, and the

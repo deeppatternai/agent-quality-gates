@@ -219,6 +219,70 @@ accepts both layouts. An old updater still creates a commit-named directory when
 installing the first release with this naming support; subsequent updates use the
 new names without an uninstall or a separate compatibility release.
 
+### Cross-agent admission and configuration evidence
+
+Session-start triggers share one update engine. Lifecycle adapters preserve the
+logical installation entrance when passing `AQG_ROOT`; resolving hook script
+paths for execution/containment does not turn that entrance into a version pin.
+An obsolete physical `versions/` root is refused with a configuration repair
+diagnostic before fetching, unless existing canonical identity checks can map it
+to the current managed entrance. Old versions are never migrated in place.
+
+New checks use scoped `update-check-<sha256>.json` records keyed by the logical
+entrance, remote, channel and check/apply mode. Agents using the same installation
+share the limit; a skill's `--check-only` nudge cannot consume an apply check's
+rate-limit window. Parent path aliases are canonicalized without resolving the
+final entrance symlink, so its identity survives a version swap. A newly discovered
+release makes an older `current` apply record eligible for another check.
+The existing `update-last-check.json` remains a legacy diagnostic slot. New Doctor
+reports prefer scoped records and retain pending work per scope, so another root
+or an old binary cannot erase its handoff. Legacy unscoped records have
+insufficient identity, so the first new check establishes fresh scoped state.
+Failed/interrupted attempts use a five-minute retry by default; an explicit
+interval override controls both successful and failed retries.
+A separate OS-backed `update-check.lock` serializes acquisition through completion;
+the existing install lock and journal still protect mutations, including manual
+updates. A competing check returns `busy` without consuming its rate-limit window
+or overwriting the holder's record; a later lifecycle trigger retries. Keeping
+acquisition serialized also protects Git's shared `FETCH_HEAD`. No timer installs
+at an exact clock time, and session start does not guarantee an immediate apply.
+Before mutation, the transaction rechecks the planned live target, install-state
+baseline and verified sequence under its lock; a concurrent update invalidates
+the old plan instead of allowing it to overwrite the newer installation.
+
+All registered clients have explicit hook evidence. Claude Code and Codex retain
+their dedicated inspectors. Cursor, CodeBuddy, WorkBuddy AI, Kimi Code, Qoder
+variants, QoderWork, Trae variants, Devin and Pi use read-only user-scope inspectors
+that compare managed entries with the existing installer renderers. Inspection
+does not execute staged installer code or change/approve host configuration.
+Unknown formats and changed definitions remain pending; unchanged hook inputs
+are checked before an ordinary root swap. Foreign entries are preserved.
+Read-only inspection can follow a symlinked configuration file; installer writes
+retain their own stricter path checks. Foreign-only configurations do not enroll
+an unrecorded host in updates. Recorded hosts with missing/unreadable managed
+hooks still require repair. Kimi inspection compares the exact installer-owned
+TOML block without requiring Python 3.11's `tomllib`; it does not certify the
+syntax of unrelated TOML settings. Formatting drift in that block needs reapply.
+Clients without a verified lifecycle surface report `not-applicable`.
+
+These inspectors do not discover arbitrary project configuration locations or
+automatically reconcile copied skills and rules. Project installations must be
+verified/reapplied with the existing installer and an explicit project path.
+User-scope hook evidence must not be presented as proof of all scopes or actual
+host runtime discovery/trust. Explicit installer repair uses existing managed
+merge and backup behavior, and any host-required approval is still required.
+
+For an old installation whose hooks still launch an obsolete updater, use the
+correct logical entrance for both update and installer repair. If the update
+reports a blocking host configuration, reapply that host's AQG hooks/rules using
+the entrance before retrying; review any host-required trust prompt. A known
+physical Codex pin may be safely deferred and repaired after the root update.
+Other stale/unknown hook configurations remain conservative blockers. Merely
+publishing a fixed updater cannot repair an old command that never executes it.
+Do not rename/delete its historical version directories or clear install-state
+sequence data to force an update. A temporary interval override only changes the
+wait; it is not a configuration repair.
+
 **Disk layout** — use `git worktree` so a single object store is shared rather than copying the 26 MB `.git`
 N times:
 

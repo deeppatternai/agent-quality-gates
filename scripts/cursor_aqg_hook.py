@@ -494,7 +494,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     args = _build_parser().parse_args(argv)
-    aqg_root = args.aqg_root.expanduser().resolve()
+    aqg_root = args.aqg_root.expanduser().absolute()
     try:
         payload = _read_payload()
     except (OSError, UnicodeError, ValueError, json.JSONDecodeError) as exc:

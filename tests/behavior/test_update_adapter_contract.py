@@ -34,6 +34,7 @@ import pytest
 
 from scripts.aqg_update import hosts
 from scripts.aqg_update.hosts import base, claude_code, codex, generic
+from scripts.aqg_update.hosts import managed
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 UPDATE_PKG = REPO_ROOT / "scripts" / "aqg_update"
@@ -87,6 +88,15 @@ for _generic_id in generic.HOSTS_WITHOUT_HOOKS:
         config_name=None,
         empty_config=None,
         unconfigured_status="not-applicable",
+    )
+
+# These share the neutral contract here; their JSON/TOML/extension-specific
+# malformed/foreign/drift fixtures live in test_cross_agent_update.py. The old
+# _HOOKED_IDS cases below explicitly use Claude/Codex constructor signatures.
+for _managed_id in managed.FAMILIES:
+    _HOSTS[_managed_id] = HostFixture(
+        build=(lambda cid: lambda tmp: managed.ManagedAdapter(cid, home=tmp, aqg_root=REPO_ROOT))(_managed_id),
+        installer=None, config_name=None, empty_config=None,
     )
 
 _IDS = sorted(_HOSTS)

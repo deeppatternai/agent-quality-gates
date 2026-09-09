@@ -509,13 +509,14 @@ def _install_rule(cursor_root: Path) -> bool:
     return True
 
 
-def _quoted_command(event: str) -> str:
+def _quoted_command(event: str, aqg_root: Path | None = None) -> str:
+    root = aqg_root if aqg_root is not None else REPO_ROOT
     args = [
         str(Path(sys.executable).resolve()),
-        str(ADAPTER.absolute()),
+        str((root / "scripts/cursor_aqg_hook.py").absolute()) if aqg_root is not None else str(ADAPTER.absolute()),
         event,
         "--aqg-root",
-        str(REPO_ROOT.absolute()),
+        str(root.absolute()),
     ]
     if os.name == "nt":
         return subprocess.list2cmdline(args)
@@ -524,10 +525,10 @@ def _quoted_command(event: str) -> str:
     return " ".join(shlex.quote(arg) for arg in args)
 
 
-def _hook_specs() -> dict[str, dict[str, object]]:
+def _hook_specs(aqg_root: Path | None = None) -> dict[str, dict[str, object]]:
     specs: dict[str, dict[str, object]] = {}
     for event in HOOK_EVENTS:
-        spec: dict[str, object] = {"command": _quoted_command(event), "timeout": 30}
+        spec: dict[str, object] = {"command": _quoted_command(event, aqg_root), "timeout": 30}
         if event == "sessionStart":
             spec["timeout"] = 45
         if event == "preToolUse":

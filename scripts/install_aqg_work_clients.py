@@ -1091,16 +1091,10 @@ def _install_json_hooks(client_root: Path, profile: WorkClientProfile, aqg_root:
     return True
 
 
-def _install_toml_hooks(client_root: Path, profile: WorkClientProfile, aqg_root: Path) -> bool:
-    path = client_root / "config.toml"
-    _refuse_symlink_path(path, "TOML hooks")
-    existing = path.read_text(encoding="utf-8") if path.exists() else ""
+def _toml_hook_block(aqg_root: Path) -> str:
+    """Canonical owned block, shared with the read-only update inspector."""
     start = "# BEGIN AQG MANAGED HOOKS"
     end = "# END AQG MANAGED HOOKS"
-    if start in existing:
-        prefix = existing.split(start, 1)[0].rstrip()
-    else:
-        prefix = existing.rstrip()
     block_lines = [start, '# Kimi Code documents hook failures as fail-open; AQG labels these advisory.']
     for event in HOOK_EVENTS:
         command = _quoted_command(event, aqg_root).replace("\\", "\\\\").replace('"', '\\"')
@@ -1114,7 +1108,15 @@ def _install_toml_hooks(client_root: Path, profile: WorkClientProfile, aqg_root:
             ]
         )
     block_lines.append(end)
-    rendered = ("\n\n".join(part for part in (prefix, "\n".join(block_lines)) if part) + "\n")
+    return '\n'.join(block_lines)
+
+
+def _install_toml_hooks(client_root: Path, profile: WorkClientProfile, aqg_root: Path) -> bool:
+    path = client_root / "config.toml"
+    _refuse_symlink_path(path, "TOML hooks")
+    existing = path.read_text(encoding="utf-8") if path.exists() else ""
+    prefix = existing.split('# BEGIN AQG MANAGED HOOKS', 1)[0].rstrip()
+    rendered = ("\n\n".join(part for part in (prefix, _toml_hook_block(aqg_root)) if part) + "\n")
     if existing == rendered:
         return False
     if path.exists():

@@ -5,6 +5,7 @@ input needs normal reconciliation, even if it might render the same command.
 Codex pins each hook script and its runner in the trusted command digest.
 """
 from pathlib import Path
+from .managed import FAMILIES
 
 
 def unchanged(
@@ -27,6 +28,13 @@ def unchanged(
             "scripts/run_aqg_codex_hook.py",
         ),
     }.get(client_id)
+    if installers is None and client_id in FAMILIES:
+        installers = (
+            f"scripts/{FAMILIES[client_id]}.py", 'scripts/aqg_client_registry.py',
+        )
+        # These clients do not pin script digests. Bodies ride the logical root;
+        # only renderer changes and removed/added hook files require a merge.
+        include_script_bodies = False
     if installers is None:
         return False
     hooks = Path("agent-packs/claude-code/hooks")

@@ -90,7 +90,8 @@ def test_a_build_with_no_pinned_keyring_does_nothing(tmp_path, state_root):
 
 def test_a_check_that_ran_recently_is_not_repeated(tmp_path, state_root, monkeypatch):
     """Sessions start many times a day; a remote does not need telling."""
-    run_mod.record(run_mod.CheckResult(outcome="current"), state_root=state_root)
+    run_mod.record(run_mod.CheckResult(outcome="current"), state_root=state_root,
+                   scope=run_mod._check_scope(tmp_path, 'origin', 'stable', True))
     result = run_mod.check(
         root=tmp_path, remote="origin", channel="stable",
         keyring_path=tmp_path / "absent.json",
@@ -187,6 +188,7 @@ def test_the_clock_gate_actually_reads_the_override(tmp_path, state_root, monkey
         run_mod.record(
             run_mod.CheckResult(outcome="current"), state_root=state_root,
             at=time.time() - 2 * 3600,
+            scope=run_mod._check_scope(tmp_path, 'origin', 'stable', True),
         )
         if interval is None:
             monkeypatch.delenv(run_mod.INTERVAL_ENV, raising=False)
@@ -1288,3 +1290,202 @@ def test_missing_committed_version_is_refused_without_changing_live_tree(tmp_pat
     assert result.outcome == 'failed'
     assert root.resolve() == live
     assert (root / 'VERSION').read_text().strip() == '0.16.0'
+
+
+@pytest.mark.parametrize('first_apply', [False, True])
+def test_a_different_root_or_check_only_cannot_suppress_apply(tmp_path, state_root, monkeypatch, first_apply):
+    root, first, second = _install(tmp_path)
+    _clean_plan(monkeypatch, second)
+    from types import SimpleNamespace
+    found = SimpleNamespace(commit=second, manifest={'version': '0.17.0'}, key_id='k', release_sequence=9)
+    calls = []
+    monkeypatch.setattr(run_mod.acquire, 'available_release', lambda *a, **k: calls.append(a[0]) or found)
+    keyring = _write_keyring(tmp_path)
+    # An old physical generation fails; a check-only nudge merely finds the release.
+    initial = run_mod.check(root=root.resolve() if first_apply else root, remote='origin', channel='stable', keyring_path=keyring, state_root=state_root, now=10000, apply=first_apply)
+    assert initial.outcome == ('invalid-root' if first_apply else 'deferred')
+    applied = run_mod.check(root=root, remote='origin', channel='stable', keyring_path=keyring, state_root=state_root, now=10001)
+    assert applied.outcome == 'applied', applied.detail
+    assert (root / 'VERSION').read_text().strip() == '0.17.0'
+
+
+def test_network_failure_retries_after_backoff_without_waiting_an_hour(tmp_path, state_root, monkeypatch):
+    root, _, _ = _install(tmp_path)
+    calls = []
+    def fail(*a, **k):
+        calls.append(1)
+        raise RuntimeError('network unavailable')
+    monkeypatch.setattr(run_mod.acquire, 'available_release', fail)
+    keyring = _write_keyring(tmp_path)
+    def attempt(now):
+        return run_mod.check(root=root, remote='origin', channel='stable', keyring_path=keyring, state_root=state_root, now=now)
+    assert attempt(10000).outcome == 'failed'
+    assert attempt(10001).outcome == 'too-soon'
+    assert attempt(10301).outcome == 'failed'
+    assert len(calls) == 2
+
+
+def test_legacy_failure_record_does_not_block_a_new_updater(tmp_path, state_root, monkeypatch):
+    root, _, _ = _install(tmp_path)
+    run_mod.record(run_mod.CheckResult(outcome='failed', detail='old physical root'), state_root=state_root, at=10000)
+    monkeypatch.setattr(run_mod.acquire, 'available_release', lambda *a, **k: None)
+    result = run_mod.check(root=root, remote='origin', channel='stable', keyring_path=_write_keyring(tmp_path), state_root=state_root, now=10001)
+    assert result.outcome == 'current'
+
+
+def test_simultaneous_agents_admit_only_one_check(tmp_path, state_root, monkeypatch):
+    import threading
+    root, _, _ = _install(tmp_path)
+    entered, release = threading.Event(), threading.Event()
+    calls = []
+    def acquire(*args, **kwargs):
+        calls.append(1)
+        entered.set()
+        assert release.wait(5), 'test did not release acquisition'
+        return None
+    monkeypatch.setattr(run_mod.acquire, 'available_release', acquire)
+    keyring = _write_keyring(tmp_path)
+    def check():
+        return run_mod.check(root=root, remote='origin', channel='stable', keyring_path=keyring, state_root=state_root, now=10000)
+    results = []
+    worker = threading.Thread(target=lambda: results.append(check()))
+    worker.start()
+    try:
+        assert entered.wait(5)
+        assert check().outcome == 'busy'
+    finally:
+        release.set()
+        worker.join(5)
+    assert not worker.is_alive()
+    assert results[0].outcome == 'current'
+    assert calls == [1]
+    # An old binary may still overwrite the legacy diagnostic slot.
+    run_mod.record(run_mod.CheckResult(outcome='failed'), state_root=state_root, at=10000)
+    assert check().outcome == 'too-soon'
+
+
+@pytest.mark.parametrize('apply', [False, True])
+def test_obsolete_physical_roots_are_rejected_before_network(tmp_path, state_root, monkeypatch, apply):
+    root, _, _ = _install(tmp_path)
+    monkeypatch.setattr(run_mod.acquire, 'available_release', lambda *a, **k: pytest.fail('must not fetch'))
+    result = run_mod.check(root=root.resolve(), remote='origin', channel='stable',
+        keyring_path=_write_keyring(tmp_path), state_root=state_root, now=10000, apply=apply)
+    assert result.outcome == 'invalid-root'
+
+
+def test_discovery_supersedes_an_older_current_apply_record(tmp_path, state_root, monkeypatch):
+    from types import SimpleNamespace
+    root, _, second = _install(tmp_path)
+    _clean_plan(monkeypatch, second)
+    keyring = _write_keyring(tmp_path)
+    monkeypatch.setattr(run_mod.acquire, 'available_release', lambda *a, **k: None)
+    def check(now, apply=True):
+        return run_mod.check(root=root, remote='origin', channel='stable', keyring_path=keyring,
+            state_root=state_root, now=now, apply=apply)
+    assert check(10000).outcome == 'current'
+    monkeypatch.setattr(run_mod.acquire, 'available_release', lambda *a, **k:
+        SimpleNamespace(commit=second, manifest={'version':'0.17.0'}, key_id='key', release_sequence=9))
+    assert check(10001, False).outcome == 'deferred'
+    assert check(10002).outcome == 'applied'
+
+
+def test_prelock_failure_is_rate_limited(tmp_path, state_root, monkeypatch):
+    calls = []
+    def fail(**kwargs):
+        calls.append(1)
+        raise run_mod.lock.LockError('permission denied')
+    monkeypatch.setattr(run_mod.lock, 'install_lock', fail)
+    def check(now):
+        return run_mod.check(root=tmp_path, remote='origin', channel='stable', state_root=state_root, now=now)
+    assert check(10000).outcome == 'failed'
+    assert check(10001).outcome == 'too-soon'
+    assert calls == [1]
+
+
+def test_explicit_interval_also_controls_failure_retry(tmp_path, state_root, monkeypatch):
+    monkeypatch.setenv(run_mod.INTERVAL_ENV, '7200')
+    scope = run_mod._check_scope(tmp_path, 'origin', 'stable', True)
+    run_mod.record(run_mod.CheckResult(outcome='failed'), state_root=state_root, scope=scope, at=10000)
+    assert run_mod._too_soon(state_root, 10301, scope=scope)
+
+
+def test_scope_survives_entrance_swap_and_parent_alias(tmp_path):
+    parent = tmp_path / 'real'
+    parent.mkdir()
+    first, second = tmp_path / 'first', tmp_path / 'second'
+    first.mkdir()
+    second.mkdir()
+    entrance = parent / 'entrance'
+    entrance.symlink_to(first, target_is_directory=True)
+    alias = tmp_path / 'alias'
+    alias.symlink_to(parent, target_is_directory=True)
+    key = run_mod._check_scope(entrance, 'origin', 'stable', True)
+    assert run_mod._check_scope(alias / 'entrance', 'origin', 'stable', True) == key
+    entrance.unlink()
+    entrance.symlink_to(second, target_is_directory=True)
+    assert run_mod._check_scope(entrance, 'origin', 'stable', True) == key
+
+
+@pytest.mark.parametrize('advance', ['state', 'root', 'activated-target'])
+def test_concurrent_updater_cannot_be_overwritten_by_old_plan(tmp_path, state_root, monkeypatch, advance):
+    root, first, second = _install(tmp_path)
+    _clean_plan(monkeypatch, second)
+    original = run_mod.transaction.apply_plan
+    live = root.resolve()
+    other = live.parent / 'other'
+    def concurrent(*args, **kwargs):
+        if advance == 'state':
+            run_mod._record_installed(channel='stable', version='0.16.0', commit=first,
+                sequence=10, key_id='newer', pending=[], state_root=state_root)
+        elif advance == 'root':
+            other.mkdir()
+            (other / 'VERSION').write_text('0.16.0')
+            root.unlink()
+            root.symlink_to(other, target_is_directory=True)
+        else:
+            root.unlink()
+            root.symlink_to(kwargs['resources'].target, target_is_directory=True)
+        return original(*args, **kwargs)
+    monkeypatch.setattr(run_mod.transaction, 'apply_plan', concurrent)
+    result = run_mod._apply(root=root, commit=second, version='0.17.0', installed=None,
+        state_root=state_root, sequence=9, key_id='older')
+    assert result.outcome == 'failed', result.detail
+    assert 'changed' in result.detail or 'sequence' in result.detail
+    if advance == 'activated-target':
+        assert (root / 'VERSION').read_text().strip() == '0.17.0'
+    else:
+        assert root.resolve() == (live if advance == 'state' else other)
+    if advance == 'state':
+        assert run_mod.state.read_state()['release_sequence'] == 10
+    assert not (state_root / run_mod.transaction.JOURNAL_FILENAME).exists()
+
+
+def test_scoped_pending_survives_other_root_and_legacy_writes(tmp_path, state_root):
+    a = run_mod._check_scope(tmp_path/'a', 'origin', 'stable', True)
+    b = run_mod._check_scope(tmp_path/'b', 'origin', 'stable', True)
+    run_mod.record(run_mod.CheckResult(outcome='pending', pending=('repair A',)),
+        state_root=state_root, scope=a, at=10000, identity=['root-A','origin','stable',True])
+    run_mod.record(run_mod.CheckResult(outcome='applied'), state_root=state_root, scope=b,
+        at=10001, identity=['root-B','origin','stable',True])
+    assert json.loads((state_root/f'update-check-{b}.json').read_text())['pending'] == []
+    run_mod.record(run_mod.CheckResult(outcome='current'), state_root=state_root, at=10002)
+    text = '\n'.join(run_mod.report(state_root=state_root))
+    assert 'repair A' in text and 'root-A' in text
+    run_mod.record(run_mod.CheckResult(outcome='applied'), state_root=state_root, scope=a, at=10003)
+    assert 'repair A' not in '\n'.join(run_mod.report(state_root=state_root))
+
+
+def test_transaction_precondition_holds_lock_and_precedes_journal(tmp_path):
+    from scripts.aqg_update import transaction, dispatch, plan
+    lock_path, journal = tmp_path/'lock', tmp_path/'journal'
+    def guard():
+        with pytest.raises(run_mod.lock.LockBusy):
+            with run_mod.lock.install_lock(path=lock_path):
+                pytest.fail('precondition must hold the install lock')
+        assert not journal.exists()
+        raise RuntimeError('baseline changed')
+    result = transaction.apply_plan(plan.Plan(),
+        resources=dispatch.Resources(root=tmp_path/'root', target=tmp_path/'target'),
+        journal=journal, lock_path=lock_path, precondition=guard)
+    assert result.status == 'stale-plan'
+    assert not journal.exists()

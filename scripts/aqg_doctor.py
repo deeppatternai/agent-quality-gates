@@ -1031,7 +1031,7 @@ def check_update_channel() -> list[CheckResult]:
                             f"managed update module not importable: {exc}",
                             "reinstall AQG, or ignore if this build predates managed updates")
             ]
-    last = update_run.read_last_check()
+    last = update_run.read_diagnostics()
     if last is None:
         return [
             CheckResult("WARN", "update-channel",
@@ -1047,6 +1047,8 @@ def check_update_channel() -> list[CheckResult]:
         "applied": ("PASS", ""),
         "current": ("PASS", ""),
         "too-soon": ("PASS", ""),
+        "deferred": ("WARN", "a check-only trigger found a release; a later session-start check can apply it if locks and host checks permit"),
+        "invalid-root": ("FAIL", "reapply the affected host's AQG hooks and rules using the logical installation entrance, not a versions directory"),
         "disabled": ("WARN", f"unset {UPDATE_KILL_SWITCH} to re-enable automatic updates"),
         "no-keyring": ("WARN", "this build ships no pinned release key; managed "
                                "updates stay off until one does"),

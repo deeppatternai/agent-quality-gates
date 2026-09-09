@@ -66,6 +66,9 @@ jobs:
           # keep 0 for future flexibility.
           fetch-depth: 0
 
+      - name: Check current-release version markers
+        run: python3 scripts/set_version.py --check
+
       - name: Verify VERSION file matches tag
         run: |
           set -euo pipefail

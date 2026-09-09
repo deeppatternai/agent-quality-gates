@@ -378,7 +378,7 @@ def build_plan(
                     client_id=client_id,
                     reason=(
                         f"hook configuration is {status}; refusing to merge into a "
-                        f"config that could not be read"
+                        f"config that could not be read; {evidence[client_id].hooks_detail}"
                     ),
                 )
             )
@@ -437,7 +437,7 @@ def build_plan(
                     client_id=client_id,
                     subject=None,
                     payload_class=5,
-                    detail=f"{reason}; merge the canonical set",
+                    detail=f"{reason}; {evidence[client_id].hooks_detail}; merge the canonical set",
                 )
             )
 

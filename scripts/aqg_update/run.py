@@ -33,17 +33,14 @@ hook script's body (class 1) and a skill's content (class 2) ride the root
 symlink for free — the swap *is* the whole update for them. Classes 3, 4 and 5
 change what a host is configured to point at, and those wait for a person.
 
-**Concurrency.** This does not hold the install lock while it fetches;
-``transaction.apply_plan`` takes it for the apply, and a nested non-blocking
-flock from the same process would simply report busy. Two racing checks are safe
-for correctness — each verifies its own documents against the pinned keyring —
-but they can contend on a git ref lock, which surfaces as a fetch failure and is
-recorded as one rather than crashing. (The PR6a ledger claimed this ran under the
-lock. It does not; that claim was wrong and is corrected here.)
+**Concurrency.** A separate check lock serializes acquisition through completion
+across agents. ``transaction.apply_plan`` retains the independent install lock;
+manual installation and older updaters still meet that existing mutation gate.
 """
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
@@ -57,11 +54,11 @@ from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
 try:  # invoked as a package (tests, `python3 -m`)
     from scripts.aqg_update import acquire, dispatch, plan as plan_mod, stage, state, trust
-    from scripts.aqg_update import transaction, migrate
+    from scripts.aqg_update import transaction, migrate, lock
     from scripts.aqg_update import hosts as hosts_mod
 except ImportError:  # invoked with scripts/ itself on sys.path
     from aqg_update import acquire, dispatch, plan as plan_mod, stage, state, trust  # type: ignore[no-redef]
-    from aqg_update import transaction, migrate  # type: ignore[no-redef]
+    from aqg_update import transaction, migrate, lock  # type: ignore[no-redef]
     from aqg_update import hosts as hosts_mod  # type: ignore[no-redef]
 
 #: Set this to anything non-empty to stop the automatic channel entirely.
@@ -145,7 +142,7 @@ OUTCOMES = (
     # checks while something is reading the tree it would swap. Calling this
     # "current" told a machine with a pending update that it was up to date,
     # because `report` reads the outcome and nothing else (audit F14).
-    "deferred",
+    "deferred", "busy", "invalid-root",
 )
 
 
@@ -178,7 +175,8 @@ def _atomic_write(path: Path, text: str) -> None:
 
 
 def record(
-    result: CheckResult, *, state_root: Optional[Path] = None, at: Optional[float] = None
+    result: CheckResult, *, state_root: Optional[Path] = None, at: Optional[float] = None,
+    scope: Optional[str] = None, identity=None,
 ) -> Optional[Path]:
     """Leave a durable note of what happened. Best effort, never fatal.
 
@@ -187,30 +185,32 @@ def record(
     caller that cares can tell.
     """
     try:
+        if scope is not None and not re.fullmatch(r'[0-9a-f]{64}', scope):
+            raise ValueError('invalid update scope')
         root = Path(state_root) if state_root is not None else state.state_root(create=True)
         path = root / LAST_CHECK_FILENAME
+        previous = _read_record(root / f'update-check-{scope}.json') if scope else read_last_check(state_root=state_root)
         pending = list(result.pending)
         if not pending and result.outcome not in ("applied",):
             # Carried forward. The record is a single slot, so writing an empty
             # list here erased the only notice a human had that class-5 work was
             # outstanding — and its absence reads as "nothing outstanding".
-            previous = read_last_check(state_root=state_root)
             if isinstance(previous, dict):
                 pending = [str(x) for x in (previous.get("pending") or [])]
-        _atomic_write(
-            path,
-            json.dumps(
+        payload = json.dumps(
                 {
                     "checked_at": time.time() if at is None else at,
                     "outcome": result.outcome,
                     "detail": result.detail,
                     "pending": pending,
+                    "identity": identity if identity is not None else (previous or {}).get('identity'),
                 },
                 indent=2,
                 sort_keys=True,
-            )
-            + "\n",
-        )
+            ) + "\n"
+        _atomic_write(path, payload)
+        if scope is not None:
+            _atomic_write(root / f"update-check-{scope}.json", payload)
         return path
     except Exception:  # aqg: top-level boundary
         return None
@@ -228,7 +228,7 @@ def read_last_check(*, state_root: Optional[Path] = None) -> Optional[Dict[str, 
 
 def report(*, state_root: Optional[Path] = None) -> List[str]:
     """What `doctor` prints. The only surface a silent system has."""
-    last = read_last_check(state_root=state_root)
+    last = read_diagnostics(state_root=state_root)
     if last is None:
         return [
             "update check: never run on this machine "
@@ -249,8 +249,49 @@ def report(*, state_root: Optional[Path] = None) -> List[str]:
     return lines
 
 
-def _too_soon(state_root: Optional[Path], now: float) -> bool:
-    last = read_last_check(state_root=state_root)
+def _read_record(path):
+    try:
+        value = json.loads(path.read_text(encoding='utf-8'))
+        return value if isinstance(value, dict) else None
+    except (OSError, ValueError):
+        return None
+
+
+def read_diagnostics(*, state_root=None):
+    """Prefer scoped evidence; legacy writers cannot erase another root's handoff."""
+    root = Path(state_root) if state_root is not None else state.state_root(create=False)
+    records = []
+    for path in root.glob('update-check-*.json'):
+        if re.fullmatch(r'update-check-[0-9a-f]{64}\.json', path.name):
+            value = _read_record(path)
+            if value and isinstance(value.get('checked_at'), (int, float)):
+                records.append(value)
+    if not records:
+        return read_last_check(state_root=state_root)
+    latest = max(records, key=lambda item: item['checked_at'])
+    last = dict(latest)
+    pending = []
+    for item in records:
+        identity = item.get('identity')
+        label = str(identity) if isinstance(identity, list) else 'unknown scope'
+        pending.extend(f'{label}: {line}' for line in item.get('pending', []) if isinstance(line, str))
+        if item is not latest and item.get('outcome') in {'invalid-root', 'repair-required', 'failed'}:
+            pending.append(f"{label}: {item['outcome']}: {item.get('detail', '')}")
+    last['pending'] = sorted(set(pending))
+    return last
+
+
+def _too_soon(state_root: Optional[Path], now: float, *, scope: Optional[str] = None, discovery_scope=None) -> bool:
+    if scope is None:
+        last = read_last_check(state_root=state_root)
+    else:
+        root = Path(state_root) if state_root is not None else state.state_root(create=False)
+        try:
+            last = json.loads((root / f"update-check-{scope}.json").read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return False
+        if not isinstance(last, dict):
+            return False
     if last is None:
         return False
     when = last.get("checked_at")
@@ -261,7 +302,30 @@ def _too_soon(state_root: Optional[Path], now: float) -> bool:
         # ahead turns the check off permanently and silently, which is a denial
         # of service that looks exactly like a healthy install.
         return False
-    return (now - when) < check_interval_seconds()
+    if discovery_scope and last.get('outcome') == 'current':
+        root = Path(state_root) if state_root is not None else state.state_root(create=False)
+        discovery = _read_record(root / f'update-check-{discovery_scope}.json') or {}
+        stamp = discovery.get('checked_at')
+        if discovery.get('outcome') == 'deferred' and isinstance(stamp, (int, float)) and when < stamp <= now:
+            return False
+    interval = check_interval_seconds()
+    if scope is not None and not os.environ.get(INTERVAL_ENV) and last.get("outcome") in {"failed", "invalid-root", "interrupted", "rolled-back"}:
+        interval = min(interval, 300)
+    return (now - when) < interval
+
+
+def _check_identity(root: Path, remote: str, channel: str, apply: bool):
+    # Resolve parent aliases, but keep the final symlink stable across updates.
+    entrance = Path(root).absolute()
+    return [os.path.normcase(str(entrance.parent.resolve() / entrance.name)), remote, channel, apply]
+
+
+def _check_scope(root: Path, remote: str, channel: str, apply: bool) -> str:
+    # Logical spelling survives a version swap. The mode prevents skill nudges
+    # from consuming a session-start apply opportunity. Agent names are NOT keys:
+    # healthy agents sharing one installation should share its rate limit.
+    identity = _check_identity(root, remote, channel, apply)
+    return hashlib.sha256(json.dumps(identity).encode("utf-8")).hexdigest()
 
 
 def check(
@@ -274,6 +338,32 @@ def check(
     now: Optional[float] = None,
     apply: bool = True,
 ) -> CheckResult:
+    """Serialize checks across hosts; keep the transaction's apply lock separate."""
+    if os.environ.get(KILL_SWITCH):
+        return CheckResult(outcome="disabled")
+    scope = identity = None
+    try:
+        root = Path(root).expanduser()
+        root = root.absolute() if root.is_symlink() else migrate.logical_root(root)
+        scope = _check_scope(root, remote, channel, apply)
+        identity = _check_identity(root, remote, channel, apply)
+        discovery = _check_scope(root, remote, channel, False) if apply else None
+        early_root = Path(state_root) if state_root is not None else state.state_root(create=False)
+        previous = _read_record(early_root / f'update-check-{scope}.json') or {}
+        if previous.get('outcome') == 'failed' and _too_soon(state_root, time.time() if now is None else now, scope=scope, discovery_scope=discovery):
+            return CheckResult(outcome='too-soon')
+        record_root = Path(state_root) if state_root is not None else state.state_root(create=True)
+        record_root.mkdir(parents=True, exist_ok=True)
+        with lock.install_lock(path=record_root / "update-check.lock"):
+            return _admitted_check(root=root, remote=remote, channel=channel,
+                keyring_path=keyring_path, state_root=state_root, now=now, apply=apply, scope=scope)
+    except lock.LockBusy:
+        return CheckResult(outcome="busy", detail="another update check is in progress")
+    except Exception as exc:  # aqg: top-level boundary
+        return _finish(CheckResult(outcome="failed", detail=f"{type(exc).__name__}: {exc}"), state_root, time.time() if now is None else now, scope=scope, identity=identity)
+
+
+def _admitted_check(*, root, remote, channel, keyring_path, state_root, now, apply, scope):
     """Run one check, record it, and return what happened.
 
     The order of the gates is the point, and it is: kill switch, clock, keyring,
@@ -289,13 +379,22 @@ def check(
         # their state directory written to on every session either.
         return CheckResult(outcome="disabled")
 
-    if _too_soon(state_root, now):
+    identity = _check_identity(root, remote, channel, apply)
+    discovery = _check_scope(root, remote, channel, False) if apply else None
+    if _too_soon(state_root, now, scope=scope, discovery_scope=discovery):
         return CheckResult(outcome="too-soon")
 
     try:
         keyring = trust.load_trusted_keys(keyring_path)
     except trust.TrustError as exc:
-        return _finish(CheckResult(outcome="no-keyring", detail=str(exc)), state_root, now)
+        return _finish(CheckResult(outcome="no-keyring", detail=str(exc)), state_root, now, scope=scope, identity=identity)
+
+    if root.parent.name == "versions" and not root.is_symlink():
+        return _finish(CheckResult(outcome="invalid-root", detail=(
+            f"{root} is a fixed version directory, not the managed entrance. "
+            "Reapply this host's AQG configuration using the logical installation entrance; "
+            "do not migrate or rename this historical version directory."
+        )), state_root, now, scope=scope, identity=identity)
 
     # Written BEFORE the network is touched. The record used to appear only on
     # completion, so a run that was killed mid-fetch never rate-limited — and
@@ -307,7 +406,7 @@ def check(
     # covers both readings honestly: a check is running now, or one stopped.
     record(CheckResult(outcome="interrupted",
                        detail="a check started and did not finish"),
-           state_root=state_root, at=now)
+           state_root=state_root, at=now, scope=scope, identity=identity)
     try:
         return _finish(
             _check_locked(
@@ -315,7 +414,7 @@ def check(
                 remote=remote, channel=channel,
                 keyring=keyring, state_root=state_root, apply=apply,
             ),
-            state_root, now,
+            state_root, now, scope=scope,
         )
     except BaseException as exc:  # aqg: top-level boundary
         # Recorded, then swallowed by `main`. Nothing that happens inside an
@@ -323,19 +422,19 @@ def check(
         return _finish(
             CheckResult(
                 outcome="failed", detail=f"{type(exc).__name__}: {exc}"
-            ), state_root, now,
+            ), state_root, now, scope=scope,
         )
 
 
-def _finish(result: CheckResult, state_root: Optional[Path], now: float) -> CheckResult:
-    record(result, state_root=state_root, at=now)
+def _finish(result: CheckResult, state_root: Optional[Path], now: float, *, scope=None, identity=None) -> CheckResult:
+    record(result, state_root=state_root, at=now, scope=scope, identity=identity)
     return result
 
 
 def _check_locked(
     *, root: Path, remote: str, channel: str, keyring, state_root, apply: bool
 ) -> CheckResult:
-    installed = state.read_state()
+    installed = state.read_state(path=Path(state_root) / state.STATE_FILENAME if state_root is not None else None)
     sequence = (
         installed.get("release_sequence")
         if isinstance(installed, Mapping) else None
@@ -353,9 +452,9 @@ def _check_locked(
         return CheckResult(
             outcome="deferred",
             detail=(
-                f"{found.manifest.get('version')} is available; it will be applied "
-                f"at the next session start, when nothing is reading the tree it "
-                f"replaces"
+                f"{found.manifest.get('version')} is available; the next eligible "
+                f"session-start check will try to apply it, subject to update locks "
+                f"and host configuration checks"
             ),
         )
     return _apply(
@@ -439,7 +538,7 @@ def _apply(
             def record_verified_metadata():
                 # The transaction holds the install lock. Another updater may
                 # have advanced the tree/state since acquisition; never regress it.
-                latest = state.read_state() or {}
+                latest = state.read_state(path=Path(state_root) / state.STATE_FILENAME if state_root is not None else None) or {}
                 if sequence <= latest.get("release_sequence", -1):
                     return
                 if stage.version_commit(Path(root)) != commit:
@@ -579,8 +678,21 @@ def _apply(
             pending=outstanding,
         )
 
+    def check_baseline():
+        latest = state.read_state(path=Path(state_root) / state.STATE_FILENAME if state_root is not None else None)
+        if stage.current_target(Path(root)) != live or latest != installed:
+            # Still under the install lock. Never remove a tree another updater
+            # has activated while this plan was being built.
+            if stage.current_target(Path(root)) != target:
+                stage.discard_version(repo=Path(root), target=target)
+            raise transaction.TransactionError('live root or install state changed during planning; retry')
+        if provenance == 'verified release' and sequence <= (latest or {}).get('release_sequence', -1):
+            stage.discard_version(repo=Path(root), target=target)
+            raise transaction.TransactionError('verified release sequence no longer advances the installed floor')
+
     result = transaction.apply_plan(
         built,
+        precondition=check_baseline,
         # What is now installed, written inside the transaction. Without this the
         # anti-rollback floor came from a file nobody wrote, so `trust` compared
         # every release against FIRST_INSTALL and a correctly signed OLD one —
@@ -803,7 +915,7 @@ def apply_commit(
         return _apply(
             root=Path(root), commit=commit,
             version=version or stage._git("show", f"{commit}:VERSION", cwd=Path(root)),
-            installed=state.read_state(), state_root=state_root,
+            installed=state.read_state(path=Path(state_root) / state.STATE_FILENAME if state_root is not None else None), state_root=state_root,
             host_reconciliation=host_reconciliation,
             provenance="manual, unsigned",
         )
@@ -839,7 +951,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             channel=os.environ.get("AQG_UPDATE_CHANNEL", "stable"),
             apply="--check-only" not in argv,
         )
-        if result.outcome not in ("disabled", "too-soon", "current"):
+        if result.outcome not in ("disabled", "too-soon", "current", "busy"):
             print(f"[aqg update] {result.outcome}: {result.detail}", file=sys.stderr)
     except BaseException as exc:  # aqg: top-level boundary
         # The outermost boundary. `check` already catches its own failures; this

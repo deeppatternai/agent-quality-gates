@@ -134,7 +134,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"ERROR: invalid Pi hook payload: {exc}", file=sys.stderr)
         return 2
 
-    aqg_root = Path(args.aqg_root).expanduser().resolve()
+    aqg_root = Path(args.aqg_root).expanduser().absolute()
     hooks_dir = (aqg_root / "agent-packs" / "claude-code" / "hooks").resolve()
     script = (hooks_dir / args.hook).resolve()
     try:

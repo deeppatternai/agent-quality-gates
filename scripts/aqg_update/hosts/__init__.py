@@ -4,10 +4,9 @@ The table is static and in-repository, mirroring DE's `client_hosts/registry.py`
 adapters are code, not plugins, so discovery by import scanning would buy nothing
 and lose the ability to fail closed on an unknown name.
 
-Claude Code, Codex, and every registry client with no hook surface are driveable.
-The remaining hosts land as their adapters are written; asking for one of them
-raises rather than returning ``None``, because a dispatcher looping over the
-registry must not read "no adapter yet" as "nothing to do here".
+Every registry client has an adapter: dedicated Claude Code/Codex inspectors,
+read-only managed hook inspectors, or explicit evidence of no verified hook
+surface. Unknown ids raise rather than being mistaken for an uninstalled host.
 
 The table maps an id to a zero-argument factory rather than to a class, because
 one adapter now serves several hosts: the no-hook clients share `GenericAdapter`
@@ -23,6 +22,7 @@ from .base import AdapterError, Evidence, HostAdapter
 from .claude_code import ClaudeCodeAdapter
 from .codex import CodexAdapter
 from .generic import HOSTS_WITHOUT_HOOKS, GenericAdapter
+from .managed import FAMILIES, ManagedAdapter
 
 def build_adapter_table(
     *,
@@ -50,6 +50,7 @@ _ADAPTERS: Dict[str, Callable[[], HostAdapter]] = build_adapter_table(
     explicit={
         ClaudeCodeAdapter.client_id: ClaudeCodeAdapter,
         CodexAdapter.client_id: CodexAdapter,
+        **{client: partial(ManagedAdapter, client) for client in FAMILIES},
     },
     generic_ids=HOSTS_WITHOUT_HOOKS,
 )

@@ -10,8 +10,19 @@ name: AQG Agent Pack Behavior Tests (unit tests)
 # change. Other paths rely on the broader quality-gates-warn workflow.
 
 on:
+  push:
+    paths:
+      - 'VERSION'
+      - 'README.md'
+      - 'README.zh-CN.md'
+      - 'scripts/set_version.py'
+      - '.github/workflows/behavior-tests.yml'
   pull_request:
     paths:
+      - 'VERSION'
+      - 'README.md'
+      - 'README.zh-CN.md'
+      - 'scripts/set_version.py'
       # Defensive future-proof: include common Python config even if not yet present.
       - 'tests/behavior/**'
       - 'tests/conftest.py'
@@ -92,6 +103,9 @@ jobs:
     steps:
       - name: Checkout AQG
         uses: actions/checkout@v6.0.2
+
+      - name: Check current-release version markers
+        run: python3 scripts/set_version.py --check
 
       - name: Wrapper generated-artifact gate (regen → no diff/untracked + no orphans)
         # SKILL.md-from-source overlay (spec 2026-05-31 §5): the Claude wrapper

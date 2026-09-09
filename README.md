@@ -2,7 +2,7 @@
 
 English | [中文](README.zh-CN.md)
 
-Current version: `0.14.4` (source of truth: `VERSION`; release notes in `CHANGELOG.md`).
+Current version: `0.14.7` (source of truth: `VERSION`; release notes in `CHANGELOG.md`).
 
 Agent Quality Gates (`AQG`) is a **quality-discipline toolkit** for AI coding workflows — it pushes quality from "review after writing" to "guard while writing." It **rides on top of your existing coding agent**, decoupled from any specific one, and has four parts:
 
@@ -263,6 +263,25 @@ Be clear-eyed about what ships in this repo and what does not:
 - `docs/DOCUMENTATION_OPERATING_MODEL.md` — where bugfix / decision / gate-rollout / audit-evidence records land.
 - `docs/INTEGRATION_GUIDE.md` · `docs/INSTALL_VERSIONING.md` — multi-machine setup + pinned-commit / tag install strategy.
 - `templates/` — PR, bugfix, decision, gate-rollout, and audit-evidence record templates.
+
+## Maintaining the release version
+
+`VERSION` is the source of truth. Run from the repository root:
+
+```bash
+python3 scripts/set_version.py               # sync both README current-version lines
+python3 scripts/set_version.py 0.15.0        # set VERSION and sync (example next version)
+python3 scripts/set_version.py --check       # read-only check; exits 1 on drift
+```
+
+The script accepts SemVer, including prerelease/build suffixes and an optional `v` prefix.
+`--check` always checks `VERSION` and cannot be combined with a new version.
+All three managed files must already exist. Sync also normalizes `VERSION` to the version
+plus one LF newline; `--check` reports noncanonical formatting. Add any future current-release
+fields explicitly to the script's marker map and tests.
+It validates every marker before writing and preserves README line endings. Update release
+notes separately: historical versions, schema/tool versions, tags and signed manifests are
+not rewritten. Relevant pushes, PR CI and tag-release publishing run `--check` to catch drift.
 
 ## License
 
