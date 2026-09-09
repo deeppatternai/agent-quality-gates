@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-当前版本：`0.14.10`（权威源：`VERSION`；release notes 见 `CHANGELOG.md`）。
+当前版本：`0.14.11`（权威源：`VERSION`；release notes 见 `CHANGELOG.md`）。
 
 Agent Quality Gates（`AQG`）是给 AI 编码工作流用的**质量纪律工具箱** —— 把质量从"写完再审"推到"边写边守"。它**骑在你现有的 coding agent 之上**、与任何具体 agent 解耦，四大件：
 

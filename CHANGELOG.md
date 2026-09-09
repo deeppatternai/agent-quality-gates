@@ -6,11 +6,28 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) loosely;
 
 ## [Unreleased]
 
-## [0.14.10] - 2026-09-09
+## [0.14.11] - 2026-09-09
 
 ### Changed
 
-- Metadata-only release providing a new signed version for observing automatic
+- Metadata-only release for observing automatic updates from the signed
+  0.14.10 reissue (release sequence 12). Runtime code, skills, hooks and client
+  configuration are unchanged from that reissue.
+- Update VERSION and the version labels in both READMEs. Publication reuses
+  existing development verification without rerunning tests or installing clients.
+  Publishing this version does not itself confirm that a client has updated.
+
+## [0.14.10] - 2026-09-09
+
+### Signed reissue (release sequence 12)
+
+- The reissue adds background update triggers to the startup-preflight and
+  code-construction Python CLIs, update failure retry recovery, and the Python
+  3.9 rules-module import fix. The original publication below was sequence 11.
+
+### Changed
+
+- Original metadata-only release providing a new signed version for observing automatic
   updates from an existing installation. Runtime code, skills, hooks and client
   configuration are unchanged from 0.14.9.
 - Update VERSION and the version labels in both READMEs. Publication reuses
