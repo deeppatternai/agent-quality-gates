@@ -18,6 +18,11 @@ from dataclasses import dataclass
 from pathlib import Path
 
 try:
+    from aqg_update.rules import policy_root
+except ModuleNotFoundError:
+    from scripts.aqg_update.rules import policy_root
+
+try:
     from _aqg_backup import BackupError, BackupSession, migrate_legacy
 except ModuleNotFoundError:
     from scripts._aqg_backup import BackupError, BackupSession, migrate_legacy
@@ -917,7 +922,7 @@ def _install_skills(
     return SkillInstallSummary(changed, requested_mode, effective_modes, fallback_reason)
 
 
-def _render_rule(profile: WorkClientProfile) -> str:
+def _render_rule(profile: WorkClientProfile, aqg_root: Path | None = None) -> str:
     template = (REPO_ROOT / "examples" / "aqg-codex-agents.example.md").read_text(encoding="utf-8")
     heading = "## Agent Quality Gates (AQG) engineering discipline"
     start = template.find(heading)
@@ -926,14 +931,14 @@ def _render_rule(profile: WorkClientProfile) -> str:
     # A literal <AQG_ROOT> in a rules file is a dangling pointer — nothing expands
     # it there, so the one line leading to the authoritative criteria would lead
     # nowhere. Resolve it against the checkout actually being installed from.
-    body = template[start:].rstrip().replace("<AQG_ROOT>", str(REPO_ROOT))
+    body = template[start:].rstrip().replace("<AQG_ROOT>", str(policy_root(aqg_root or REPO_ROOT)))
     return f"{RULE_MARKER}\n\n# AQG support for {profile.client_id}\n\n{body}\n"
 
 
-def _install_rule(client_root: Path, profile: WorkClientProfile) -> bool:
+def _install_rule(client_root: Path, profile: WorkClientProfile, aqg_root: Path | None = None) -> bool:
     rule_path = client_root / "rules" / "aqg.md"
     _refuse_symlink_path(rule_path, "AQG rule")
-    rendered = _render_rule(profile)
+    rendered = _render_rule(profile, aqg_root)
     if rule_path.exists():
         current = rule_path.read_text(encoding="utf-8")
         if RULE_MARKER not in current:
@@ -1290,7 +1295,7 @@ def _apply(args: argparse.Namespace) -> int:
         fallback_reason=skill_summary.fallback_reason or resolution.fallback_reason,
     ) or changed
     if profile.rules:
-        changed = _install_rule(client_root, profile) or changed
+        changed = _install_rule(client_root, profile, args.aqg_root) or changed
     if profile.mcp:
         changed = _install_mcp(client_root, aqg_root) or changed
     if profile.hooks and not args.no_hooks:

@@ -32,6 +32,11 @@ import unicodedata
 from dataclasses import dataclass
 from pathlib import Path
 
+if __package__ == 'scripts':
+    from scripts.aqg_update.rules import policy_problem, pending_rules, read_rule_text
+else:
+    from aqg_update.rules import policy_problem, pending_rules, read_rule_text
+
 try:
     from aqg_skill_install import classify_install
 except ModuleNotFoundError:  # package import, e.g. `python -m scripts.aqg_doctor`
@@ -718,7 +723,7 @@ def rules_block_fix(host: str) -> str:
     )
 
 
-def check_rules_block_text(host: str, text: str) -> CheckResult:
+def check_rules_block_text(host: str, text: str, aqg_root: Path | None = None) -> CheckResult:
     """Channel 2: the always-resident rules block, judged from its content.
 
     Split from the file lookup so the judgement is testable without a fixture
@@ -764,11 +769,19 @@ def check_rules_block_text(host: str, text: str) -> CheckResult:
                     "editing the template does not update an already-installed copy"
                 ),
             )
-    return CheckResult("PASS", name, "AQG rules block present and current")
+    try:
+        problem = policy_problem(text, aqg_root)
+    except (OSError, ValueError, RuntimeError, ImportError):
+        problem = 'cannot determine policy checkout identity; verify the logical AQG entrance'
+    if problem:
+        return CheckResult("WARN", name, problem, fix=rules_block_fix(host))
+    detail = ('AQG rules content and policy path checked' if aqg_root is not None else
+              'AQG rules content checked; policy checkout identity not verified')
+    return CheckResult("PASS", name, detail)
 
 
 def check_rules_block(
-    path: Path, host: str, host_root: Path | None = None
+    path: Path, host: str, host_root: Path | None = None, aqg_root: Path | None = None
 ) -> CheckResult:
     """Channel 2 for one host.
 
@@ -798,7 +811,7 @@ def check_rules_block(
             "PASS", name, f"{host} not installed on this host (no {root.name})"
         )
     try:
-        text = expanded.read_text(encoding="utf-8")
+        text = read_rule_text(expanded)
     except (OSError, ValueError) as exc:  # corrupt / non-UTF-8 / unreadable
         return CheckResult(
             "WARN",
@@ -806,7 +819,7 @@ def check_rules_block(
             f"cannot read {expanded.name}: {type(exc).__name__}",
             fix="repair or re-create the rules file, then re-run doctor",
         )
-    return check_rules_block_text(host, text)
+    return check_rules_block_text(host, text, aqg_root)
 
 
 def check_hook_model_visibility_text(script_name: str, text: str) -> CheckResult:
@@ -1323,8 +1336,11 @@ def _run_install_mode(args: argparse.Namespace) -> tuple[list[CheckResult], Path
         ("codex", codex_home / "AGENTS.md"),
         ("cursor", Path.home() / ".cursor" / "rules" / "aqg.mdc"),
     ):
-        results.append(check_rules_block(rules_path, host, host_root=host_roots[host]))
+        results.append(check_rules_block(rules_path, host, host_root=host_roots[host], aqg_root=aqg_root))
     if aqg_root is not None:
+        results.extend(CheckResult("WARN", "rules_policy_path:" + notice.split(':', 2)[1].strip(), notice,
+            fix="reapply the named host rules using the logical AQG entrance")
+            for notice in pending_rules(aqg_root, exclude_clients=('claude-code', 'codex')))
         results.extend(
             check_hook_model_visibility(
                 aqg_root / "agent-packs" / "claude-code" / "hooks"

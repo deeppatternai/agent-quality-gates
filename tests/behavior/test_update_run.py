@@ -510,6 +510,41 @@ def test_a_verified_release_is_staged_swapped_and_recorded(tmp_path, state_root,
     assert _last(state_root)["outcome"] == "applied"
 
 
+def test_real_swap_reports_old_rules_then_current_check_clears_repaired_notice(tmp_path, state_root, monkeypatch):
+    root, first, second = _install(tmp_path)
+    home = tmp_path / 'rules-home'
+    home.mkdir()
+    monkeypatch.setattr(Path, 'home', lambda: home)
+    monkeypatch.setenv('CODEX_HOME', str(home / '.codex'))
+    monkeypatch.setenv('APPDATA', str(home / 'AppData/Roaming'))
+    rule = home / '.claude/CLAUDE.md'
+    rule.parent.mkdir()
+    heading = '## Agent Quality Gates (AQG) engineering discipline\n'
+    rule.write_text(heading + f'aqg-code-construction: {tmp_path}/versions/old/docs/policies/audit-trigger.md')
+    original = rule.read_bytes()
+
+    class Found:
+        manifest = {'version': '0.17.0', 'release_sequence': 9}
+        commit = second
+        key_id = 'k'
+        release_sequence = 9
+
+    monkeypatch.setattr(run_mod.acquire, 'available_release', lambda *a, **k: Found())
+    _clean_plan(monkeypatch, second)
+    keyring = _write_keyring(tmp_path)
+    args = dict(root=root, remote='origin', channel='stable', keyring_path=keyring, state_root=state_root)
+    result = run_mod.check(**args, now=10000)
+    assert result.outcome == 'applied'
+    assert (root / 'VERSION').read_text().strip() == '0.17.0'
+    assert any('rules: claude-code:' in item for item in _last(state_root)['pending'])
+    assert rule.read_bytes() == original
+    assert run_mod.state.read_state(path=state_root / run_mod.state.STATE_FILENAME)['pending'] == []
+    rule.write_text(heading + f'aqg-code-construction: {root}/docs/policies/audit-trigger.md')
+    monkeypatch.setattr(run_mod.acquire, 'available_release', lambda *a, **k: None)
+    assert run_mod.check(**args, now=20000).outcome == 'current'
+    assert _last(state_root)['pending'] == []
+
+
 def test_a_release_that_fails_its_smoke_check_is_rolled_back(
     tmp_path, state_root, monkeypatch
 ):

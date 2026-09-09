@@ -265,6 +265,36 @@ TOML block without requiring Python 3.11's `tomllib`; it does not certify the
 syntax of unrelated TOML settings. Formatting drift in that block needs reapply.
 Clients without a verified lifecycle surface report `not-applicable`.
 
+User rule policy paths are checked separately from hooks, including when the
+release is already current. Doctor and the updater share the same path check:
+`versions/<version-or-sha>/docs/policies/audit-trigger.md` is a fixed pin even
+while its file exists. Rules notices appear in the update check's `pending` list;
+they do not block a root update or become transaction blockers in install-state.
+Each eligible check recomputes these notices. Diagnostic-only results preserve
+outstanding hook approvals, including when inspection is unavailable. As before,
+a successful apply or a new release-produced pending list replaces earlier
+release notices; a version-only `current` check cannot certify hook approval and
+retains those notices. This clears repaired rules without making resolved hook
+work permanently sticky. The `current` outcome describes
+the release version, not the health of every host configuration.
+
+Known user files are located through the existing Claude/Codex, work-client,
+Qoder CLI and Zed/Devin installer profiles (including CODEX_HOME and native config
+locations). UI-managed rules and arbitrary project roots are not discovered or
+rewritten. Explicit rule installers preserve a supplied logical entrance and
+recover the default entrance when invoked from its current physical tree.
+Explicit Windows junction entrances are preserved too. An obsolete tree, or a
+physical tree behind a nondefault entrance, cannot be reassociated by guessing;
+pass its actual logical entrance to the installer. Checkout identity is compared
+only when Doctor knows the AQG root. A rootless content check retains relative
+policy-path format compatibility, but does not certify checkout identity; a
+root-aware check reports an unrooted reference as unverifiable.
+Reapply the affected installer with the logical AQG root to repair existing
+managed rules; this retains its backup, merge and host-approval behavior.
+Inspection follows readable file symlinks, rejects nonregular files, and reads
+at most 1 Mi characters per file. Files with no AQG section are ignored; reaching
+the bound yields an incomplete-inspection notice rather than a stale-rule claim.
+
 These inspectors do not discover arbitrary project configuration locations or
 automatically reconcile copied skills and rules. Project installations must be
 verified/reapplied with the existing installer and an explicit project path.

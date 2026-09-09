@@ -48,17 +48,17 @@ import sys
 import tempfile
 import time
 from datetime import datetime, timezone
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
 try:  # invoked as a package (tests, `python3 -m`)
     from scripts.aqg_update import acquire, dispatch, plan as plan_mod, stage, state, trust
-    from scripts.aqg_update import transaction, migrate, lock
+    from scripts.aqg_update import transaction, migrate, lock, rules
     from scripts.aqg_update import hosts as hosts_mod
 except ImportError:  # invoked with scripts/ itself on sys.path
     from aqg_update import acquire, dispatch, plan as plan_mod, stage, state, trust  # type: ignore[no-redef]
-    from aqg_update import transaction, migrate, lock  # type: ignore[no-redef]
+    from aqg_update import transaction, migrate, lock, rules  # type: ignore[no-redef]
     from aqg_update import hosts as hosts_mod  # type: ignore[no-redef]
 
 #: Set this to anything non-empty to stop the automatic channel entirely.
@@ -151,6 +151,7 @@ class CheckResult:
     outcome: str
     detail: str = ""
     pending: Tuple[str, ...] = ()
+    rules_checked: bool = False
 
     def __post_init__(self) -> None:
         if self.outcome not in OUTCOMES:
@@ -191,7 +192,17 @@ def record(
         path = root / LAST_CHECK_FILENAME
         previous = _read_record(root / f'update-check-{scope}.json') if scope else read_last_check(state_root=state_root)
         pending = list(result.pending)
-        if not pending and result.outcome not in ("applied",):
+        if result.rules_checked or any(x.startswith(rules.NOTICE_PREFIX) for x in pending):
+            # Release-produced pending is authoritative, as before this feature.
+            # Adding diagnostic-only notices must not erase sticky approvals.
+            previous_pending = (previous or {}).get("pending") or []
+            retain_release = result.outcome != 'applied' and not any(
+                not x.startswith(rules.NOTICE_PREFIX) for x in pending)
+            carried = [str(x) for x in previous_pending if (
+                not result.rules_checked if str(x).startswith(rules.NOTICE_PREFIX)
+                else retain_release)]
+            pending = list(dict.fromkeys(carried + pending))
+        elif not pending and result.outcome not in ("applied",):
             # Carried forward. The record is a single slot, so writing an empty
             # list here erased the only notice a human had that class-5 work was
             # outstanding — and its absence reads as "nothing outstanding".
@@ -432,6 +443,22 @@ def _finish(result: CheckResult, state_root: Optional[Path], now: float, *, scop
 
 
 def _check_locked(
+    *, root: Path, remote: str, channel: str, keyring, state_root, apply: bool
+) -> CheckResult:
+    result = _check_release(root=root, remote=remote, channel=channel,
+                            keyring=keyring, state_root=state_root, apply=apply)
+    # A current release can still have copied rules from an obsolete checkout.
+    # Inspect after apply as well, so expected paths describe the live entrance.
+    try:
+        notices = rules.pending_rules(root)
+    except (OSError, ValueError, RuntimeError, ImportError):
+        # Diagnostics must not relabel a committed release as a failed update.
+        return replace(result, pending=result.pending + (
+            rules.NOTICE_PREFIX + 'inspection unavailable; verify host rules explicitly',))
+    return replace(result, pending=result.pending + notices, rules_checked=True)
+
+
+def _check_release(
     *, root: Path, remote: str, channel: str, keyring, state_root, apply: bool
 ) -> CheckResult:
     installed = state.read_state(path=Path(state_root) / state.STATE_FILENAME if state_root is not None else None)

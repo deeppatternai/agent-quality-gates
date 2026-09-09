@@ -40,6 +40,11 @@ from dataclasses import dataclass
 from pathlib import Path
 
 try:
+    from aqg_update.rules import policy_root
+except ModuleNotFoundError:
+    from scripts.aqg_update.rules import policy_root
+
+try:
     from _aqg_backup import BackupSession
 except ModuleNotFoundError:  # invoked as scripts.install_aqg_rules
     from scripts._aqg_backup import BackupSession
@@ -152,7 +157,7 @@ def render_region(profile: ClientProfile, aqg_root: Path) -> str:
     # A rules file is not a shell: nothing there would ever expand the
     # placeholder, so the one line that leads to the authoritative criteria
     # would lead nowhere.
-    block = block.replace(PLACEHOLDER, str(aqg_root))
+    block = block.replace(PLACEHOLDER, str(policy_root(aqg_root)))
     return f"{BEGIN_MARKER}\n{block}\n{END_MARKER}"
 
 

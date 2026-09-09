@@ -16,6 +16,11 @@ from dataclasses import dataclass
 from pathlib import Path
 
 try:
+    from aqg_update.rules import policy_root
+except ModuleNotFoundError:
+    from scripts.aqg_update.rules import policy_root
+
+try:
     from aqg_skill_install import classify_install, create_windows_junction, remove_install
 except ModuleNotFoundError:
     from scripts.aqg_skill_install import classify_install, create_windows_junction, remove_install
@@ -682,7 +687,7 @@ def _rule_text(aqg_root: Path, client_id: str) -> str:
     # A literal <AQG_ROOT> in a rules file is a dangling pointer — nothing expands
     # it there, so the one line leading to the authoritative criteria would lead
     # nowhere. Resolve it against the checkout actually being installed from.
-    body = body.replace("<AQG_ROOT>", str(aqg_root))
+    body = body.replace("<AQG_ROOT>", str(policy_root(aqg_root)))
     return f"{RULE_MARKER}\nclient_id: {client_id}\n\n{body}"
 
 
