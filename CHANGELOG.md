@@ -6,6 +6,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) loosely;
 
 ## [Unreleased]
 
+## [0.14.13] - 2026-09-09
+
+### Changed
+
+- Metadata-only release for testing automatic updates from signed 0.14.12
+  (release sequence 14). Runtime code, skills, hooks and client configuration
+  are unchanged from 0.14.12.
+- Update VERSION and both README version labels. Publication reuses existing
+  development verification without rerunning tests or installing clients.
+  Publishing this version does not itself confirm that a client has updated.
+
 ## [0.14.12] - 2026-09-09
 
 ### Fixed
