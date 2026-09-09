@@ -3,6 +3,8 @@
 An installed rule is host configuration. Reporting drift never rewrites it or
 approves new instructions. Explicit installers own managed merges and backups.
 """
+from __future__ import annotations
+
 import os
 import re
 import stat

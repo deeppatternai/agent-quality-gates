@@ -11,7 +11,8 @@ Use this skill before and during writing code in any repo where reactive audit f
 
 > These are one-time **manual provisioning** steps a human runs per repo. Per
 > GUIDE §6.1 they are NOT part of the `entry_script` (`aqg_construction_check.py`)
-> boundary — the checker is `read-only` and writes nothing itself; these steps
+> boundary — the checker does not write project files; the separate background
+> AQG updater is described under Boundary Rules. These steps
 > install a hook and create local `.aqg/` workspace state by hand.
 
 ```bash
@@ -186,8 +187,11 @@ It does NOT verify presence of steps 1/3/4/6 or require row 5 for ordinary code,
 
 ## Boundary Rules
 
+- The Python CLI also nudges AQG's signed updater in a detached background process on managed installs (Windows/macOS/Linux). It may update AQG's own installation and state, never the target project's source. It does not wait for updating; import/launch failures do not affect the check. Set `AQG_NO_UPDATE_CHECK=1` for strictly update-free invocation. Merely reading this skill does not trigger it.
+
 - Enforces the STRUCTURE of construction (deterministic field presence); does NOT make code-quality semantic judgments (those stay in the audit-before-commit gate / audit-mcp).
 - Performance timeouts (3s/15s/60s for mini/full/plan) are warn-only.
+- The sidecar conservatively declares `writes-code` for replacement of AQG's installed code and refresh of AQG-owned routes/hooks by the detached updater; checking the target project still does not edit its source.
 - Pre-commit enforcement is gated by `AQG_AGENT`; humans not setting it are transparent. Enforcement is commit-time output discipline, not real-time process; `created_at <= first edit mtime` partially mitigates backfill. The Claude Code path additionally registers a PostToolUse hook for real-time feedback.
 - Closeout integration: when `aqg-evidence-closeout` is installed, it auto-imports `.aqg/current_ledger.md` (read-only; secrets redacted) — it never edits the ledger or referenced files.
 - TDD scope boundary: step 2 owns RED/GREEN/REFACTOR + test-code quality. It does NOT own per-task dispatch / parallelism / worktree isolation, Owner-only boundary enforcement, signed-envelope audit trail, or test sandboxing (those are EAF skills).

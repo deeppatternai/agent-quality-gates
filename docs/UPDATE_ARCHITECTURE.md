@@ -810,3 +810,55 @@ same precondition prevents a temporary unsigned automatic path from ever existin
       enforcement behind it. Internal machines lagging by one manual `upgrade.sh --ref main` is a cheap price.
 - [ ] Make `_aqg_context.sh` export the `realpath`-resolved path (the mixed-generation fix in §5.2) — ten
       lines, but confirm it breaks no assumption in any of the 16 existing `SKILL.md` files.
+# Python skill trigger and transient retry (2026-09)
+
+`aqg-startup-preflight` and `aqg-code-construction` also nudge the existing signed
+updater from their Python CLI entrypoints. Reading SKILL.md alone does not run it.
+The shared `scripts/aqg_update/nudge.py` runs after the foreground CLI finishes,
+including normal argparse exits, and works without Bash or host hooks. It only
+runs from the currently managed installation, never a separate development
+checkout, and honors `AQG_NO_UPDATE_CHECK`. It launches a detached, silent native
+Python process; the skill does not wait for network access or installation.
+Trigger import/launch failure is swallowed and writes no retry latch. The child
+receives the validated physical generation; the runner maps it to the logical
+entrance only if it still matches, otherwise rejecting the stale version before
+network access. Managed installations use actual directory symlinks on Windows
+as well as POSIX; junctions and unmanaged checkouts are not supported by this
+trigger or by the existing atomic-swap contract.
+
+The updater runs as the same user, without privilege elevation. The user's
+Python interpreter, executable PATH, Git authentication, proxy/CA settings and
+explicit AQG configuration (including `AQG_STATE_ROOT`) are trusted deployment
+configuration, not a sandbox against a compromised local runtime. Do not source
+them from untrusted project configuration. Repository-routing Git variables
+inherited from a project hook are removed before launch. No installation-pinned
+Python service exists; this keeps the existing updater's user configuration
+contract and does not bypass release signature verification. Sidecar boundary
+fields document writes; they do not grant OS or agent sandbox permissions.
+
+The existing runner owns signature checks, locks and timing. Its default check
+interval is one hour; failed/interrupted/rolled-back attempts normally retry on
+a later invocation after five minutes (an explicit interval override still wins).
+Skipping during cooldown does not renew that cooldown. Process death releases
+the OS lock; a leftover lock filename is not a permanent lock.
+
+An occupied staging path now receives a fresh bounded name: partial, modified,
+or locked old trees are never reused or overwritten. Best-effort cleanup removes
+only this attempt's inactive tree under the apply lock, and retains it if a
+transaction journal exists. Failure to remove a tree cannot poison the next
+attempt. Existing unresolved journals are checked before staging to avoid piling
+up trees while repair is required. A common state directory now scopes the
+admission gate, transaction journal, apply lock and installed-state file. An
+active transaction returns `busy`; a stale or unreadable journal reports
+`repair-required`, even for the current version, and is retried after the normal
+failure interval once repaired. At most three additional retry names for a given
+staging name can be retained when cleanup fails; freeing those inactive attempts
+allows another trigger to retry without resetting a latch. Generic staging errors
+now report `failed` with the underlying path/error instead of misleading `pending`
+removal guidance; this applies to existing shell/manual callers too.
+This does not auto-clear ambiguous transactions
+or bypass signature failures: persistent permission, trust or recovery problems
+still need repair. There is no timer service; retries require another trigger.
+
+An older installed release must first receive this code through an existing
+update path or reinstall before these two new entrypoints can provide the trigger.

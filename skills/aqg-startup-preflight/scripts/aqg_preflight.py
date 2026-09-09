@@ -673,4 +673,16 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    try:
+        raise SystemExit(main())
+    finally:
+        try:
+            if not os.environ.get('AQG_NO_UPDATE_CHECK'):
+                import importlib.util
+                _path = Path(__file__).resolve().parents[3] / 'scripts/aqg_update/nudge.py'
+                _spec = importlib.util.spec_from_file_location('_aqg_cli_nudge', _path)
+                _nudge = importlib.util.module_from_spec(_spec)
+                _spec.loader.exec_module(_nudge)
+                _nudge.nudge()
+        except (Exception, SystemExit):  # aqg: top-level boundary
+            pass  # Missing/broken update support must not change the skill result.

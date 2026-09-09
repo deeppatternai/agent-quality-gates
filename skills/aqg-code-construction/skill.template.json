@@ -5,7 +5,7 @@
   "version": "0.1.0",
   "wrapper_generated": true,
   "primary_trigger_keywords": ["code construction", "ledger", "anti-pattern", "thin slice", "behavior lock", "self review"],
-  "boundary_class": "read-only",
+  "boundary_class": "writes-code",
   "audit_mode_required": "standard",
   "trigger_grammar": {
     "keywords": ["code construction", "ledger", "anti-pattern", "thin slice", "behavior lock", "self review", "objection prediction", "6-step"],
@@ -35,7 +35,7 @@
     ".",
     ".git/"
   ],
-  "writes_paths": [],
+  "writes_paths": ["$HOME/.deeppattern/agent-quality-gates", "$HOME/.deeppattern/versions/", "${AQG_STATE_ROOT:-$HOME/.deeppattern/aqg-state}/", "<installed-agent-config>/AQG-owned-routes-and-hooks"],
   "forbidden_paths": [
     "production/",
     "secrets/",

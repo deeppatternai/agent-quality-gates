@@ -4,7 +4,7 @@
   "description": "Verify worktree + GitHub live state (dirty git, gone upstream, behind remote, missing context files, open PRs/issues, stale status docs) at SESSION START for AI team project work, before the first code edit. Use exactly once per session, not for repeated mid-session checks; not after audit/review returns. Defaults to the current git root and supports explicit repo paths.",
   "version": "0.1.0",
   "primary_trigger_keywords": ["preflight", "startup", "session start", "worktree state"],
-  "boundary_class": "read-only",
+  "boundary_class": "writes-code",
   "audit_mode_required": "standard",
   "trigger_grammar": {
     "keywords": ["preflight", "startup", "session start", "session begin", "first edit", "worktree state", "behind remote", "open PRs"],
@@ -34,7 +34,7 @@
     "docs/PROJECT_STATUS.md",
     "docs/STACK_STATUS.md"
   ],
-  "writes_paths": [],
+  "writes_paths": ["$HOME/.deeppattern/agent-quality-gates", "$HOME/.deeppattern/versions/", "${AQG_STATE_ROOT:-$HOME/.deeppattern/aqg-state}/", "<installed-agent-config>/AQG-owned-routes-and-hooks"],
   "forbidden_paths": [
     "production/",
     "secrets/",

@@ -320,7 +320,7 @@ def _too_soon(state_root: Optional[Path], now: float, *, scope: Optional[str] = 
         if discovery.get('outcome') == 'deferred' and isinstance(stamp, (int, float)) and when < stamp <= now:
             return False
     interval = check_interval_seconds()
-    if scope is not None and not os.environ.get(INTERVAL_ENV) and last.get("outcome") in {"failed", "invalid-root", "interrupted", "rolled-back"}:
+    if scope is not None and not os.environ.get(INTERVAL_ENV) and last.get("outcome") in {"failed", "invalid-root", "interrupted", "rolled-back", "repair-required"}:
         interval = min(interval, 300)
     return (now - when) < interval
 
@@ -407,6 +407,13 @@ def _admitted_check(*, root, remote, channel, keyring_path, state_root, now, app
             "Reapply this host's AQG configuration using the logical installation entrance; "
             "do not migrate or rename this historical version directory."
         )), state_root, now, scope=scope, identity=identity)
+
+    if apply:
+        gated = _transaction_gate(state_root)
+        if gated is not None:
+            if gated.outcome == 'busy':
+                return gated  # A live transaction is not a failed attempt.
+            return _finish(gated, state_root, now, scope=scope, identity=identity)
 
     # Written BEFORE the network is touched. The record used to appear only on
     # completion, so a run that was killed mid-fetch never rate-limited — and
@@ -538,6 +545,26 @@ def _record_installed(
     }, path=_state_file(state_root))
 
 
+def _transaction_paths(state_root):
+    storage = Path(state_root) if state_root is not None else state.state_root(create=True)
+    storage.mkdir(parents=True, exist_ok=True)
+    return storage / transaction.JOURNAL_FILENAME, storage / lock.LOCK_FILENAME
+
+
+def _transaction_gate(state_root):
+    """Read recovery state under the apply lock, before any current fast path."""
+    journal, apply_lock = _transaction_paths(state_root)
+    try:
+        with lock.install_lock(path=apply_lock):
+            if transaction.read_journal(journal) is not None:
+                return CheckResult(outcome='repair-required', detail=f'unresolved update journal: {journal}; repair before retrying')
+    except lock.LockBusy:
+        return CheckResult(outcome='busy', detail='another AQG update is in progress')
+    except transaction.TransactionError as exc:
+        return CheckResult(outcome='repair-required', detail=str(exc))
+    return None
+
+
 def _apply(
     *, root: Path, commit: str, version, installed, state_root,
     host_reconciliation: bool = False,
@@ -551,6 +578,10 @@ def _apply(
     # directory that holds versions is that target's parent. Computing it as
     # `root.resolve().parent / "versions"` produced `versions/versions/<sha>` —
     # caught by the end-to-end test, and by nothing before it.
+    gated = _transaction_gate(state_root)
+    if gated is not None:
+        return gated
+    journal, apply_lock = _transaction_paths(state_root)
     live = stage.current_target(Path(root))
     if live is None:
         return CheckResult(
@@ -578,6 +609,7 @@ def _apply(
                 )
             result = transaction.apply_plan(
                 plan_mod.Plan(actions=(), deferred=()),
+                journal=journal, lock_path=apply_lock,
                 resources=dispatch.Resources(target=live, root=Path(root).absolute()),
                 record_state=record_verified_metadata, smoke=lambda: _smoke(Path(root)),
             )
@@ -599,164 +631,172 @@ def _apply(
             versions_dir=versions_dir, name=name,
         )
     except stage.StageError as exc:
-        # An occupied generation name is a COLLISION, not a lock: it cannot
-        # distinguish "another run holds this right now" from "a run crashed and
-        # left it behind". Reporting the second as a transient conflict makes a
-        # permanent condition look like a race that will clear itself.
         return CheckResult(
-            outcome="pending",
+            outcome="failed",
             detail=str(exc),
-            pending=(
-                f"a staged tree for {commit[:12]} is already there, left "
-                f"behind or in use: {versions_dir / name}. Remove it if "
-                f"no update is running.",
-            ),
         )
 
-    dropped: List[str] = []
-    evidence = _collect_evidence(installed, dropped, target_root=target)
-    built = plan_mod.build_plan(
-        state=installed, target=target, evidence=evidence, target_commit=commit,
-        current=live,
-    )
-    # Two different shapes: an Action that would change a host's configuration,
-    # and a Deferred the PLANNER declined to plan at all. Both mean a human has
-    # to look, and both mean the root must not move underneath them.
-    outstanding = tuple(
-        [
-            # The SUBJECT is in the line because this is what a person reads to
-            # decide what to do: "route_skill" without a skill name is not an
-            # instruction.
-            f"{a.client_id}: {a.kind}"
-            + (f" {a.subject}" if a.subject else "")
-            + (f" — {a.detail}" if a.detail else "")
-            for a in built.actions if a.kind in HOST_TOUCHING_KINDS
-        ]
-        + [f"{d.client_id}: {d.reason}" for d in built.deferred]
-        + [f"{item} (adapter could not report; treated as unknown)" for item in dropped]
-    )
-    # Which of those actually have to stop the swap. A host whose hook command
-    # never followed the root cannot be stranded by moving it, so holding the
-    # whole machine for its pending merge buys nothing and costs every other
-    # host its update. See `_split_outstanding`.
-    _root_relative, _pinned = _host_facts(hosts_mod.available_clients())
-    blocking, deferrable = _split_outstanding(
-        built.actions, root_relative=_root_relative, pinned=_pinned
-    )
-    # A planner refusal and an unreadable adapter are not host spellings; they
-    # are "nobody knows", and they block as they always did.
-    must_stop = bool(blocking) or bool(built.deferred) or bool(dropped)
-    recorded_pending = outstanding
-    # Not under `host_reconciliation`: that path already strips every
-    # host-touching action and records the report, and running both would
-    # silently change what IT records. One handoff or the other, never both.
-    if deferrable and not must_stop and not host_reconciliation:
-        # The swap proceeds; these leave the plan and stay in the report, the
-        # same handoff `host_reconciliation` already performs below.
-        deferred_ids = {id(a) for a in deferrable}
-        built = plan_mod.Plan(
-            actions=tuple(a for a in built.actions if id(a) not in deferred_ids),
-            deferred=built.deferred,
+    committed = False
+    try:
+        dropped: List[str] = []
+        evidence = _collect_evidence(installed, dropped, target_root=target)
+        built = plan_mod.build_plan(
+            state=installed, target=target, evidence=evidence, target_commit=commit,
+            current=live,
         )
-        # Reported, never RECORDED. `build_plan` refuses to plan while state
-        # carries pending items — rightly, because half-applied work makes a
-        # roster a lie — so writing a deferral there would make the next update
-        # refuse on account of the last one's human approval. Trading one stall
-        # for another. This is recomputed from the host's own file every run,
-        # which is the same lesson the roster fix learned: read reality, do not
-        # keep a ledger nobody clears.
+        # Two different shapes: an Action that would change a host's configuration,
+        # and a Deferred the PLANNER declined to plan at all. Both mean a human has
+        # to look, and both mean the root must not move underneath them.
         outstanding = tuple(
-            line for line in outstanding
-            if not any(line.startswith(f"{a.client_id}: ") for a in deferrable)
-        ) + tuple(
-            f"{a.client_id}: still running the previous version's hooks. Its "
-            f"command is pinned to the tree it was installed from, so it keeps "
-            f"working; approve the new hook set in that host to move it forward"
-            for a in deferrable
+            [
+                # The SUBJECT is in the line because this is what a person reads to
+                # decide what to do: "route_skill" without a skill name is not an
+                # instruction.
+                f"{a.client_id}: {a.kind}"
+                + (f" {a.subject}" if a.subject else "")
+                + (f" — {a.detail}" if a.detail else "")
+                for a in built.actions if a.kind in HOST_TOUCHING_KINDS
+            ]
+            + [f"{d.client_id}: {d.reason}" for d in built.deferred]
+            + [f"{item} (adapter could not report; treated as unknown)" for item in dropped]
         )
-        recorded_pending = ()
-    if outstanding and host_reconciliation:
-        # Handed to the caller, not to the transaction. The dispatcher refuses a
-        # route with no destination rather than guessing one, and the caller is
-        # about to do that work itself by reinstalling — so the actions leave
-        # the plan and stay in the report.
-        built = plan_mod.Plan(
-            actions=tuple(
-                a for a in built.actions if a.kind not in HOST_TOUCHING_KINDS
+        # Which of those actually have to stop the swap. A host whose hook command
+        # never followed the root cannot be stranded by moving it, so holding the
+        # whole machine for its pending merge buys nothing and costs every other
+        # host its update. See `_split_outstanding`.
+        _root_relative, _pinned = _host_facts(hosts_mod.available_clients())
+        blocking, deferrable = _split_outstanding(
+            built.actions, root_relative=_root_relative, pinned=_pinned
+        )
+        # A planner refusal and an unreadable adapter are not host spellings; they
+        # are "nobody knows", and they block as they always did.
+        must_stop = bool(blocking) or bool(built.deferred) or bool(dropped)
+        recorded_pending = outstanding
+        # Not under `host_reconciliation`: that path already strips every
+        # host-touching action and records the report, and running both would
+        # silently change what IT records. One handoff or the other, never both.
+        if deferrable and not must_stop and not host_reconciliation:
+            # The swap proceeds; these leave the plan and stay in the report, the
+            # same handoff `host_reconciliation` already performs below.
+            deferred_ids = {id(a) for a in deferrable}
+            built = plan_mod.Plan(
+                actions=tuple(a for a in built.actions if id(a) not in deferred_ids),
+                deferred=built.deferred,
+            )
+            # Reported, never RECORDED. `build_plan` refuses to plan while state
+            # carries pending items — rightly, because half-applied work makes a
+            # roster a lie — so writing a deferral there would make the next update
+            # refuse on account of the last one's human approval. Trading one stall
+            # for another. This is recomputed from the host's own file every run,
+            # which is the same lesson the roster fix learned: read reality, do not
+            # keep a ledger nobody clears.
+            outstanding = tuple(
+                line for line in outstanding
+                if not any(line.startswith(f"{a.client_id}: ") for a in deferrable)
+            ) + tuple(
+                f"{a.client_id}: still running the previous version's hooks. Its "
+                f"command is pinned to the tree it was installed from, so it keeps "
+                f"working; approve the new hook set in that host to move it forward"
+                for a in deferrable
+            )
+            recorded_pending = ()
+        if outstanding and host_reconciliation:
+            # Handed to the caller, not to the transaction. The dispatcher refuses a
+            # route with no destination rather than guessing one, and the caller is
+            # about to do that work itself by reinstalling — so the actions leave
+            # the plan and stay in the report.
+            built = plan_mod.Plan(
+                actions=tuple(
+                    a for a in built.actions if a.kind not in HOST_TOUCHING_KINDS
+                ),
+                deferred=(),
+            )
+        elif must_stop:
+            # NOTHING is applied. Swapping the root while holding this back would
+            # leave the host describing the old tree and serving the new one, and an
+            # AQG hook whose script vanished from under the root fails into `|| true`
+            # — the guardrail stops running and says nothing.
+            #
+            # And nothing is LEFT, either. The tree was staged before the plan could
+            # be judged, and leaving it meant the next attempt at the same version
+            # met "a staged version already exists" — so one refused run wedged the
+            # upgrade permanently. Found by running it twice, not by a test.
+            return CheckResult(
+                outcome="pending",
+                detail=(
+                    f"{version} was not applied: it changes what a host "
+                    f"is configured to point at"
+                ),
+                pending=outstanding,
+            )
+
+        def check_baseline():
+            latest = state.read_state(path=Path(state_root) / state.STATE_FILENAME if state_root is not None else None)
+            if stage.current_target(Path(root)) != live or latest != installed:
+                raise transaction.TransactionError('live root or install state changed during planning; retry')
+            if provenance == 'verified release' and sequence <= (latest or {}).get('release_sequence', -1):
+                raise transaction.TransactionError('verified release sequence no longer advances the installed floor')
+
+        result = transaction.apply_plan(
+            built,
+            journal=journal, lock_path=apply_lock,
+            precondition=check_baseline,
+            # What is now installed, written inside the transaction. Without this the
+            # anti-rollback floor came from a file nobody wrote, so `trust` compared
+            # every release against FIRST_INSTALL and a correctly signed OLD one —
+            # the thing a rollback attack replays — was accepted on every machine.
+            record_state=lambda: _record_installed(
+                channel=channel, version=version, commit=commit,
+                sequence=sequence, key_id=key_id, pending=list(recorded_pending),
+                state_root=state_root,
             ),
-            deferred=(),
+            # `absolute`, never `resolve`: the root IS the symlink being replaced,
+            # so resolving it hands the swap the version tree it points at — which
+            # `stage.swap_root` then refuses, correctly, as a real directory it will
+            # not destroy. The end-to-end test caught this; nothing before it could.
+            resources=dispatch.Resources(target=target, root=Path(root).absolute()),
+            smoke=lambda: _smoke(Path(root)),
         )
-    elif must_stop:
-        # NOTHING is applied. Swapping the root while holding this back would
-        # leave the host describing the old tree and serving the new one, and an
-        # AQG hook whose script vanished from under the root fails into `|| true`
-        # — the guardrail stops running and says nothing.
-        #
-        # And nothing is LEFT, either. The tree was staged before the plan could
-        # be judged, and leaving it meant the next attempt at the same version
-        # met "a staged version already exists" — so one refused run wedged the
-        # upgrade permanently. Found by running it twice, not by a test.
-        stage.discard_version(repo=Path(root), target=target)
+        committed = result.status == 'committed'
+        mapped = {
+            "committed": "applied", "busy": "pending",
+            "rolled-back": "rolled-back", "repair-required": "repair-required",
+        }
+        # The provenance is in the record because nothing else distinguishes a
+        # version that was signature-verified from one a human applied by hand, and
+        # `doctor` is the only place anyone would ever look.
+        detail = result.detail
+        if mapped.get(result.status) == "applied":
+            detail = f"{version} ({provenance})" + (f". {detail}" if detail else "")
         return CheckResult(
-            outcome="pending",
-            detail=(
-                f"{version} is staged but not applied: it changes what a host "
-                f"is configured to point at"
-            ),
-            pending=outstanding,
+            outcome=mapped.get(result.status, "failed"),
+            detail=detail,
+            # Handed back even on success: the caller promised to reconcile these,
+            # so it needs to know what they are.
+            # Deferrals are handed back even without `host_reconciliation`: the
+            # update DID apply, and the one thing left is a human approval that
+            # nothing else will ever mention.
+            pending=outstanding if (host_reconciliation or deferrable) else (),
         )
+    finally:
+        # A successfully published tree may already be pinned by a reader or
+        # host, even if another updater has since moved the live root again.
+        if not committed:
+            _discard_inactive_attempt(Path(root), target, state_root=state_root)
 
-    def check_baseline():
-        latest = state.read_state(path=Path(state_root) / state.STATE_FILENAME if state_root is not None else None)
-        if stage.current_target(Path(root)) != live or latest != installed:
-            # Still under the install lock. Never remove a tree another updater
-            # has activated while this plan was being built.
-            if stage.current_target(Path(root)) != target:
-                stage.discard_version(repo=Path(root), target=target)
-            raise transaction.TransactionError('live root or install state changed during planning; retry')
-        if provenance == 'verified release' and sequence <= (latest or {}).get('release_sequence', -1):
-            stage.discard_version(repo=Path(root), target=target)
-            raise transaction.TransactionError('verified release sequence no longer advances the installed floor')
 
-    result = transaction.apply_plan(
-        built,
-        precondition=check_baseline,
-        # What is now installed, written inside the transaction. Without this the
-        # anti-rollback floor came from a file nobody wrote, so `trust` compared
-        # every release against FIRST_INSTALL and a correctly signed OLD one —
-        # the thing a rollback attack replays — was accepted on every machine.
-        record_state=lambda: _record_installed(
-            channel=channel, version=version, commit=commit,
-            sequence=sequence, key_id=key_id, pending=list(recorded_pending),
-            state_root=state_root,
-        ),
-        # `absolute`, never `resolve`: the root IS the symlink being replaced,
-        # so resolving it hands the swap the version tree it points at — which
-        # `stage.swap_root` then refuses, correctly, as a real directory it will
-        # not destroy. The end-to-end test caught this; nothing before it could.
-        resources=dispatch.Resources(target=target, root=Path(root).absolute()),
-        smoke=lambda: _smoke(Path(root)),
-    )
-    mapped = {
-        "committed": "applied", "busy": "pending",
-        "rolled-back": "rolled-back", "repair-required": "repair-required",
-    }
-    # The provenance is in the record because nothing else distinguishes a
-    # version that was signature-verified from one a human applied by hand, and
-    # `doctor` is the only place anyone would ever look.
-    detail = result.detail
-    if mapped.get(result.status) == "applied":
-        detail = f"{version} ({provenance})" + (f". {detail}" if detail else "")
-    return CheckResult(
-        outcome=mapped.get(result.status, "failed"),
-        detail=detail,
-        # Handed back even on success: the caller promised to reconcile these,
-        # so it needs to know what they are.
-        # Deferrals are handed back even without `host_reconciliation`: the
-        # update DID apply, and the one thing left is a human approval that
-        # nothing else will ever mention.
-        pending=outstanding if (host_reconciliation or deferrable) else (),
-    )
+def _discard_inactive_attempt(root: Path, target: Path, *, state_root=None) -> None:
+    """Best-effort cleanup of only the fresh tree this attempt created."""
+    try:
+        # Recheck under the same apply lock: a concurrent activation or an
+        # unresolved transaction must retain every tree needed for recovery.
+        journal, apply_lock = _transaction_paths(state_root)
+        with lock.install_lock(path=apply_lock):
+            if transaction.read_journal(journal) is None:
+                if stage.current_target(root) != target:
+                    stage.discard_version(repo=root, target=target)
+    except Exception:  # aqg: top-level boundary
+        pass  # A retained stage will get a distinct name on the next attempt.
 
 
 #: Action kinds that change what a HOST is configured to point at — its routed

@@ -480,6 +480,152 @@ def _clean_plan(monkeypatch, target_commit):
 
     monkeypatch.setattr(run_mod.plan_mod, "build_plan", only_activate)
 
+
+def test_failed_planning_can_retry_same_release_without_reusing_residue(tmp_path, state_root, monkeypatch):
+    root, first, second = _install(tmp_path)
+    class Found:
+        manifest = {"version": "0.17.0", "release_sequence": 9}
+        commit = second
+        key_id = "k"
+        release_sequence = 9
+    monkeypatch.setattr(run_mod.acquire, 'available_release', lambda *a, **k: Found())
+    def broken_plan(**kwargs):
+        raise OSError('temporary planning failure')
+    monkeypatch.setattr(run_mod.plan_mod, 'build_plan', broken_plan)
+    # Simulate Windows retaining a stage that cleanup could not remove.
+    monkeypatch.setattr(run_mod.stage, 'discard_version', lambda **kwargs: None)
+    keyring = _write_keyring(tmp_path)
+    monkeypatch.setattr(run_mod.time, 'time', lambda: 10000.0)
+    args = dict(root=root, remote='origin', channel='stable', keyring_path=keyring, state_root=state_root)
+    assert run_mod.check(**args).outcome == 'failed'
+    residue = root.resolve().parent / '0.17.0'
+    assert residue.is_dir()
+    (residue / 'untrusted.txt').write_text('must not run or disappear')
+    failed_record = _last(state_root)
+    monkeypatch.setattr(run_mod.time, 'time', lambda: 10299.0)
+    assert run_mod.check(**args).outcome == 'too-soon'
+    assert _last(state_root) == failed_record
+    _clean_plan(monkeypatch, second)
+    monkeypatch.setattr(run_mod.time, 'time', lambda: 10301.0)
+    result = run_mod.check(**args)
+    assert result.outcome == 'applied', result.detail
+    assert root.resolve() != residue
+    assert not (root / 'untrusted.txt').exists()
+    assert (residue / 'untrusted.txt').read_text() == 'must not run or disappear'
+
+
+def test_attempt_cleanup_preserves_live_or_journal_pinned_tree(tmp_path, state_root, monkeypatch):
+    root, first, second = _install(tmp_path)
+    live = root.resolve()
+    run_mod._discard_inactive_attempt(root, live)
+    assert live.is_dir()
+    target = run_mod.stage.stage_version(repo=root, commit=second, versions_dir=live.parent, name='attempt')
+    journal = run_mod.transaction.journal_path()
+    journal.write_text('{"phase": "repair_required"}', encoding='utf-8')
+    run_mod._discard_inactive_attempt(root, target)
+    assert target.is_dir()
+    journal.unlink()
+    run_mod._discard_inactive_attempt(root, target)
+    assert not target.exists()
+
+
+def test_committed_generation_survives_a_later_activation_before_cleanup(tmp_path, state_root, monkeypatch):
+    root, first, second = _install(tmp_path)
+    live = root.resolve()
+    class Found:
+        manifest = {'version': '0.17.0', 'release_sequence': 9}
+        commit = second
+        key_id = 'k'
+        release_sequence = 9
+    monkeypatch.setattr(run_mod.acquire, 'available_release', lambda *a, **k: Found())
+    _clean_plan(monkeypatch, second)
+    apply_plan = run_mod.transaction.apply_plan
+    def apply_then_another_activation(*args, **kwargs):
+        result = apply_plan(*args, **kwargs)
+        assert result.status == 'committed'
+        # Deterministic interleaving: another owner activates a retained tree
+        # after the transaction releases its lock, before this runner returns.
+        run_mod.stage.swap_root(root=root, target=live)
+        return result
+    monkeypatch.setattr(run_mod.transaction, 'apply_plan', apply_then_another_activation)
+    result = run_mod.check(root=root, remote='origin', channel='stable', keyring_path=_write_keyring(tmp_path), state_root=state_root)
+    assert result.outcome == 'applied'
+    assert (live.parent / '0.17.0').is_dir(), 'once published a generation belongs to retention, not failed-attempt cleanup'
+
+
+@pytest.mark.parametrize('own_journal', [True, False])
+def test_current_fast_path_uses_explicit_transaction_scope(tmp_path, state_root, own_journal):
+    root, first, second = _install(tmp_path)
+    other = tmp_path / 'explicit-state'
+    other.mkdir()
+    selected = other if own_journal else state_root
+    (selected / run_mod.transaction.JOURNAL_FILENAME).write_text('{"phase":"repair_required"}', encoding='utf-8')
+    result = run_mod.apply_commit(root=root, commit=first, version='0.16.0', state_root=other)
+    assert result.outcome == ('repair-required' if own_journal else 'current')
+
+
+def test_active_transaction_is_busy_not_repair_and_cleanup_never_waits(tmp_path, state_root):
+    root, first, second = _install(tmp_path)
+    target = run_mod.stage.stage_version(repo=root, commit=second, versions_dir=root.resolve().parent, name='attempt')
+    with run_mod.lock.install_lock(path=state_root / run_mod.lock.LOCK_FILENAME):
+        (state_root / run_mod.transaction.JOURNAL_FILENAME).write_text('{"phase":"applying"}', encoding='utf-8')
+        result = run_mod.apply_commit(root=root, commit=first, version='0.16.0', state_root=state_root)
+        assert result.outcome == 'busy'
+        run_mod._discard_inactive_attempt(root, target)
+        assert target.exists()
+
+
+def test_stage_collision_failure_never_cleans_the_foreign_tree(tmp_path, state_root, monkeypatch):
+    root, first, second = _install(tmp_path)
+    foreign = root.resolve().parent / '0.17.0'
+    def collision(**kwargs):
+        foreign.mkdir()
+        (foreign / 'owner.txt').write_text('belongs to another attempt')
+        raise run_mod.stage.StageError('occupied target')
+    monkeypatch.setattr(run_mod.stage, 'stage_version', collision)
+    result = run_mod.apply_commit(root=root, commit=second, version='0.17.0', state_root=state_root)
+    assert result.outcome == 'failed'
+    assert (foreign / 'owner.txt').read_text() == 'belongs to another attempt'
+
+
+@pytest.mark.parametrize('failure', ['stage', 'smoke', 'journal'])
+def test_recovery_does_not_leave_a_retry_latch(tmp_path, state_root, monkeypatch, failure):
+    root, first, second = _install(tmp_path)
+    live = root.resolve()
+    class Found:
+        manifest = {'version': '0.17.0', 'release_sequence': 9}
+        commit = second
+        key_id = 'k'
+        release_sequence = 9
+    monkeypatch.setattr(run_mod.acquire, 'available_release', lambda *a, **k: Found())
+    _clean_plan(monkeypatch, second)
+    journal = run_mod.transaction.journal_path()
+    stage_version = run_mod.stage.stage_version
+    if failure == 'stage':
+        def fail_stage(**kwargs):
+            raise run_mod.stage.StageError('temporary checkout failure')
+        monkeypatch.setattr(run_mod.stage, 'stage_version', fail_stage)
+    elif failure == 'smoke':
+        monkeypatch.setattr(run_mod, '_smoke', lambda root: False)
+    else:
+        journal.write_text('{"phase": "repair_required"}', encoding='utf-8')
+    monkeypatch.setattr(run_mod.time, 'time', lambda: 10000.0)
+    args = dict(root=root, remote='origin', channel='stable', keyring_path=_write_keyring(tmp_path), state_root=state_root)
+    result = run_mod.check(**args)
+    assert result.outcome == {'smoke': 'rolled-back', 'stage': 'failed', 'journal': 'repair-required'}[failure]
+    assert root.resolve() == live
+    assert not (live.parent / '0.17.0').exists(), 'failed attempts must not accumulate staging trees'
+    if failure == 'journal':
+        assert journal.exists(), 'ambiguous journal must be retained until repaired'
+        journal.unlink()  # simulate explicit external repair, never auto-clear
+    else:
+        assert not journal.exists()
+    monkeypatch.setattr(run_mod.stage, 'stage_version', stage_version)
+    monkeypatch.setattr(run_mod, '_smoke', lambda root: True)
+    monkeypatch.setattr(run_mod.time, 'time', lambda: 10301.0)
+    assert run_mod.check(**args).outcome == 'applied'
+    assert root.resolve() != live
+
 def test_a_verified_release_is_staged_swapped_and_recorded(tmp_path, state_root, monkeypatch):
     """The whole point of the feature, end to end.
 
@@ -956,13 +1102,15 @@ def test_a_staging_directory_left_by_a_dead_run_is_not_reported_as_busy_forever(
         release_sequence = 9
 
     monkeypatch.setattr(run_mod.acquire, "available_release", lambda *a, **k: _Found())
+    _clean_plan(monkeypatch, second)
     (tmp_path / "install/versions/0.17.0").mkdir(parents=True)
     result = run_mod.check(
         root=root, remote="origin", channel="stable",
         keyring_path=_write_keyring(tmp_path), state_root=state_root,
     )
-    assert result.outcome == "pending"
-    assert any("left behind" in item or "already staged" in item for item in result.pending)
+    assert result.outcome == "applied", result.detail
+    assert not any("left behind" in item or "already staged" in item for item in result.pending)
+    assert (tmp_path / "install/versions/0.17.0").is_dir()
 
 
 def test_no_outcome_is_declared_without_a_producer():

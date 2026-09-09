@@ -34,12 +34,14 @@ Use this skill before acting in a project where stale repo state or authorizatio
 
 ## Boundary Rules
 
+- The Python CLI also nudges AQG's signed updater in a detached background process on managed installs (Windows/macOS/Linux). It may update AQG's own installation and state, never the target project's source. It does not wait for updating; import/launch failures do not affect the report. Set `AQG_NO_UPDATE_CHECK=1` for strictly update-free invocation. Merely reading this skill does not trigger it.
+
 - Live GitHub/git facts beat memory and old status notes.
 - Do not infer merge state from previous sessions; verify PRs/issues live.
 - Keep repo-only/offline, read-only production evidence, production authorization, and runtime closeout as separate gates.
 - Do not prepare or execute production read/write actions unless the user explicitly authorizes that boundary in the current session.
 - This preflight only surfaces local git, GitHub, and required-file state. Architecture, production, secrets, raw/private data, Owner/admin, and project-specific authorization gates remain separate checks.
-- By default it runs `git fetch origin`, which updates remote-tracking refs under `.git/refs/remotes/*` (pass `--no-fetch` to skip). Per GUIDE §6.1 this is a documented read-only exception — it touches no worktree, source, or evidence file — so `boundary_class` stays `read-only` and the path is not listed in `writes_paths`.
+- By default it runs `git fetch origin`, which updates remote-tracking refs under `.git/refs/remotes/*` (pass `--no-fetch` to skip). This does not edit project source. The sidecar conservatively declares `writes-code` because the detached updater can replace AQG's own installed code and refresh AQG-owned routes/hooks; it does not authorize edits to the target project's code.
 - When other agent sessions may operate on this repo concurrently, work in an isolated `git worktree` (or a separate clone), not the shared checkout: a shared tree pollutes `git status` and test results with another session's uncommitted changes and races on HEAD/index. Trust verification only when it runs on an isolated base carrying your changes alone; if you must share a tree, gate on explicit refs (not `HEAD`), stage only your own files, and prefer single-target commands (e.g. `regen <skill>`, not a repo-wide `regen --all`) that will not rebuild another session's wrapper from its uncommitted source.
 
 ## Reporting Shape

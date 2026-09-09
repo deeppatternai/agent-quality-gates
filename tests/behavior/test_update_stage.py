@@ -56,6 +56,42 @@ def _commit(repo: Path, rev: str) -> str:
 # --- materializing a version ---------------------------------------------------
 
 
+@pytest.mark.parametrize('kind', ['partial', 'dangling', 'modified'])
+def test_retry_name_never_reuses_occupied_content(tmp_path, repo, kind):
+    versions = tmp_path / 'versions'
+    versions.mkdir()
+    commit = _commit(repo, 'HEAD')
+    old = versions / '0.15.0'
+    if kind == 'dangling':
+        old.symlink_to(tmp_path / 'missing', target_is_directory=True)
+    elif kind == 'partial':
+        old.mkdir()
+    else:
+        stage_mod.stage_version(repo=repo, commit=commit, versions_dir=versions, name=old.name)
+        (old / 'marker.txt').write_text('tampered')
+    name = stage_mod.version_name('0.15.0', commit, versions)
+    assert name != old.name and len(name) <= 40
+    fresh = stage_mod.stage_version(repo=repo, commit=commit, versions_dir=versions, name=name)
+    assert (fresh / 'marker.txt').read_text() == 'second'
+    assert old.exists() or old.is_symlink()
+
+
+def test_unremovable_retries_are_bounded_and_resume_after_space_is_freed(tmp_path, repo):
+    versions = tmp_path / 'versions'
+    versions.mkdir()
+    commit = _commit(repo, 'HEAD')
+    attempts = []
+    for _ in range(4):
+        name = stage_mod.version_name('0.15.0', commit, versions)
+        attempts.append(stage_mod.stage_version(repo=repo, commit=commit, versions_dir=versions, name=name))
+    with pytest.raises(stage_mod.StageError, match='retained retry'):
+        stage_mod.version_name('0.15.0', commit, versions)
+    assert len(list(versions.iterdir())) == 4
+    stage_mod.discard_version(repo=repo, target=attempts[-1])
+    name = stage_mod.version_name('0.15.0', commit, versions)
+    assert not (versions / name).exists()
+
+
 def test_a_staged_version_has_that_commit_content(tmp_path, repo):
     versions = tmp_path / "versions"
     tree = stage_mod.stage_version(

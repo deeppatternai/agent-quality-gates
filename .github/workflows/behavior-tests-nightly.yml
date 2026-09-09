@@ -100,6 +100,9 @@ jobs:
         with:
           python-version: '3.9'
 
+      - name: Check updater startup on Python 3.9
+        run: python3 tests/behavior/test_update_import_compat.py -v
+
       - name: Install Python dependencies
         run: |
           python3 -m pip install --upgrade pip

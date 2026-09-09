@@ -44,6 +44,7 @@ import re
 import shutil
 import subprocess
 import tempfile
+import uuid
 from pathlib import Path
 from typing import Iterable, Optional, Tuple
 
@@ -64,20 +65,31 @@ def is_release_name(name: str) -> bool:
 def version_name(version: str, commit: str, versions_dir: Path) -> str:
     """Prefer a release label; distinguish reissued versions without overwriting.
 
-    Non-version labels retain the legacy commit spelling. An unreadable or
-    same-commit occupied target is left to stage_version's existing refusal.
+    Never reuse a leftover checkout, even with the same HEAD: it may be partial
+    or locally modified. Give retries a fresh bounded name, leaving occupied
+    paths (including dangling links) intact. stage_version still refuses races.
     """
-    if not is_release_name(version):
-        return commit
-    occupied = Path(versions_dir) / version
+    name = version if is_release_name(version) else commit
+    occupied = Path(versions_dir) / name
     if _is_version_tree(occupied):
         try:
             if version_commit(occupied) != commit:
                 suffixed = f"{version}-{commit[:12]}"
-                return suffixed if is_release_name(suffixed) else commit
+                name = suffixed if is_release_name(suffixed) else commit
         except StageError:
-            pass  # Let staging refuse the occupied name; never reuse its tree.
-    return version
+            pass  # Choose fresh content instead of trusting an unreadable tree.
+    occupied = Path(versions_dir) / name
+    if occupied.exists() or occupied.is_symlink():
+        # Never trade a permanent name collision for unbounded disk growth
+        # when Windows/permissions prevent cleanup. No persistent disable flag:
+        # freeing a retained attempt makes the next invocation eligible again.
+        prefix = f'{name[:23]}-'
+        retained = sum(bool(re.fullmatch(re.escape(prefix) + r'[0-9a-f]{16}', child.name))
+                       for child in Path(versions_dir).iterdir())
+        if retained >= 3:
+            raise StageError(f'3 retained retry trees at {versions_dir}; release file locks and remove unused retry trees before retrying')
+        name = f'{name[:23]}-{uuid.uuid4().hex[:16]}'
+    return name
 
 
 class StageError(RuntimeError):
