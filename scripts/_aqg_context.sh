@@ -7,7 +7,7 @@
 #   so failures do not kill the caller shell.
 # - It does NOT enable `set -euo pipefail` globally — the caller's shell
 #   options stay intact.
-# - It exports `aqg_root` (so child processes inherit the resolved path).
+# - It exports `aqg_root` and `AQG_SKILL_ROOT` (the physical execution pin).
 #   All scratch variables are prefixed `_aqgctx_` and unset on every exit
 #   path including failure (no function leak — audit #1).
 # - It preserves the caller's positional parameters; nothing inside the
@@ -38,15 +38,15 @@
 #    requires re-resolving on every source, so a run that sources this helper
 #    twice across a swap gets two different roots. That is deliberate: caching
 #    would let a stale value bypass AQG_REQUIRE_ENV=1.
-# 2. Hooks are not pinned at all. They reference $AQG_ROOT directly in their
-#    settings.json command strings and never source this helper, so each
-#    invocation resolves the link on its own. A hook is usually one short-lived
-#    file execution — but a hook script that itself invokes other files under
-#    the root can still tear across a swap. That residual is real, not argued
-#    away.
-# 3. The pinned tree survives only as long as retention keeps it: the managed
-#    update retains the current and previous version trees, so something still
-#    running across two further updates can lose the tree it pinned.
+# 2. This does not pin hooks that never source it. Some hosts pin their own
+#    commands; root-relative hooks may still span a swap while reading multiple
+#    files. The updater's host-configuration gates remain in force, but do not
+#    promise isolation for already-running hooks or independently sourced calls.
+# 3. The automatic updater does not call stage.prune_versions; old trees remain
+#    available. Explicit external cleanup can still remove a pinned tree.
+#
+# Native Windows Python uses Git Bash/MSYS environment path conversion for the
+# exported physical pin, just as existing aqg_root-based command paths do.
 
 # Guard against direct execution — sourced files have $0 == bash / -bash etc.
 case "${BASH_SOURCE[0]}" in
@@ -207,11 +207,9 @@ _aqgctx_nudge_update() {
   # the few dangerous names keeps the many needed ones without a list to forget.
   # `-E -s` closes the same door from the Python side.
   #
-  # `--check-only`: this runs WHILE a skill is using the very root it would
-  # swap. Session start has no such problem — nothing is reading the tree yet —
-  # so that path still applies, and this one leaves the swap to it. An update
-  # can take one session longer to land; a tree that is half one version and
-  # half another while a skill walks it cannot be seen at all (audit F14).
+  # Apply through the existing signature/lock/host-configuration gates. This
+  # invocation uses the physical aqg_root/AQG_SKILL_ROOT pinned before launch;
+  # later sourcing can resolve the newly activated version. No hook is needed.
   #
   # The subshell is what keeps this off the caller's books: without it the
   # background PID lands in the caller's `$!` and, under job control, a job line
@@ -220,7 +218,7 @@ _aqgctx_nudge_update() {
     AQG_ROOT="$aqg_root" nohup env \
       -u PYTHONPATH -u PYTHONHOME -u PYTHONSTARTUP -u PYTHONEXECUTABLE \
       -u LD_PRELOAD -u LD_LIBRARY_PATH -u DYLD_INSERT_LIBRARIES -u DYLD_LIBRARY_PATH \
-      sh -c 'cd "$AQG_ROOT" && exec python3 -E -s -m scripts.aqg_update.run --check-only' \
+      sh -c 'cd "$AQG_ROOT" && exec python3 -E -s -m scripts.aqg_update.run' \
       </dev/null >/dev/null 2>&1 &
   ) 2>/dev/null
   return 0
@@ -228,6 +226,9 @@ _aqgctx_nudge_update() {
 
 if _aqgctx_resolve; then
   export aqg_root  # audit #2: child processes must inherit resolved path
+  # Distinct name: Windows environment keys are case-insensitive, and resource
+  # readers must not reopen the logical AQG_ROOT after the updater swaps it.
+  export AQG_SKILL_ROOT="$aqg_root"
   # `|| true` so a nudge failure can never become the caller's exit status.
   _aqgctx_nudge_update || true
   unset -f _aqgctx_resolve _aqgctx_physical _aqgctx_untruncated _aqgctx_nudge_update 2>/dev/null || true

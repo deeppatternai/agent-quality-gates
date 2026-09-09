@@ -332,8 +332,9 @@ def _check_identity(root: Path, remote: str, channel: str, apply: bool):
 
 
 def _check_scope(root: Path, remote: str, channel: str, apply: bool) -> str:
-    # Logical spelling survives a version swap. The mode prevents skill nudges
-    # from consuming a session-start apply opportunity. Agent names are NOT keys:
+    # Logical spelling survives a version swap. Explicit --check-only uses its
+    # own discovery scope; skill nudges and SessionStart share the apply scope.
+    # Agent names are NOT keys:
     # healthy agents sharing one installation should share its rate limit.
     identity = _check_identity(root, remote, channel, apply)
     return hashlib.sha256(json.dumps(identity).encode("utf-8")).hexdigest()

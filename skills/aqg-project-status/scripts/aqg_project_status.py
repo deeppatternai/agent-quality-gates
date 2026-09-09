@@ -42,12 +42,15 @@ from pathlib import Path
 
 
 def _aqg_root() -> Path:
-    """AQG checkout root: $AQG_ROOT if set, else inferred from this file's location
-    (skills/aqg-project-status/scripts/<this>.py → parents[3])."""
+    """Use this sourced invocation's physical pin, otherwise the explicit root."""
+    physical = Path(__file__).resolve().parents[3]
+    pinned = os.environ.get("AQG_SKILL_ROOT")
+    if pinned and Path(pinned).expanduser() == physical:
+        return physical
     env = os.environ.get("AQG_ROOT")
     if env:
         return Path(env).expanduser()
-    return Path(__file__).resolve().parents[3]
+    return physical
 
 
 def _bootstrap_contracts() -> None:

@@ -48,14 +48,17 @@ import subprocess
 import sys
 from pathlib import Path
 
-# Resolve the repo scripts/ dir to reuse the shared leak-scan engine. AQG_ROOT
-# env wins (project-status idiom); else infer from this file (skills/aqg-decision-
-# capture/scripts/<this>.py → parents[3] = repo root, same as aqg_closeout.py).
+# Keep the shared scanner on the sourced script's generation after an update.
+# An unrelated inherited pin must not override an explicit AQG_ROOT.
+_PHYSICAL_ROOT = Path(__file__).resolve().parents[3]
+_SKILL_PIN = os.environ.get("AQG_SKILL_ROOT")
 _AQG_ROOT = (
     Path(os.environ["AQG_ROOT"]).expanduser()
     if os.environ.get("AQG_ROOT")
-    else Path(__file__).resolve().parents[3]
+    else _PHYSICAL_ROOT
 )
+if _SKILL_PIN and Path(_SKILL_PIN).expanduser() == _PHYSICAL_ROOT:
+    _AQG_ROOT = _PHYSICAL_ROOT
 _REPO_SCRIPTS = _AQG_ROOT / "scripts"
 if str(_REPO_SCRIPTS) not in sys.path:
     sys.path.insert(0, str(_REPO_SCRIPTS))

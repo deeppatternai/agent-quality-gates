@@ -6,6 +6,26 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) loosely;
 
 ## [Unreleased]
 
+## [0.14.9] - 2026-09-09
+
+### Changed
+
+- Sourcing the shared skill context helper now starts the existing managed
+  updater with apply enabled, preserving its signature, lock and host gates.
+- Project status and decision capture retain the sourced script's physical
+  resource root when the managed entrance moves to another version.
+- SKILL.md files and client configuration are unchanged. The pin covers one
+  sourced skill invocation; in-flight root-relative hooks remain outside it.
+
+### Verification
+
+- Development: 140 selected regressions passed; 14 focused tests passed after
+  transfer to the release source. Project-status and decision-capture self-tests
+  passed (26 and 5). Six Windows lock failures and one Bash path failure also
+  reproduce on the unchanged baseline. The full suite was not run.
+- Independent review: four voices completed, one failed; 13 findings adjudicated.
+  Publication reuses this development evidence without rerunning test suites.
+
 ## [0.14.6] - 2026-09-08
 
 ### Changed
