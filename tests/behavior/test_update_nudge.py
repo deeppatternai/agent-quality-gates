@@ -1,5 +1,6 @@
 """The two Python CLI nudges cannot interfere with foreground work."""
 import importlib.util
+import json
 import os
 from pathlib import Path
 import shutil
@@ -64,7 +65,8 @@ def test_detached_launch_preserves_network_env_and_isolates_io(managed, monkeypa
     assert all(kw[k] == subprocess.DEVNULL for k in ('stdin', 'stdout', 'stderr'))
     assert kw['close_fds'] is True
     if platform == 'win32':
-        assert kw['creationflags'] & 0x8  # DETACHED_PROCESS: no console
+        assert kw['creationflags'] & 0x08000000  # CREATE_NO_WINDOW
+        assert not kw['creationflags'] & 0x8  # incompatible DETACHED_PROCESS
         assert kw['creationflags'] & 0x200  # CREATE_NEW_PROCESS_GROUP
     else:
         assert kw['start_new_session'] is True
@@ -159,18 +161,42 @@ def test_native_child_survives_foreground_exit_and_cannot_hold_its_pipes(managed
     mod, root, tree = managed
     shutil.copyfile(ROOT / 'scripts/aqg_update/nudge.py', tree / 'scripts/aqg_update/nudge.py')
     ready, release, done = [tmp_path / name for name in ('ready', 'release', 'done')]
+    git = shutil.which('git')
+    assert git, 'Git is required by the updater'
+    git_env = {k: v for k, v in os.environ.items() if not k.upper().startswith('GIT_')}
+    git_env.update(GIT_CONFIG_NOSYSTEM='1', GIT_CONFIG_GLOBAL=os.devnull)
+    repo = tmp_path / 'git-repo'
+    subprocess.run([git, 'init', str(repo)], env=git_env, check=True, capture_output=True, timeout=10)
+    (repo / 'VERSION').write_text('1.0.0\n', encoding='utf-8')
+    subprocess.run([git, '-C', str(repo), 'add', 'VERSION'], env=git_env, check=True, capture_output=True, timeout=10)
+    subprocess.run(
+        [git, '-C', str(repo), '-c', 'user.name=AQG Test', '-c',
+         'user.email=test@example.invalid', '-c', 'commit.gpgsign=false',
+         'commit', '-m', 'fixture'], env=git_env, check=True, capture_output=True, timeout=10,
+    )
     (tree / 'scripts/aqg_update/run.py').write_text(
-        'from pathlib import Path\nimport time, sys\n'
+        'from pathlib import Path\nimport time, sys, subprocess, json\n'
         'print("background stdout", flush=True)\nprint("background stderr", file=sys.stderr, flush=True)\n'
         f'Path({str(ready)!r}).touch()\n'
         'deadline = time.monotonic() + 15\n'
         f'while not Path({str(release)!r}).exists() and time.monotonic() < deadline:\n'
         '    time.sleep(0.02)\n'
         'print("background after foreground exit", flush=True)\n'
-        f'Path({str(done)!r}).touch()\n', encoding='utf-8',
+        'results = []\n'
+        'for _ in range(12):\n'
+        '    try:\n'
+        f'        result = subprocess.run([{git!r}, "-C", {str(repo)!r}, "ls-tree",\n'
+        '                                 "--name-only", "HEAD"], capture_output=True, timeout=5)\n'
+        '    except (subprocess.TimeoutExpired, OSError) as exc:\n'
+        '        results.append([type(exc).__name__, str(exc)])\n'
+        '        break\n'
+        '    results.append([result.returncode, result.stdout.decode(), result.stderr.decode()])\n'
+        f'output = Path({str(done.with_suffix(".tmp"))!r})\n'
+        'output.write_text(json.dumps(results), encoding="utf-8")\n'
+        f'output.replace({str(done)!r})\n', encoding='utf-8',
     )
     home = root.parent.parent
-    env = dict(os.environ, HOME=str(home), USERPROFILE=str(home))
+    env = dict(git_env, HOME=str(home), USERPROFILE=str(home))
     env.pop('AQG_NO_UPDATE_CHECK', None)
     try:
         parent = subprocess.run(
@@ -188,7 +214,10 @@ def test_native_child_survives_foreground_exit_and_cannot_hold_its_pipes(managed
         assert not done.exists(), 'child must still be waiting after foreground exit'
     finally:
         release.touch()
-    deadline = time.monotonic() + 5
+    deadline = time.monotonic() + 65  # twelve 5-second calls plus completion margin
     while not done.exists() and time.monotonic() < deadline:
         time.sleep(0.02)
     assert done.exists(), 'detached updater must survive parent exit'
+    # Native integration coverage is environment-dependent; the parametrized
+    # creationflags assertion above deterministically guards against reverting.
+    assert json.loads(done.read_text(encoding='utf-8')) == [[0, 'VERSION\n', '']] * 12

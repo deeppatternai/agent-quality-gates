@@ -49,9 +49,10 @@ def nudge() -> None:
             stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
         )
         if sys.platform == 'win32':
-            # DETACHED_PROCESS (no console) | CREATE_NEW_PROCESS_GROUP.
-            # CREATE_NO_WINDOW is ignored with DETACHED_PROCESS; do not combine.
-            options['creationflags'] = 0x00000008 | 0x00000200
+            # CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP: no console window.
+            # This avoided observed Git startup failures (0xC0000142) on the
+            # affected host. CREATE_NO_WINDOW must not use DETACHED_PROCESS.
+            options['creationflags'] = 0x08000000 | 0x00000200
         else:
             options['start_new_session'] = True
         subprocess.Popen(

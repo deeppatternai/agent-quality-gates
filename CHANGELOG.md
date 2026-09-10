@@ -11,6 +11,14 @@ logs, and path-by-path inventories in engineering records rather than this file.
 
 ## [Unreleased]
 
+## [0.14.16] - 2026-09-10
+
+### Fixed
+
+- Fix intermittent Git startup failures (0xC0000142) during Windows
+  skill-triggered automatic updates. Updates remain quiet and do not block
+  foreground work; macOS and Linux behavior is unchanged.
+
 ## [0.14.15] - 2026-09-10
 
 ### Fixed
