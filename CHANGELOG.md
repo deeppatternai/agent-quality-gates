@@ -4,6 +4,11 @@ All notable changes to AQG (Agent Quality Gates) are recorded here. Source of tr
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) loosely; SemVer ("0.MINOR.PATCH" while pre-1.0).
 
+Future entries are intentionally concise and user-facing. Record only observable
+behavior changes, required migrations, compatibility or security impact, and
+known limitations. Keep audit metadata, internal decision history, implementation
+logs, and path-by-path inventories in engineering records rather than this file.
+
 ## [Unreleased]
 
 ## [0.14.15] - 2026-09-10
