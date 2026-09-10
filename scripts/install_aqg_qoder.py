@@ -17,6 +17,11 @@ import tempfile
 from pathlib import Path
 
 try:
+    from aqg_skill_install import skill_link_source, same_skill_source
+except ModuleNotFoundError:
+    from scripts.aqg_skill_install import skill_link_source, same_skill_source
+
+try:
     from aqg_update.rules import policy_root
 except ModuleNotFoundError:
     from scripts.aqg_update.rules import policy_root
@@ -378,7 +383,7 @@ def _managed_link_skill(path: Path) -> dict | None:
         destination = _symlink_destination(path)
     except OSError:
         return None
-    return data if _same_resolved_path(destination, marker_source, strict=False) else None
+    return data if same_skill_source(marker_source, destination) else None
 
 
 def _normalize_windows_link_target(raw_text: str) -> str:
@@ -1178,7 +1183,7 @@ def _install_skill(
         marker_data = {
             "managed_by": MANAGED_ID,
             "mode": "link",
-            "source": str(source.resolve()),
+            "source": str(skill_link_source(source)),
             "source_digest": source_digest,
         }
         marker_text = json.dumps(marker_data, indent=2) + "\n"
@@ -1192,7 +1197,7 @@ def _install_skill(
         while classify_install(staged) != "missing":
             staged = target.parent / f".{source.name}.aqg-qoder-link-{os.getpid()}-{counter}"
             counter += 1
-        _create_link(source, staged)
+        _create_link(skill_link_source(source), staged)
         restored = False
         backup_dest: Path | None = None
         try:

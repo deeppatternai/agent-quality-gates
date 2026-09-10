@@ -6,6 +6,23 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) loosely;
 
 ## [Unreleased]
 
+## [0.14.14] - 2026-09-10
+
+### Fixed
+
+- Keep newly installed skill links and link markers on the stable AQG entrance,
+  so switching releases does not pin them to the previous version directory.
+- Accept legacy version-specific markers for the same managed installation
+  after an update, while retaining rejection of wrong, broken or pinned links.
+- Normalize Windows extended path prefixes and home-directory aliases when
+  comparing managed skill sources. Apply shared routing across Cursor, work
+  clients, Qoder, registry-based agent clients and Pi installers.
+
+### Added
+
+- Publish regression coverage for repeated upgrades, retired releases, Windows
+  client junctions, legacy markers and unrelated-link protection.
+
 ## [0.14.13] - 2026-09-09
 
 ### Changed

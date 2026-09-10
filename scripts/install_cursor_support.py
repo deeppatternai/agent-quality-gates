@@ -21,6 +21,11 @@ import tempfile
 from pathlib import Path
 
 try:
+    from aqg_skill_install import skill_link_source, same_skill_source
+except ModuleNotFoundError:
+    from scripts.aqg_skill_install import skill_link_source, same_skill_source
+
+try:
     from _aqg_backup import BackupSession, migrate_legacy
 except ModuleNotFoundError:
     from scripts._aqg_backup import BackupSession, migrate_legacy
@@ -103,7 +108,7 @@ def _marker_for(source: Path, mode: str) -> dict[str, object]:
         "install_mode": mode,
     }
     if mode == "link":
-        marker["source_path"] = str(source.resolve())
+        marker["source_path"] = str(skill_link_source(source))
     else:
         marker["source_digest"] = _tree_digest(source)
     return marker
@@ -276,7 +281,7 @@ def _marker_matches_expected(marker: dict[str, object] | None, expected: dict[st
     expected_source = expected.get("source_path")
     if not isinstance(source_path, str) or not isinstance(expected_source, str):
         return False
-    return _same_resolved_path(Path(source_path), Path(expected_source), strict=False)
+    return same_skill_source(Path(source_path), Path(expected_source))
 
 
 def _sync_link_marker(target: Path, expected: dict[str, object]) -> bool:
@@ -438,7 +443,7 @@ def _install_skill(source: Path, skills_root: Path, cursor_root: Path, mode: str
         marker_text = json.dumps(expected, ensure_ascii=False, indent=2) + "\n"
         _atomic_write(_link_marker_path(target), marker_text)
         try:
-            _create_link(source.resolve(), target)
+            _create_link(skill_link_source(source), target)
         except OSError:
             _remove_link_markers(target)
             if backup is not None and not target.exists():

@@ -18,6 +18,11 @@ from dataclasses import dataclass
 from pathlib import Path
 
 try:
+    from aqg_skill_install import skill_link_source, same_skill_source
+except ModuleNotFoundError:
+    from scripts.aqg_skill_install import skill_link_source, same_skill_source
+
+try:
     from aqg_update.rules import policy_root
 except ModuleNotFoundError:
     from scripts.aqg_update.rules import policy_root
@@ -724,7 +729,7 @@ def _marker_for(
         "schema_version": 2,
         "skill": source.name,
         "target_client": target_client,
-        "source": str(source.resolve()),
+        "source": str(skill_link_source(source) if effective_mode == "link" else source.resolve()),
         "source_digest": _source_digest(source),
         "requested_mode": requested_mode,
         "effective_mode": effective_mode,
@@ -735,7 +740,7 @@ def _marker_for(
     if fallback_reason:
         marker["fallback_reason"] = fallback_reason
     if effective_mode == "link":
-        marker["source_path"] = str(source.resolve())
+        marker["source_path"] = str(skill_link_source(source))
     return marker
 
 
@@ -782,8 +787,8 @@ def _marker_matches_expected(marker: dict[str, object] | None, expected: dict[st
         return True
     source_path = marker.get("source_path")
     expected_source = expected.get("source_path") or expected.get("source")
-    return isinstance(source_path, str) and isinstance(expected_source, str) and _same_resolved_path(
-        Path(source_path), Path(expected_source), strict=False
+    return isinstance(source_path, str) and isinstance(expected_source, str) and same_skill_source(
+        Path(source_path), Path(expected_source)
     )
 
 
@@ -863,7 +868,7 @@ def _install_skill(
     if effective_mode == "link":
         _atomic_write(_link_marker_path(target), json.dumps(expected, ensure_ascii=False, indent=2) + "\n")
         try:
-            _create_link(source.resolve(), target)
+            _create_link(skill_link_source(source), target)
         except OSError:
             marker = _link_marker_path(target)
             if _read_marker_file(marker) is not None:

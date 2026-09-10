@@ -238,6 +238,70 @@ def _normal(path: Path) -> Path:
     return Path(os.path.normpath(str(Path(path).expanduser().absolute())))
 
 
+def _resolved_skill_path(path: Path) -> Path:
+    """One resolved spelling, including Win32 extended-length path aliases."""
+    value = str(path.resolve())
+    if os.name == "nt":
+        if value.startswith("\\\\?\\UNC\\"):
+            value = "\\\\" + value[8:]
+        elif value.startswith("\\\\?\\"):
+            value = value[4:]
+    return Path(value)
+
+
+def skill_link_source(source: Path) -> Path:
+    """Use the managed entrance for link identity; leave other checkouts alone."""
+    managed = Path.home() / ".deeppattern" / "agent-quality-gates"
+    source = source.expanduser()
+    return _link_text_for(source, _resolved_skill_path(source), managed)
+
+
+def same_skill_source(recorded: Path, expected: Path) -> bool:
+    """Compare link marker identity, including old physical release markers.
+
+    Directional: recorded is possibly historical metadata; expected belongs to
+    the current release (a source or, for ownership, an actual destination).
+    This is NOT a target check: callers must also check the actual link against
+    the current source. Legacy compatibility is limited to the canonical home
+    installation's versions directory and the exact same skill suffix. It is
+    read-only, including when retention has already removed the old release.
+    """
+    if not recorded.is_absolute() or not expected.is_absolute():
+        return False
+    try:
+        if _resolved_skill_path(recorded) == _resolved_skill_path(expected):
+            return True
+        # Match migrate.logical_root's spelling when HOME itself is a link.
+        managed = _resolved_skill_path(Path.home() / ".deeppattern") / "agent-quality-gates"
+        if not managed.is_symlink():
+            return False
+        versions = managed.parent.resolve() / "versions"
+        current = _resolved_skill_path(managed)
+        if current.parent != versions:
+            return False
+        relative = skill_link_source(expected).relative_to(managed)
+        if len(relative.parts) != 2 or relative.parts[0] != "skills":
+            return False
+        if not relative.name.startswith("aqg-"):
+            return False
+        # Resolve aliases/prefixes but reject a surviving release redirected
+        # outside this installation. A removed release still resolves lexically.
+        old = _resolved_skill_path(recorded).relative_to(versions)
+        if len(old.parts) != 3 or Path(*old.parts[1:]) != relative:
+            return False
+        try:
+            from scripts.aqg_update.stage import is_release_name
+        except ModuleNotFoundError:
+            from aqg_update.stage import is_release_name
+
+        label = old.parts[0]
+        return is_release_name(label) or (
+            len(label) == 40 and all(c in "0123456789abcdef" for c in label)
+        )
+    except (OSError, RuntimeError, ValueError, ImportError):
+        return False
+
+
 def install_skill(
     source: Path,
     target: Path,

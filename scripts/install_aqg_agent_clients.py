@@ -21,9 +21,9 @@ except ModuleNotFoundError:
     from scripts.aqg_update.rules import policy_root
 
 try:
-    from aqg_skill_install import classify_install, create_windows_junction, remove_install
+    from aqg_skill_install import classify_install, create_windows_junction, remove_install, skill_link_source
 except ModuleNotFoundError:
-    from scripts.aqg_skill_install import classify_install, create_windows_junction, remove_install
+    from scripts.aqg_skill_install import classify_install, create_windows_junction, remove_install, skill_link_source
 
 try:
     from _aqg_backup import BackupError, BackupSession, migrate_legacy
@@ -549,7 +549,7 @@ def _install_skill(source: Path, target: Path, client_root: Path, mode: str) -> 
     expected = {
         "managed_by": MANAGED_ID,
         "mode": mode,
-        "source": str(source.resolve()),
+        "source": str(skill_link_source(source) if mode == "link" else source.resolve()),
         "source_digest": source_digest,
     }
     marker = _read_marker(target) if target.exists() else None
@@ -568,7 +568,7 @@ def _install_skill(source: Path, target: Path, client_root: Path, mode: str) -> 
             shutil.rmtree(target)
     target.parent.mkdir(parents=True, exist_ok=True)
     if mode == "link":
-        _create_link(source.resolve(), target)
+        _create_link(skill_link_source(source), target)
         _atomic_write(_marker_path(target), json.dumps(expected, indent=2) + "\n")
         return True
     shutil.copytree(source, target)
