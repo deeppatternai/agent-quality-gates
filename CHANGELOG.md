@@ -6,6 +6,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) loosely;
 
 ## [Unreleased]
 
+## [0.14.15] - 2026-09-10
+
+### Fixed
+
+- Keep private discussion records under `docs/discussion/**` out of the public
+  B repository, including case, separator, dot-segment and source-alias forms.
+- Remove the two previously published audit-trigger delivery plans from the
+  generated B snapshot and inline the remaining architecture references.
+- Exclude structurally private paths from publish-drift suggestions so they
+  cannot be proposed for addition to the public allowlist.
+
 ## [0.14.14] - 2026-09-10
 
 ### Fixed

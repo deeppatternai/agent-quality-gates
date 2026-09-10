@@ -52,11 +52,19 @@ if [ ! -f "$AQG_ROOT/scripts/aqg_update/run.py" ]; then exit 0; fi
 # trigger ran whatever `scripts/aqg_update` happened to sit under the user's
 # project, or nothing at all. The first end-to-end rehearsal caught it reading a
 # development checkout's keyring while checking an install somewhere else.
+network_env=("AQG_UPDATE_TRIGGER=session-hook")
+for name in HTTP_PROXY HTTPS_PROXY ALL_PROXY NO_PROXY http_proxy https_proxy all_proxy no_proxy \
+  SSL_CERT_FILE SSL_CERT_DIR CURL_CA_BUNDLE GIT_SSL_CAINFO GIT_SSL_CAPATH SSH_AUTH_SOCK; do
+  # Do not manufacture empty CA paths: those can override Git's working defaults.
+  if [ -n "${!name:-}" ]; then network_env+=("$name=${!name}"); fi
+done
 nohup env -i \
   HOME="${HOME:-}" PATH="${PATH:-}" LANG="${LANG:-}" \
   USERPROFILE="${USERPROFILE:-}" \
   AQG_ROOT="$AQG_ROOT" AQG_STATE_ROOT="${AQG_STATE_ROOT:-}" \
+  AQG_CLIENT="${AQG_CLIENT:-}" \
   AQG_UPDATE_INTERVAL_SECONDS="${AQG_UPDATE_INTERVAL_SECONDS:-}" \
+  "${network_env[@]}" \
   sh -c 'cd "$AQG_ROOT" && exec python3 -E -s -m scripts.aqg_update.run' \
   </dev/null >/dev/null 2>&1 &
 exit 0

@@ -437,8 +437,7 @@ cursor 家族的四个宿主是"每个生命周期事件挂一条 adapter 命令
 ## 11. 提示词面：这套机制需要改动什么（答案：几乎不需要）
 
 AQG 是提示词密集型产品，任何新增文本都在和其它 skill 的 description 抢同一份注意力预算。
-[`docs/discussion/2026-08-23-audit-trigger-delivery-plan-v3-a1.md`](discussion/2026-08-23-audit-trigger-delivery-plan-v3-a1.md)
-的批次 E 已经给出了纪律："**当一切都是 proactive，proactive 便不再是信号。**"更新机制必须遵守同一条纪律。
+这里的纪律是："**当一切都是 proactive，proactive 便不再是信号。**"更新机制必须遵守同一条纪律。
 
 | 面 | 需要改吗 | 说明 |
 |---|---|---|

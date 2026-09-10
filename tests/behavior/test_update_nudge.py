@@ -60,6 +60,7 @@ def test_detached_launch_preserves_network_env_and_isolates_io(managed, monkeypa
     assert not any(name in kw['env'] for name in ('GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_CONFIG_COUNT', 'GIT_CONFIG_KEY_0', 'GIT_CONFIG_VALUE_0'))
     assert kw['env']['HTTPS_PROXY'] == 'http://proxy.invalid:8080'
     assert kw['env']['SSL_CERT_FILE'] == '/local/ca.pem'
+    assert kw['env']['AQG_UPDATE_TRIGGER'] == 'python-skill'
     assert all(kw[k] == subprocess.DEVNULL for k in ('stdin', 'stdout', 'stderr'))
     assert kw['close_fds'] is True
     if platform == 'win32':
@@ -81,6 +82,20 @@ def test_launch_failure_does_not_latch_next_attempt(managed, monkeypatch, capsys
     mod.nudge()
     assert len(calls) == 2
     assert capsys.readouterr() == ('', '')
+
+
+@pytest.mark.parametrize('script,source', [
+    ('aqg_preflight.py', 'aqg-startup-preflight'),
+    ('aqg_construction_check.py', 'aqg-code-construction'),
+])
+def test_skill_trigger_replaces_inherited_source(managed, monkeypatch, script, source):
+    mod, _, _ = managed
+    calls = []
+    monkeypatch.setattr(mod.sys, 'argv', [script])
+    monkeypatch.setenv('AQG_UPDATE_TRIGGER', 'session-hook')
+    monkeypatch.setattr(mod.subprocess, 'Popen', lambda *a, **k: calls.append(k))
+    mod.nudge()
+    assert calls[0]['env']['AQG_UPDATE_TRIGGER'] == source
 
 
 def test_link_swap_before_child_admission_cannot_redirect_the_runner(managed, monkeypatch, tmp_path):

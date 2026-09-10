@@ -2,23 +2,22 @@
 
 docs/UPDATE_ARCHITECTURE.md §9. This is the last gate before
 ``transaction.apply_plan`` makes a version live, and after it there is no human
-left to ask. So the shape here is: refuse, in a fixed order, and treat the two
-ordinary answers — *nothing new* and *no network* — as answers rather than
-failures.
+left to ask. So the shape here is: refuse, in a fixed order, and treat the
+ordinary answer — *nothing new* — separately from a failed check.
 
 **The ordering that makes the rest safe.** The release is verified **out of
 git's object store**, before any working tree exists:
 
 1. fetch the channel ref, and read the two release documents with ``cat-file``
-   — nothing is checked out, so nothing untrusted is written to disk;
+   — Git objects may be written, but nothing is checked out or activated;
 2. verify the signature over the manifest, against the **pinned** keyring;
 3. fetch the commit the manifest names, and check it is the commit we have;
 4. hash every blob in that commit and compare the roster both ways.
 
 Only after all four does a caller stage a worktree. Two things follow from
 verifying the object store rather than a checkout. A rejected release never
-touches the filesystem at all — so a hostile remote cannot leave a file behind
-by being refused. And the check never needs an exception for the ``.git`` file
+creates an executable checkout; fetched Git objects may remain on disk. These
+read-size gates are not transport disk quotas. The check never needs an exception for the ``.git`` file
 that a ``git worktree`` necessarily contains: the audit of
 ``internal/release/manifest.py`` rated such an exception critical, because
 ``.git/hooks/`` is executable code, and the way to not need one is to not look
@@ -38,6 +37,7 @@ import hashlib
 import json
 import re
 import subprocess
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, Mapping, Optional, Tuple, Union
@@ -105,6 +105,51 @@ class AcquireError(RuntimeError):
     """A refusal to accept a release. Always fail-closed."""
 
 
+class GitReadError(AcquireError):
+    """An operational Git failure, eligible for one bounded retry."""
+
+
+def _git_failure(operation: str, code: int, stderr: bytes) -> GitReadError:
+    # Never persist arbitrary stderr: URLs, headers and local paths can carry
+    # secrets. Categories are diagnostic hints, not proof of a root cause.
+    lowered = stderr.lower()
+    category = "git-error"
+    for label, patterns in (
+        ("dns", (b"could not resolve", b"name resolution")),
+        ("timeout", (b"timed out", b"timeout")),
+        ("tls", (b"certificate", b"ssl", b"tls")),
+        ("auth", (b"authentication", b"could not read username", b"401", b"403")),
+        ("missing-ref", (b"couldn't find remote ref", b"not our ref")),
+        ("permission", (b"permission denied", b"access is denied")),
+        ("lock", (b"cannot lock", b"index.lock")),
+        ("connection", (b"connection", b"unable to access")),
+        ("object-read", (b"bad object", b"unable to read", b"invalid object")),
+    ):
+        if any(pattern in lowered for pattern in patterns):
+            category = label
+            break
+    return GitReadError(f"git {operation} failed: exit={code}, category={category}")
+
+
+def _retry(operation):
+    for attempt in range(2):
+        try:
+            return operation()
+        except GitReadError:
+            if attempt:
+                raise
+            time.sleep(1)
+
+
+def _required_git(repo: Path, *args: str, timeout: int = LOCAL_TIMEOUT_SECONDS):
+    def once():
+        done = _git(repo, *args, timeout=timeout)
+        if done.returncode:
+            raise _git_failure(args[0], done.returncode, done.stderr)
+        return done
+    return _retry(once)
+
+
 @dataclass(frozen=True)
 class AvailableRelease:
     manifest: Mapping[str, Any]
@@ -124,9 +169,9 @@ def _git(
             timeout=timeout,
         )
     except subprocess.TimeoutExpired as exc:
-        raise AcquireError(f"git {args[0]} timed out after {timeout}s") from exc
+        raise GitReadError(f"git {args[0]} timed out after {timeout}s") from exc
     except OSError as exc:
-        raise AcquireError(f"cannot run git: {exc}") from exc
+        raise GitReadError(f"git {args[0]} could not start: category=os-error") from exc
 
 
 def _require_channel(channel: Any) -> str:
@@ -135,25 +180,35 @@ def _require_channel(channel: Any) -> str:
             f"channel {channel!r} is not a plain lowercase word; it is "
             f"interpolated into a refname, where a slash reaches into another "
             f"namespace")
+    if channel == 'verified':
+        raise AcquireError('channel is reserved for the local verified pin')
     return channel
 
 
-def _fetch(repo: Path, remote: str, refspec: str) -> bool:
-    """Fetch, and report whether it worked. Offline is not an error.
+def _fetch_args(remote: str, refspec: str):
+    if not isinstance(remote, str) or not remote or remote.startswith('-'):
+        raise AcquireError('remote must be a nonempty repository operand, not a Git option')
+    # Ignore configured opportunistic ref mappings; write only FETCH_HEAD.
+    return ('fetch', '--quiet', '--no-tags', '--refmap=', '--', remote, refspec)
 
-    §10 puts this on the session-start path, so a laptop with no network must
-    produce silence, not a failure a user has to read past.
+
+def _fetch(repo: Path, remote: str, refspec: str) -> bool:
+    """Legacy release-cutter helper: False on a completed nonzero Git exit.
+
+    Launch/timeout errors still raise AcquireError, as before. Automatic checks
+    must use the required path so unavailable releases cannot look current.
     """
     done = _git(
-        repo, "fetch", "--quiet", "--no-tags", remote, refspec,
+        repo, *_fetch_args(remote, refspec),
         timeout=FETCH_TIMEOUT_SECONDS,
     )
     return done.returncode == 0
 
 
-def _read_blob(repo: Path, spec: str) -> Optional[bytes]:
+def _read_blob(repo: Path, spec: str, *, required: bool = False) -> Optional[bytes]:
     """Read one blob, size-checked, or ``None`` if it is not there."""
-    sized = _git(repo, "cat-file", "-s", spec)
+    reader = _required_git if required else _git
+    sized = reader(repo, "cat-file", "-s", spec)
     if sized.returncode != 0:
         return None
     try:
@@ -165,14 +220,14 @@ def _read_blob(repo: Path, spec: str) -> Optional[bytes]:
             f"{spec} is too large ({size} bytes, limit {MAX_DOCUMENT_BYTES}); "
             f"refusing to read a document of unbounded size from a remote"
         )
-    body = _git(repo, "cat-file", "blob", spec)
+    body = reader(repo, "cat-file", "blob", spec)
     if body.returncode != 0:
         return None
     return body.stdout
 
 
-def _load_document(repo: Path, spec: str, label: str) -> Optional[Dict[str, Any]]:
-    raw = _read_blob(repo, spec)
+def _load_document(repo: Path, spec: str, label: str, *, required: bool = False) -> Optional[Dict[str, Any]]:
+    raw = _read_blob(repo, spec, required=required)
     if raw is None:
         return None
     try:
@@ -191,9 +246,7 @@ def commit_roster(repo: Path, commit: str) -> Dict[str, Dict[str, Any]]:
     a thousand files is one pipe and a fraction of a second, and a thousand
     forks is neither.
     """
-    listing = _git(repo, "ls-tree", "-r", "-z", commit)
-    if listing.returncode != 0:
-        raise AcquireError(f"{commit} is not a commit this repository holds")
+    listing = _required_git(repo, "ls-tree", "-r", "-z", commit)
 
     entries = []
     for record in listing.stdout.split(b"\0"):
@@ -274,23 +327,28 @@ def _gate_sizes(repo: Path, entries) -> None:
 
 
 def _batch(repo: Path, args, entries) -> bytes:
+    return _retry(lambda: _batch_once(repo, args, entries))
+
+
+def _batch_once(repo: Path, args, entries) -> bytes:
     try:
         child = subprocess.Popen(
             ["git", *_GIT_HARDENING, "-C", str(repo), *args],
             stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
         )
     except OSError as exc:
-        raise AcquireError(f"cannot run git: {exc}") from exc
+        raise GitReadError("git cat-file could not start: category=os-error") from exc
     try:
-        out, _ = child.communicate(
+        out, err = child.communicate(
             b"\n".join(sha.encode("ascii") for _, sha, _ in entries) + b"\n",
             timeout=LOCAL_TIMEOUT_SECONDS,
         )
     except subprocess.TimeoutExpired as exc:
         child.kill()
-        raise AcquireError("git cat-file timed out reading the release tree") from exc
+        child.communicate()
+        raise GitReadError("git cat-file timed out reading the release tree") from exc
     if child.returncode != 0:
-        raise AcquireError("git could not read the release tree")
+        raise _git_failure("cat-file batch", child.returncode, err)
     return out
 
 
@@ -368,9 +426,9 @@ def available_release(
 ) -> Optional[AvailableRelease]:
     """Return the release this machine should move to, or ``None``.
 
-    ``None`` is the ordinary answer and covers three cases that are not
-    problems: no network, no release published on this channel, and a release
-    that does not advance the sequence. Everything else raises — a signature
+    ``None`` means a verified release does not advance the sequence.
+    Fetch or document-read failures raise, so the runner records a failed
+    check and uses its failure retry interval. A signature
     that does not verify is not "no update available", and reporting it as one
     is how a rejected release becomes a silent one.
     """
@@ -380,14 +438,16 @@ def available_release(
     # No destination refspec: the result lands in FETCH_HEAD and no local ref is
     # created. A rejected release therefore cannot leave a poisoned ref behind,
     # which is what the previous `+ref:ref` did before anything was verified.
-    if not _fetch(repo, remote, remote_ref):
-        # Offline, or a remote with no such ref. Neither is worth a word.
-        return None
-
-    manifest = _load_document(repo, f"FETCH_HEAD:{MANIFEST_BLOB}", "manifest")
-    signature = _load_document(repo, f"FETCH_HEAD:{SIGNATURE_BLOB}", "signature")
-    if manifest is None or signature is None:
-        return None
+    _required_git(repo, *_fetch_args(remote, remote_ref),
+                  timeout=FETCH_TIMEOUT_SECONDS)
+    # Resolve once: both documents must come from the same object even if
+    # another Git user overwrites FETCH_HEAD between our reads.
+    metadata = _required_git(repo, "rev-parse", "--verify", "FETCH_HEAD^{commit}")
+    metadata_commit = metadata.stdout.decode("ascii", "replace").strip()
+    if not re.fullmatch(r"[0-9a-f]{40}", metadata_commit):
+        raise AcquireError("git returned an invalid release metadata commit")
+    manifest = _load_document(repo, f"{metadata_commit}:{MANIFEST_BLOB}", "manifest", required=True)
+    signature = _load_document(repo, f"{metadata_commit}:{SIGNATURE_BLOB}", "signature", required=True)
 
     signature_text = signature.get("signature")
     if not isinstance(signature_text, str):
@@ -415,16 +475,12 @@ def available_release(
         raise AcquireError(f"the release on {channel!r} was refused: {exc}") from exc
 
     commit = verified.manifest["commit"]
-    if not isinstance(commit, str) or not commit:
-        raise AcquireError("the release manifest names no commit")
-    if not _fetch(repo, remote, commit):
-        raise AcquireError(
-            f"the manifest names commit {commit} but the remote would not serve "
-            f"it; the signed release and the published code disagree")
+    if not isinstance(commit, str) or not re.fullmatch(r'[0-9a-f]{40}', commit):
+        raise AcquireError("the release manifest must name a full lowercase commit ID")
+    _required_git(repo, *_fetch_args(remote, commit),
+                  timeout=FETCH_TIMEOUT_SECONDS)
 
-    resolved = _git(repo, "rev-parse", "--verify", f"{commit}^{{commit}}")
-    if resolved.returncode != 0:
-        raise AcquireError(f"{commit} is not a commit in this repository")
+    resolved = _required_git(repo, "rev-parse", "--verify", f"{commit}^{{commit}}")
     if resolved.stdout.decode("ascii", "replace").strip() != commit:
         raise AcquireError(
             f"the manifest names {commit} but git resolved it to something else")
@@ -434,11 +490,9 @@ def available_release(
     # Pinned only now, and only here. Until this line the commit is reachable
     # solely from FETCH_HEAD, which the next fetch overwrites; after it, one ref
     # keeps the verified commit alive until a caller has staged it.
-    pinned = _git(repo, "update-ref", VERIFIED_REF, commit)
+    pinned = _git(repo, "update-ref", "--no-deref", VERIFIED_REF, commit)
     if pinned.returncode != 0:
-        raise AcquireError(
-            f"could not pin the verified commit at {VERIFIED_REF}: "
-            f"{pinned.stderr.decode('utf-8', 'replace').strip()[:200]}")
+        raise _git_failure("update-ref", pinned.returncode, pinned.stderr)
 
     return AvailableRelease(
         manifest=verified.manifest,

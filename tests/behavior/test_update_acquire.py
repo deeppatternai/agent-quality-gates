@@ -27,6 +27,224 @@ from scripts.aqg_update import acquire as acquire_mod
 from scripts.aqg_update import trust as trust_mod
 
 FIXTURE = Path(__file__).resolve().parent / "fixtures" / "release_test_key.json"
+
+
+@pytest.fixture(autouse=True)
+def no_retry_sleep(monkeypatch):
+    # Deterministic fault injection, not wall-clock retry tests.
+    import time
+    monkeypatch.setattr(time, 'sleep', lambda _: None)
+
+
+def test_fetch_rejects_option_shaped_remote_before_starting_git(tmp_path, monkeypatch):
+    monkeypatch.setattr(acquire_mod, '_git', lambda *a, **k: pytest.fail('Git must not start'))
+    with pytest.raises(acquire_mod.AcquireError, match='remote'):
+        acquire_mod.available_release(tmp_path, remote='--upload-pack=sentinel', channel='stable',
+            keyring=_keyring(), installed_sequence=7)
+    with pytest.raises(acquire_mod.AcquireError, match='remote'):
+        acquire_mod._fetch(tmp_path, '--upload-pack=sentinel', 'refs/aqg-release/stable')
+
+
+def test_verified_pin_never_moves_a_symbolic_target_branch(tmp_path):
+    origin, commit, _ = _origin(tmp_path)
+    local = _clone(tmp_path, origin)
+    metadata = _git(origin, 'rev-parse', 'refs/aqg-release/stable').stdout.decode().strip()
+    _git(local, 'fetch', 'origin', metadata)
+    _git(local, 'branch', 'unrelated', metadata)
+    _git(local, 'symbolic-ref', acquire_mod.VERIFIED_REF, 'refs/heads/unrelated')
+    found = acquire_mod.available_release(local, remote='origin', channel='stable',
+        keyring=_keyring(), installed_sequence=7)
+    assert found.commit == commit
+    assert _git(local, 'rev-parse', 'unrelated').stdout.decode().strip() == metadata
+    assert _git(local, 'rev-parse', acquire_mod.VERIFIED_REF).stdout.decode().strip() == commit
+
+
+def test_fetch_does_not_apply_configured_mirror_refmap(tmp_path):
+    origin, _, manifest = _origin(tmp_path)
+    local = _clone(tmp_path, origin)
+    _git(local, 'config', 'remote.origin.fetch', '+refs/*:refs/*')
+    manifest['version'] = 'tampered'
+    _publish(origin, 'stable', manifest, 'invalid')
+    with pytest.raises(acquire_mod.AcquireError):
+        acquire_mod.available_release(local, remote='origin', channel='stable',
+            keyring=_keyring(), installed_sequence=7)
+    assert subprocess.run(['git', '-C', str(local), 'rev-parse', '--verify',
+        'refs/aqg-release/stable'], capture_output=True).returncode != 0
+
+
+def test_verified_is_not_a_publishable_channel_name():
+    with pytest.raises(acquire_mod.AcquireError):
+        acquire_mod._require_channel('verified')
+
+
+@pytest.mark.parametrize('mode', ['--batch-check', '--batch'])
+@pytest.mark.parametrize('persistent', [False, True])
+def test_signed_tree_batch_retry_is_bounded_before_pinning(tmp_path, monkeypatch, mode, persistent):
+    origin, commit, _ = _origin(tmp_path)
+    local = _clone(tmp_path, origin)
+    real = acquire_mod._batch_once
+    attempts = []
+    def flaky(repo, args, entries):
+        if mode in args:
+            attempts.append(1)
+            if persistent or len(attempts) == 1:
+                raise acquire_mod.GitReadError('synthetic batch read failure')
+        return real(repo, args, entries)
+    monkeypatch.setattr(acquire_mod, '_batch_once', flaky)
+    if persistent:
+        with pytest.raises(acquire_mod.AcquireError, match='batch read failure'):
+            acquire_mod.available_release(local, remote='origin', channel='stable',
+                keyring=_keyring(), installed_sequence=7)
+        assert subprocess.run(['git', '-C', str(local), 'rev-parse', '--verify',
+            acquire_mod.VERIFIED_REF], capture_output=True).returncode != 0
+    else:
+        found = acquire_mod.available_release(local, remote='origin', channel='stable',
+            keyring=_keyring(), installed_sequence=7)
+        assert found.commit == commit
+        assert _git(local, 'rev-parse', acquire_mod.VERIFIED_REF).stdout.decode().strip() == commit
+    assert len(attempts) == 2
+
+
+@pytest.mark.parametrize('failure', ['signature', 'commit-option'])
+def test_trust_refusal_does_not_fetch_or_read_the_release_tree(tmp_path, monkeypatch, failure):
+    origin, _, manifest = _origin(tmp_path)
+    if failure == 'commit-option':
+        manifest['commit'] = '--upload-pack=sentinel'
+    _publish(origin, 'stable', manifest, 'invalid' if failure == 'signature' else _sign(manifest))
+    local = _clone(tmp_path, origin)
+    real = acquire_mod._git
+    calls = []
+    def observe(repo, *args, **kwargs):
+        calls.append(args[0])
+        return real(repo, *args, **kwargs)
+    monkeypatch.setattr(acquire_mod, '_git', observe)
+    with pytest.raises(acquire_mod.AcquireError):
+        acquire_mod.available_release(local, remote='origin', channel='stable',
+            keyring=_keyring(), installed_sequence=7)
+    assert calls.count('fetch') == 1 and 'ls-tree' not in calls
+
+
+@pytest.mark.parametrize('failure', ['timeout', 'os-error'])
+def test_process_failures_retry_once_without_logging_exception_secrets(tmp_path, monkeypatch, failure):
+    attempts = []
+    def fail(*args, **kwargs):
+        attempts.append(1)
+        if failure == 'timeout':
+            raise subprocess.TimeoutExpired(['git', 'PRIVATEARG'], 60, stderr=b'PRIVATEERR')
+        raise OSError('PRIVATEPATH')
+    monkeypatch.setattr(acquire_mod.subprocess, 'run', fail)
+    with pytest.raises(acquire_mod.AcquireError) as error:
+        acquire_mod._required_git(tmp_path, 'fetch', 'origin', 'stable', timeout=60)
+    assert len(attempts) == 2
+    assert 'fetch' in str(error.value) and 'PRIVATE' not in str(error.value)
+
+
+@pytest.mark.parametrize('persistent', [False, True])
+def test_batch_read_timeout_reaps_child_before_retry(tmp_path, monkeypatch, persistent):
+    children = []
+    class Child:
+        returncode = 0
+        killed = False
+        reaped = False
+        def communicate(self, data=None, timeout=None):
+            if self.killed:
+                self.reaped = True
+                return b'', b''
+            if persistent or len(children) == 1:
+                raise subprocess.TimeoutExpired('git', timeout)
+            return b'verified test bytes', b''
+        def kill(self):
+            self.killed = True
+    def launch(*args, **kwargs):
+        if children:
+            assert children[-1].reaped, 'retry started before cleanup'
+        child = Child()
+        children.append(child)
+        return child
+    monkeypatch.setattr(acquire_mod.subprocess, 'Popen', launch)
+    if persistent:
+        with pytest.raises(acquire_mod.AcquireError, match='timed out'):
+            acquire_mod._batch(tmp_path, ['cat-file', '--batch'], [('f', 'a' * 40, False)])
+        assert children[-1].reaped
+    else:
+        assert acquire_mod._batch(tmp_path, ['cat-file', '--batch'], [('f', 'a' * 40, False)]) == b'verified test bytes'
+    assert len(children) == 2 and children[0].reaped
+
+
+@pytest.mark.parametrize('operation', ['fetch', 'ls-tree', 'cat-file'])
+def test_transient_git_failure_recovers_and_checks_the_signed_tree(tmp_path, monkeypatch, operation):
+    origin, commit, _ = _origin(tmp_path)
+    local = _clone(tmp_path, origin)
+    real = acquire_mod._git
+    failed = []
+    def flaky(repo, *args, **kwargs):
+        if args[0] == operation and not failed:
+            failed.append(1)
+            return subprocess.CompletedProcess(args, 128, b'', b'fatal: unable to read object')
+        return real(repo, *args, **kwargs)
+    monkeypatch.setattr(acquire_mod, '_git', flaky)
+    found = acquire_mod.available_release(local, remote='origin', channel='stable',
+        keyring=_keyring(), installed_sequence=7)
+    assert failed and found.commit == commit
+    assert _git(local, 'rev-parse', acquire_mod.VERIFIED_REF).stdout.decode().strip() == commit
+
+
+def test_persistent_fetch_failure_is_bounded_and_does_not_log_remote_secrets(tmp_path, monkeypatch):
+    origin, _, _ = _origin(tmp_path)
+    local = _clone(tmp_path, origin)
+    attempts = []
+    def failure(repo, *args, **kwargs):
+        attempts.append(args)
+        return subprocess.CompletedProcess(args, 128, b'',
+            b'fatal: unable to access https://name:PRIVATEVALUE@remote.invalid/repo?token=HIDDEN: Could not resolve host\nAuthorization: Basic OTHERSECRET')
+    monkeypatch.setattr(acquire_mod, '_git', failure)
+    with pytest.raises(acquire_mod.AcquireError) as error:
+        acquire_mod.available_release(local, remote='origin', channel='stable',
+            keyring=_keyring(), installed_sequence=7)
+    message = str(error.value)
+    assert len(attempts) == 2
+    assert 'fetch' in message and '128' in message and 'dns' in message
+    assert not any(x in message for x in ('PRIVATEVALUE', 'HIDDEN', 'OTHERSECRET', 'remote.invalid'))
+
+
+@pytest.mark.parametrize('operation', ['ls-tree', 'cat-file'])
+def test_persistent_read_failure_never_pins_a_release(tmp_path, monkeypatch, operation):
+    origin, _, _ = _origin(tmp_path)
+    local = _clone(tmp_path, origin)
+    real = acquire_mod._git
+    attempts = []
+    def failure(repo, *args, **kwargs):
+        if args[0] == operation:
+            attempts.append(1)
+            return subprocess.CompletedProcess(args, 128, b'', b'Permission denied')
+        return real(repo, *args, **kwargs)
+    monkeypatch.setattr(acquire_mod, '_git', failure)
+    with pytest.raises(acquire_mod.AcquireError):
+        acquire_mod.available_release(local, remote='origin', channel='stable',
+            keyring=_keyring(), installed_sequence=7)
+    assert len(attempts) == 2
+    assert subprocess.run(['git', '-C', str(local), 'rev-parse', '--verify',
+        acquire_mod.VERIFIED_REF], capture_output=True).returncode != 0
+
+
+def test_retry_does_not_turn_hash_mismatch_into_success(tmp_path, monkeypatch):
+    origin, _, manifest = _origin(tmp_path)
+    manifest['files']['VERSION']['sha256'] = '0' * 64
+    _publish(origin, 'stable', manifest, _sign(manifest))
+    local = _clone(tmp_path, origin)
+    real = acquire_mod._git
+    reads = []
+    def observe(repo, *args, **kwargs):
+        if args[0] == 'ls-tree':
+            reads.append(1)
+        return real(repo, *args, **kwargs)
+    monkeypatch.setattr(acquire_mod, '_git', observe)
+    with pytest.raises(acquire_mod.AcquireError, match='contents do not match'):
+        acquire_mod.available_release(local, remote='origin', channel='stable',
+            keyring=_keyring(), installed_sequence=7)
+    assert len(reads) == 1
+
+
 _KEY = json.loads(FIXTURE.read_text(encoding="utf-8"))
 _N = int(_KEY["modulus_hex"], 16)
 _D = int(_KEY["private_exponent_hex"], 16)
@@ -272,28 +490,28 @@ def test_a_release_for_another_channel_is_refused(tmp_path):
         )
 
 
-def test_an_absent_channel_ref_is_not_an_error(tmp_path):
-    """A remote with no release published is the state of every remote before
-    the first release. It is not a failure to report."""
+def test_an_absent_channel_ref_is_not_current(tmp_path):
+    """No verified release is not proof the installed version is current."""
     origin, _, _ = _origin(tmp_path)
     _git(origin, "update-ref", "-d", "refs/aqg-release/stable")
     local = _clone(tmp_path, origin)
-    assert acquire_mod.available_release(
-        local, remote="origin", channel="stable",
-        keyring=_keyring(), installed_sequence=trust_mod.FIRST_INSTALL,
-    ) is None
+    with pytest.raises(acquire_mod.AcquireError, match="fetch"):
+        acquire_mod.available_release(
+            local, remote="origin", channel="stable",
+            keyring=_keyring(), installed_sequence=trust_mod.FIRST_INSTALL,
+        )
 
 
-def test_being_offline_is_not_an_error(tmp_path):
-    """§10: the check runs at session start. A laptop on a train must not turn
-    that into a visible failure."""
+def test_being_offline_is_not_current(tmp_path):
+    """The runner keeps sessions quiet; acquisition must still report failure."""
     origin, _, _ = _origin(tmp_path)
     local = _clone(tmp_path, origin)
     _git(local, "remote", "set-url", "origin", str(tmp_path / "does-not-exist"))
-    assert acquire_mod.available_release(
-        local, remote="origin", channel="stable",
-        keyring=_keyring(), installed_sequence=trust_mod.FIRST_INSTALL,
-    ) is None
+    with pytest.raises(acquire_mod.AcquireError, match="fetch"):
+        acquire_mod.available_release(
+            local, remote="origin", channel="stable",
+            keyring=_keyring(), installed_sequence=trust_mod.FIRST_INSTALL,
+        )
 
 
 def test_an_oversized_manifest_is_refused_before_it_is_parsed(tmp_path):
@@ -381,17 +599,14 @@ def test_a_commit_missing_a_file_the_manifest_names_is_refused(tmp_path):
 def test_a_manifest_naming_a_branch_instead_of_a_commit_is_refused(tmp_path):
     """A release must name an immutable object.
 
-    `main` fetches happily and resolves to whatever it points at today, so a
-    manifest naming a branch is a signature over a tree that can change
-    afterwards. The check that catches it is the one comparing what git resolved
-    against what the manifest said — a branch resolves to a sha, and the two do
-    not match.
+    `main` can resolve to different objects over time. Reject its spelling
+    before fetching any code, even if the manifest itself has a valid signature.
     """
     origin, _, manifest = _origin(tmp_path)
     forged = {**manifest, "commit": "main"}
     _publish(origin, "stable", forged, _sign(forged))
     local = _clone(tmp_path, origin)
-    with pytest.raises(acquire_mod.AcquireError, match="resolved it to something else"):
+    with pytest.raises(acquire_mod.AcquireError, match="full lowercase commit ID"):
         acquire_mod.available_release(
             local, remote="origin", channel="stable",
             keyring=_keyring(), installed_sequence=trust_mod.FIRST_INSTALL,

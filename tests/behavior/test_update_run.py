@@ -21,6 +21,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import time
@@ -864,6 +865,16 @@ def test_a_record_that_cannot_be_written_does_not_fail_the_check(
 # =============================================================================
 
 
+def _launcher_tree(tmp_path):
+    # Exercise real imports from a temporary tree with no trust keyring. Never
+    # let a launcher test contact the developer checkout's configured remote.
+    root = tmp_path / 'aqg'
+    source = Path(__file__).resolve().parents[2] / 'scripts'
+    shutil.copytree(source, root / 'scripts', ignore=shutil.ignore_patterns('__pycache__'))
+    (root / 'scripts/aqg_update/release-trust.json').unlink(missing_ok=True)
+    return root
+
+
 def test_the_launcher_actually_starts_a_check(tmp_path, monkeypatch):
     """The test that was missing, and the one that mattered.
 
@@ -879,7 +890,7 @@ def test_the_launcher_actually_starts_a_check(tmp_path, monkeypatch):
     state.mkdir()
     env = {
         **os.environ,
-        "AQG_ROOT": str(Path(__file__).resolve().parents[2]),
+        "AQG_ROOT": str(_launcher_tree(tmp_path)),
         "AQG_STATE_ROOT": str(state),
     }
     env.pop(run_mod.KILL_SWITCH, None)
@@ -935,7 +946,9 @@ def _forwarded_names() -> set:
     end = body.index("sh -c", start)
     # A leading quote is tolerated: `env -i "PYTHONPATH=/x"` forwards it just as
     # surely as the unquoted form, and must not slip past for want of a match.
-    return set(re.findall(r"""(?:^|\s)["']?([A-Za-z_][A-Za-z0-9_]*)=""", body[start:end]))
+    direct = set(re.findall(r"""(?:^|\s)["']?([A-Za-z_][A-Za-z0-9_]*)=""", body[start:end]))
+    network = body.split('for name in ', 1)[1].split('; do', 1)[0]
+    return direct | set(network.replace('\\', '').split()) | {'AQG_UPDATE_TRIGGER'}
 
 
 def test_the_launcher_forwards_exactly_its_allowlist(tmp_path):
@@ -951,6 +964,11 @@ def test_the_launcher_forwards_exactly_its_allowlist(tmp_path):
     assert _forwarded_names() == {
         "HOME", "PATH", "LANG", "USERPROFILE",
         "AQG_ROOT", "AQG_STATE_ROOT", "AQG_UPDATE_INTERVAL_SECONDS",
+        "AQG_UPDATE_TRIGGER", "AQG_CLIENT",
+        'HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY', 'NO_PROXY',
+        'http_proxy', 'https_proxy', 'all_proxy', 'no_proxy',
+        'SSL_CERT_FILE', 'SSL_CERT_DIR', 'CURL_CA_BUNDLE',
+        'GIT_SSL_CAINFO', 'GIT_SSL_CAPATH', 'SSH_AUTH_SOCK',
     }
 
 
@@ -964,10 +982,8 @@ def test_the_launcher_survives_a_hostile_interval_value(tmp_path):
     a language rule quoted in a review, and this is the perimeter around the
     process that verifies release signatures, so it is asserted by running it.
     """
-    fragment = "\n".join(
-        line for line in _hook_code().splitlines()
-        if "env -i" in line or "=" in line or "sh -c" in line
-    ).replace("nohup ", "").replace("</dev/null >/dev/null 2>&1 &", "")
+    fragment = _hook_code().split('network_env=', 1)[1]
+    fragment = ('network_env=' + fragment).replace("nohup ", "").replace("</dev/null >/dev/null 2>&1 &", "")
     fragment = fragment.replace(
         "exec python3 -E -s -m scripts.aqg_update.run", "exec env"
     )
@@ -994,7 +1010,41 @@ def test_the_launcher_survives_a_hostile_interval_value(tmp_path):
     # variable of its own. What would be a failure is a NAME the allowlist does
     # not have — `env` and `sh` add these four themselves, OLDPWD because the
     # launcher's `cd "$AQG_ROOT"` is what makes `-m` resolve.
-    assert set(child) - {"PWD", "OLDPWD", "SHLVL", "_"} <= _forwarded_names(), child
+    shell_added = {"PWD", "OLDPWD", "SHLVL", "_"}
+    if os.name == 'nt':
+        # Git Bash's runtime supplies these even under env -i.
+        shell_added.update({'SYSTEMROOT', 'WINDIR', 'MSYSTEM'})
+    assert set(child) - shell_added <= _forwarded_names(), child
+
+
+@pytest.mark.parametrize('configured', ['upper', 'lower', None])
+def test_launcher_preserves_network_configuration_without_empty_ca_overrides(tmp_path, configured):
+    fragment = 'network_env=' + _hook_code().split('network_env=', 1)[1]
+    fragment = fragment.replace('nohup ', '').replace('</dev/null >/dev/null 2>&1 &', '')
+    fragment = fragment.replace('exec python3 -E -s -m scripts.aqg_update.run', 'exec env')
+    names = {'HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY', 'NO_PROXY', 'http_proxy', 'https_proxy',
+        'all_proxy', 'no_proxy', 'SSL_CERT_FILE', 'SSL_CERT_DIR', 'CURL_CA_BUNDLE',
+        'GIT_SSL_CAINFO', 'GIT_SSL_CAPATH', 'SSH_AUTH_SOCK'}
+    env = {k: v for k, v in os.environ.items() if k.upper() not in {name.upper() for name in names}}
+    env.update(AQG_ROOT=str(tmp_path), AQG_CLIENT='codex', GIT_DIR='untrusted', PYTHONPATH='untrusted')
+    value = 'literal path with spaces " $(touch SHOULD_NOT_EXIST)'
+    selected = {name for name in names if not name.lower().endswith('proxy') or
+        (name.isupper() if configured == 'upper' else name.islower())}
+    if configured:
+        env.update({name: value for name in selected})
+    done = subprocess.run(['bash', '-u', '-c', fragment], env=env, capture_output=True, text=True, timeout=10, cwd=tmp_path)
+    assert done.returncode == 0, done.stderr
+    child = dict(line.split('=', 1) for line in done.stdout.splitlines() if '=' in line)
+    assert {name: child[name] for name in names if name in child} == ({name: value for name in selected} if configured else {})
+    assert child['AQG_UPDATE_TRIGGER'] == 'session-hook' and child['AQG_CLIENT'] == 'codex'
+    assert 'GIT_DIR' not in child and 'PYTHONPATH' not in child
+    assert not (tmp_path / 'SHOULD_NOT_EXIST').exists()
+
+
+@pytest.mark.parametrize('value,expected', [('9' * 5000, 604800), ('0' * 5000 + '60', 60), ('-9' + '9' * 5000, 3600)])
+def test_oversized_interval_text_cannot_break_admission(monkeypatch, value, expected):
+    monkeypatch.setenv(run_mod.INTERVAL_ENV, value)
+    assert run_mod.check_interval_seconds() == expected
 
 
 def test_the_launcher_does_not_depend_on_setsid(tmp_path):
@@ -1183,7 +1233,7 @@ def test_the_launcher_runs_the_installed_aqg_not_whatever_is_in_the_cwd(tmp_path
     state.mkdir()
     elsewhere = tmp_path / "somewhere-else"
     elsewhere.mkdir()
-    root = Path(__file__).resolve().parents[2]
+    root = _launcher_tree(tmp_path)
     env = {
         **os.environ,
         "AQG_ROOT": str(root),
@@ -1213,7 +1263,7 @@ def test_the_launcher_runs_the_installed_aqg_not_whatever_is_in_the_cwd(tmp_path
     # `no-keyring` — landing a real keyring changed the message and broke a test
     # that was never about the message. What must hold is that the pipeline ran
     # in the installed tree rather than dying on an import in someone else's.
-    assert recorded["outcome"] in ("current", "pending", "applied", "no-keyring"), (
+    assert recorded["outcome"] == "no-keyring", (
         f"the check did not complete: {recorded}"
     )
     assert "ModuleNotFoundError" not in recorded["detail"], (
@@ -1544,6 +1594,56 @@ def test_network_failure_retries_after_backoff_without_waiting_an_hour(tmp_path,
     assert attempt(10001).outcome == 'too-soon'
     assert attempt(10301).outcome == 'failed'
     assert len(calls) == 2
+
+
+@pytest.mark.parametrize('value', ['soon', '0', '-1', ' ', '3_600'])
+def test_invalid_interval_cannot_disable_failure_backoff(state_root, monkeypatch, value):
+    monkeypatch.setenv(run_mod.INTERVAL_ENV, value)
+    scope = 'a' * 64
+    run_mod.record(run_mod.CheckResult(outcome='failed'), state_root=state_root, scope=scope, at=10000)
+    assert run_mod._too_soon(state_root, 10299, scope=scope)
+    assert not run_mod._too_soon(state_root, 10301, scope=scope)
+
+
+def test_real_fetch_error_is_recorded_without_blocking_later_checks(tmp_path, state_root, monkeypatch, capsys):
+    root, _, _ = _install(tmp_path)
+    keyring = _write_keyring(tmp_path)
+    attempts = []
+    def fail(repo, *args, **kwargs):
+        attempts.append(args[0])
+        return subprocess.CompletedProcess(args, 128, b'', b'Could not resolve host PRIVATEHOST')
+    monkeypatch.setattr(run_mod.acquire, '_git', fail)
+    monkeypatch.setattr(time, 'sleep', lambda _: None)
+    monkeypatch.delenv(run_mod.INTERVAL_ENV, raising=False)
+    monkeypatch.setenv('AQG_UPDATE_TRIGGER', 'session-hook')
+    monkeypatch.setenv('AQG_CLIENT', 'codex')
+    def attempt(now):
+        return run_mod.check(root=root, remote='origin', channel='stable', keyring_path=keyring, state_root=state_root, now=now)
+    original = root.resolve()
+    result = attempt(10000)
+    assert result.outcome == 'failed' and len(attempts) == 2
+    assert 'fetch' in result.detail and 'dns' in result.detail and 'PRIVATEHOST' not in result.detail
+    assert _last(state_root)['trigger'] == 'session-hook:codex'
+    assert attempt(10001).outcome == 'too-soon'
+    assert _last(state_root)['checked_at'] == 10000
+    monkeypatch.setattr(run_mod.acquire, 'available_release', lambda *a, **k: None)
+    assert attempt(10301).outcome == 'current'
+    assert root.resolve() == original
+    assert capsys.readouterr() == ('', '')
+
+
+@pytest.mark.parametrize('source,client,expected', [
+    ('session-hook', 'codex', 'session-hook:codex'),
+    ('session-hook', 'secret-bearing-string', 'session-hook:unknown'),
+    ('aqg-code-construction', '', 'aqg-code-construction'),
+    ('aqg-startup-preflight', '', 'aqg-startup-preflight'),
+    ('secret-bearing-string', '', 'unknown'),
+])
+def test_recorded_trigger_is_bounded(state_root, monkeypatch, source, client, expected):
+    monkeypatch.setenv('AQG_UPDATE_TRIGGER', source)
+    monkeypatch.setenv('AQG_CLIENT', client)
+    run_mod.record(run_mod.CheckResult(outcome='failed'), state_root=state_root)
+    assert _last(state_root)['trigger'] == expected
 
 
 def test_legacy_failure_record_does_not_block_a_new_updater(tmp_path, state_root, monkeypatch):

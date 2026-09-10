@@ -98,7 +98,7 @@ MIN_CHECK_INTERVAL_SECONDS = 60
 #: switch a person looking for one will find.
 MAX_CHECK_INTERVAL_SECONDS = 7 * 24 * 3600
 
-#: What `int()` is allowed to see. `int` on its own accepts `3_600`, `+60` and
+#: What `int()` is allowed to see. `int` on its own accepts `3_600` and
 #: non-ASCII decimal digits like `٣٦٠٠`, which is a wider grammar than
 #: anything documented here — and a silently-accepted `3_600` is a worse
 #: outcome than a rejected one, because it looks like it was ignored.
@@ -124,13 +124,23 @@ def check_interval_seconds() -> int:
       silent permanent off switch.
     * **A duration within the bounds** — used as given.
     """
+    return _interval_setting()[0]
+
+
+def _interval_setting() -> Tuple[int, bool]:
+    """Effective interval and whether a valid positive override was supplied."""
     raw = os.environ.get(INTERVAL_ENV, "").strip()
     if not _INTEGER.fullmatch(raw):
-        return DEFAULT_CHECK_INTERVAL_SECONDS
-    seconds = int(raw)
-    if seconds <= 0:
-        return DEFAULT_CHECK_INTERVAL_SECONDS
-    return min(max(seconds, MIN_CHECK_INTERVAL_SECONDS), MAX_CHECK_INTERVAL_SECONDS)
+        return DEFAULT_CHECK_INTERVAL_SECONDS, False
+    # Clamp before int(): arbitrarily long positive values must not hit the
+    # interpreter's integer-string conversion limit and suppress all checks.
+    digits = raw.lstrip('+-').lstrip('0')
+    if raw.startswith('-') or not digits:
+        return DEFAULT_CHECK_INTERVAL_SECONDS, False
+    if len(digits) > len(str(MAX_CHECK_INTERVAL_SECONDS)):
+        return MAX_CHECK_INTERVAL_SECONDS, True
+    seconds = int(digits)
+    return min(max(seconds, MIN_CHECK_INTERVAL_SECONDS), MAX_CHECK_INTERVAL_SECONDS), True
 
 
 #: Outcomes. Every one of them is written to the record, including the boring
@@ -176,6 +186,19 @@ def _atomic_write(path: Path, text: str) -> None:
         raise
 
 
+def _trigger_label() -> str:
+    """Bounded informational provenance; never an admission/trust input."""
+    source = os.environ.get('AQG_UPDATE_TRIGGER', '')
+    if source == 'session-hook':
+        client = os.environ.get('AQG_CLIENT', '')
+        if client not in {'codex', 'claude-code', 'cursor', 'codebuddy', 'qoder', 'qoder-cli', 'workbuddy'}:
+            client = 'unknown'
+        return f'session-hook:{client}'
+    if source in {'aqg-startup-preflight', 'aqg-code-construction', 'python-skill'}:
+        return source
+    return 'unknown'
+
+
 def record(
     result: CheckResult, *, state_root: Optional[Path] = None, at: Optional[float] = None,
     scope: Optional[str] = None, identity=None,
@@ -214,6 +237,7 @@ def record(
                     "checked_at": time.time() if at is None else at,
                     "outcome": result.outcome,
                     "detail": result.detail,
+                    "trigger": _trigger_label(),
                     "pending": pending,
                     "identity": identity if identity is not None else (previous or {}).get('identity'),
                 },
@@ -320,8 +344,8 @@ def _too_soon(state_root: Optional[Path], now: float, *, scope: Optional[str] = 
         stamp = discovery.get('checked_at')
         if discovery.get('outcome') == 'deferred' and isinstance(stamp, (int, float)) and when < stamp <= now:
             return False
-    interval = check_interval_seconds()
-    if scope is not None and not os.environ.get(INTERVAL_ENV) and last.get("outcome") in {"failed", "invalid-root", "interrupted", "rolled-back", "repair-required"}:
+    interval, overridden = _interval_setting()
+    if scope is not None and not overridden and last.get("outcome") in {"failed", "invalid-root", "interrupted", "rolled-back", "repair-required"}:
         interval = min(interval, 300)
     return (now - when) < interval
 

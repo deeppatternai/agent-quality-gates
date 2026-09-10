@@ -670,10 +670,8 @@ Two limits worth stating rather than discovering:
 ## 11. Prompt surfaces: what this mechanism has to change (answer: almost nothing)
 
 AQG is a prompt-dense product; every new line of text competes with every skill description for the same
-attention budget. Batch E of
-[`docs/discussion/2026-08-23-audit-trigger-delivery-plan-v3-a1.md`](discussion/2026-08-23-audit-trigger-delivery-plan-v3-a1.md)
-already set the discipline: "when everything is proactive, proactive stops being a signal." The update
-mechanism obeys the same rule.
+attention budget. The governing discipline is: "when everything is proactive, proactive stops being a
+signal." The update mechanism obeys the same rule.
 
 | Surface | Change needed | Note |
 |---|---|---|
@@ -842,6 +840,43 @@ interval is one hour; failed/interrupted/rolled-back attempts normally retry on
 a later invocation after five minutes (an explicit interval override still wins).
 Skipping during cooldown does not renew that cooldown. Process death releases
 the OS lock; a leftover lock filename is not a permanent lock.
+
+Release discovery returns `current` only after signature verification establishes
+that the published sequence is not newer. A failed channel fetch, absent channel,
+or unreadable release document produces `failed`, including when Git returns a
+nonzero exit code without raising a Python exception. These checks use the same
+five-minute failure backoff above; another hook or skill invocation is required.
+
+Each operational Git fetch/read command gets at most two attempts, separated by
+one second (60-second fetch timeout, 120-second local-read timeout per attempt).
+Signature, roster, hash and file-mode rejection are never retried within a check.
+The manifest and signature are read from one resolved metadata commit. Failure
+details identify the Git operation, exit code where available, and a fixed stderr
+category; raw stderr, remote URLs and credentials are not retained. A category is
+a diagnostic hint, not a confirmed historical root cause.
+
+Check records also contain a bounded informational `trigger`: `session-hook:codex`
+when the Codex adapter supplied its client label, `session-hook:unknown` when no
+recognized label is present, or the two Python skill names / `python-skill`.
+Unrecognized sources become `unknown`. This label neither changes cooldown scope
+nor grants trust. Records predating this field cannot identify their trigger.
+
+The shell hook retains a fixed set of nonempty proxy, CA and SSH-agent environment
+values, matching the Python trigger's network prerequisites. It still drops
+interpreter-loader and repository-routing overrides. Empty CA variables are not
+created. Invalid interval overrides are treated as unset for failure backoff too.
+
+Acquisition fetches ignore configured ref mappings and reject option-shaped
+remote operands. The local verified pin is written without following symbolic
+refs. The release server must serve the full signed commit ID; publication must
+keep that commit available under its release branch/tag. A refused fetch remains
+a failure; no unsigned fallback is used.
+
+The existing document/blob/tree caps limit reads, not Git transport disk usage.
+This change does not introduce a quarantined fetch store, a disk quota, or a tree
+entry-count budget. Those would require a separate resource-isolation design;
+the signature checks prevent accepting untrusted code but do not promise resource
+isolation from a hostile server or a pathologically large signed tree.
 
 An occupied staging path now receives a fresh bounded name: partial, modified,
 or locked old trees are never reused or overwritten. Best-effort cleanup removes

@@ -26,6 +26,10 @@ def nudge() -> None:
         # managed entrance only while they still match, rejecting an obsolete
         # physical version before network access if the link moved meanwhile.
         env = dict(os.environ, AQG_ROOT=str(physical))
+        env['AQG_UPDATE_TRIGGER'] = {
+            'aqg_preflight.py': 'aqg-startup-preflight',
+            'aqg_construction_check.py': 'aqg-code-construction',
+        }.get(Path(sys.argv[0]).name, 'python-skill')
         for name in (
             'PYTHONPATH', 'PYTHONHOME', 'PYTHONSTARTUP', 'PYTHONEXECUTABLE',
             'LD_PRELOAD', 'LD_LIBRARY_PATH', 'DYLD_INSERT_LIBRARIES', 'DYLD_LIBRARY_PATH',
