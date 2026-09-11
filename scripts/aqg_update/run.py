@@ -163,6 +163,7 @@ class CheckResult:
     detail: str = ""
     pending: Tuple[str, ...] = ()
     rules_checked: bool = False
+    activation: Optional[Tuple[Path, Path]] = None
 
     def __post_init__(self) -> None:
         if self.outcome not in OUTCOMES:
@@ -391,13 +392,60 @@ def check(
             return CheckResult(outcome='too-soon')
         record_root = Path(state_root) if state_root is not None else state.state_root(create=True)
         record_root.mkdir(parents=True, exist_ok=True)
-        with lock.install_lock(path=record_root / "update-check.lock"):
-            return _admitted_check(root=root, remote=remote, channel=channel,
+        with lock.install_lock(path=record_root / "update-check.lock") as check_lock:
+            result = _admitted_check(root=root, remote=remote, channel=channel,
                 keyring_path=keyring_path, state_root=state_root, now=now, apply=apply, scope=scope)
+            if apply and result.outcome == "applied":
+                try:
+                    pair = result.activation
+                    _prune_after_update(root=root, previous=pair[0] if pair else None,
+                        expected=pair[1] if pair else None,
+                        state_root=record_root, check_lock=check_lock)
+                except BaseException:  # aqg: top-level boundary
+                    pass  # Even a broken cleanup/reporting boundary cannot undo success.
+            return result
     except lock.LockBusy:
         return CheckResult(outcome="busy", detail="another update check is in progress")
     except Exception as exc:  # aqg: top-level boundary
         return _finish(CheckResult(outcome="failed", detail=f"{type(exc).__name__}: {exc}"), state_root, time.time() if now is None else now, scope=scope, identity=identity)
+
+
+def _prune_after_update(*, root, previous, expected, state_root, check_lock) -> None:
+    """Post-success maintenance. Never changes update state or retry admission."""
+    report = {"checked_at": time.time(), "outcome": "skipped", "removed": [], "skipped": []}
+    try:
+        journal, apply_lock = _transaction_paths(state_root)
+        with lock.install_lock(path=apply_lock) as held:
+            live = stage.current_target(root)
+            installed = state.read_state(path=state_root / state.STATE_FILENAME)
+            if (previous is None or live is None or live != expected or previous == live
+                    or live.parent.resolve() != (root.parent / "versions").resolve()
+                    or previous.parent != live.parent
+                    or transaction.read_journal(journal) is not None
+                    or not installed or installed.get("pending")):
+                report["detail"] = "installation or recovery state does not permit cleanup"
+            else:
+                def revalidate():
+                    check_lock.still_held()
+                    held.still_held()
+                    if stage.current_target(root) != live or journal.exists():
+                        raise RuntimeError("installation changed during cleanup")
+                revalidate()
+                stage.prune_versions(
+                    # Retain the actual before/after pair, not mtime guesses.
+                    versions_dir=root.parent / "versions", keep=0, protected=(live, previous),
+                    repo=live, root=root, budget_seconds=5, before_remove=revalidate,
+                    progress=report,
+                )
+                report["outcome"] = "partial" if report["skipped"] else "complete"
+    except BaseException as exc:  # aqg: top-level boundary
+        report.update(outcome="deferred", detail=f"{type(exc).__name__}: {exc}")
+    try:
+        # Separate diagnostics, deliberately not pending / update-last-check.
+        _atomic_write(state_root / "update-cleanup-last-result.json",
+            json.dumps(report, ensure_ascii=False, indent=2) + "\n")
+    except BaseException:  # aqg: top-level boundary
+        pass
 
 
 def _admitted_check(*, root, remote, channel, keyring_path, state_root, now, apply, scope):
@@ -834,6 +882,7 @@ def _apply(
             # update DID apply, and the one thing left is a human approval that
             # nothing else will ever mention.
             pending=outstanding if (host_reconciliation or deferrable) else (),
+            activation=(live, target) if committed else None,
         )
     finally:
         # A successfully published tree may already be pinned by a reader or

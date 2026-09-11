@@ -64,6 +64,37 @@ def _last(state_root: Path):
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+@pytest.mark.parametrize("error", [OSError, SystemExit, KeyboardInterrupt])
+def test_cleanup_failure_cannot_replace_success_or_block_next_update(tmp_path, state_root, monkeypatch, error):
+    root = tmp_path / "agent-quality-gates"
+    old = tmp_path / "versions" / "old"
+    old.mkdir(parents=True)
+    root.symlink_to(old, target_is_directory=True)
+    calls = []
+    def admitted(**kwargs):
+        result = run_mod.CheckResult(outcome="applied", activation=(old, old.parent / "new"))
+        return run_mod._finish(result, state_root, kwargs["now"], scope=kwargs["scope"])
+    def broken_cleanup(**kwargs):
+        assert _last(state_root)["outcome"] == "applied"
+        calls.append(kwargs["previous"])
+        raise error("cleanup interrupted")
+    monkeypatch.setattr(run_mod, "_admitted_check", admitted)
+    monkeypatch.setattr(run_mod, "_prune_after_update", broken_cleanup, raising=False)
+    for at in (1, 7201):
+        assert run_mod.check(root=root, remote="origin", channel="stable", now=at).outcome == "applied"
+        assert _last(state_root)["outcome"] == "applied"
+    assert calls == [old, old]
+
+
+@pytest.mark.parametrize("outcome,apply", [("failed", True), ("pending", True), ("current", True), ("applied", False)])
+def test_cleanup_only_follows_successful_activation(tmp_path, state_root, monkeypatch, outcome, apply):
+    monkeypatch.setattr(run_mod, "_admitted_check", lambda **_: run_mod.CheckResult(outcome=outcome))
+    def unexpected(**_):
+        pytest.fail("cleanup must not run without a successful activation")
+    monkeypatch.setattr(run_mod, "_prune_after_update", unexpected, raising=False)
+    assert run_mod.check(root=tmp_path, remote="origin", channel="stable", apply=apply).outcome == outcome
+
+
 # --- the gates, in the order they are checked -------------------------------------------
 
 
@@ -480,6 +511,99 @@ def _clean_plan(monkeypatch, target_commit):
         )
 
     monkeypatch.setattr(run_mod.plan_mod, "build_plan", only_activate)
+
+
+@pytest.mark.parametrize("linked_parent", [False, True])
+def test_successful_check_prunes_history_but_keeps_previous_pins_and_store(tmp_path, state_root, monkeypatch, linked_parent):
+    root, first, second = _install(tmp_path)
+    if linked_parent:
+        alias = tmp_path / "alias"
+        alias.symlink_to(root.parent, target_is_directory=True)
+        root = alias / root.name
+    store = root.resolve()
+    versions = store.parent
+    trees = [run_mod.stage.stage_version(repo=root, commit=first,
+             versions_dir=versions, name=f"old-{i}") for i in range(4)]
+    previous, pinned, obsolete, recent = trees
+    for index, tree in enumerate(trees):
+        os.utime(tree, (index + 1, index + 1))
+    run_mod.stage.swap_root(root=root, target=previous)
+    backup = versions / "aqg-backups"
+    backup.mkdir()
+    (backup / "user-data").write_text("preserve", encoding="utf-8")
+    monkeypatch.setattr(run_mod.stage, "_host_pinned_paths", lambda: (pinned / "scripts" / "_aqg_context.sh",))
+    class Found:
+        manifest = {"version": "0.17.0", "release_sequence": 9}
+        commit = second
+        key_id = "k"
+        release_sequence = 9
+    monkeypatch.setattr(run_mod.acquire, "available_release", lambda *a, **k: Found())
+    _clean_plan(monkeypatch, second)
+    result = run_mod.check(root=root, remote="origin", channel="stable",
+                          keyring_path=_write_keyring(tmp_path), state_root=state_root)
+    assert result.outcome == "applied", result.detail
+    assert run_mod.stage.version_commit(root) == second
+    assert previous.exists() and pinned.exists() and store.exists()
+    assert not obsolete.exists() and not recent.exists()
+    assert (backup / "user-data").read_text() == "preserve"
+    report = json.loads((state_root / "update-cleanup-last-result.json").read_text())
+    assert report["outcome"] == "complete"
+    assert report["removed"] == [str(obsolete), str(recent)]
+    assert _last(state_root)["outcome"] == "applied"
+
+
+@pytest.mark.parametrize("guard", ["journal", "busy", "pending", "unknown-pin", "report-failure"])
+def test_cleanup_guards_preserve_history_and_update_state(tmp_path, state_root, monkeypatch, guard):
+    root, first, second = _install(tmp_path)
+    previous = root.resolve()
+    target = run_mod.stage.stage_version(repo=root, commit=second,
+             versions_dir=previous.parent, name="new")
+    run_mod.stage.swap_root(root=root, target=target)
+    run_mod._record_installed(channel="stable", version="0.17.0", commit=second,
+        sequence=9, key_id="fixture", pending=["hooks"] if guard == "pending" else [], state_root=state_root)
+    before = (state_root / "install-state.json").read_bytes()
+    journal = state_root / run_mod.transaction.JOURNAL_FILENAME
+    if guard == "journal":
+        journal.write_text('{"phase":"repair_required"}', encoding="utf-8")
+    if guard == "unknown-pin":
+        def unknown():
+            raise run_mod.stage.StageError("cannot enumerate pins")
+        monkeypatch.setattr(run_mod.stage, "_host_pinned_paths", unknown)
+    if guard == "report-failure":
+        (state_root / "update-cleanup-last-result.json").mkdir()
+    with run_mod.lock.install_lock(path=state_root / "update-check.lock") as check_lock:
+        def cleanup():
+            run_mod._prune_after_update(root=root, previous=previous,
+                expected=target, state_root=state_root, check_lock=check_lock)
+        if guard == "busy":
+            with run_mod.lock.install_lock(path=state_root / run_mod.lock.LOCK_FILENAME):
+                cleanup()
+        else:
+            cleanup()
+    assert previous.exists() and target.exists()
+    assert (state_root / "install-state.json").read_bytes() == before
+    assert not (state_root / run_mod.LAST_CHECK_FILENAME).exists()
+    if guard != "report-failure":
+        report = json.loads((state_root / "update-cleanup-last-result.json").read_text())
+        assert report["outcome"] == ("skipped" if guard in ("journal", "pending") else "deferred")
+        assert {"journal": "recovery state", "pending": "recovery state",
+                "busy": "LockBusy", "unknown-pin": "cannot enumerate pins"}[guard] in report["detail"]
+
+
+def test_cleanup_skips_if_another_activation_overtook_this_update(tmp_path, state_root):
+    root, first, second = _install(tmp_path)
+    previous = root.resolve()
+    expected, later = [run_mod.stage.stage_version(repo=root, commit=second,
+        versions_dir=previous.parent, name=name) for name in ("expected", "later")]
+    run_mod.stage.swap_root(root=root, target=later)
+    run_mod._record_installed(channel="stable", version="0.17.0", commit=second,
+        sequence=9, key_id="fixture", pending=[], state_root=state_root)
+    with run_mod.lock.install_lock(path=state_root / "update-check.lock") as held:
+        run_mod._prune_after_update(root=root, previous=previous, expected=expected,
+            state_root=state_root, check_lock=held)
+    assert previous.exists() and expected.exists() and later.exists()
+    report = json.loads((state_root / "update-cleanup-last-result.json").read_text())
+    assert report["outcome"] == "skipped"
 
 
 def test_signed_apply_refreshes_hooks_and_retries_after_smoke_failure(tmp_path, state_root, monkeypatch):

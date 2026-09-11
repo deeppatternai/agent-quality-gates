@@ -221,28 +221,26 @@ def test_pruning_never_removes_a_tree_a_host_is_pinned_to(tmp_path, monkeypatch)
     pruning up will not know codex exists.
     """
     from scripts.aqg_update import stage as stage_mod
+    from tests.behavior.test_update_run import _install
 
-    versions = tmp_path / "versions"
-    versions.mkdir()
-    trees = []
+    root, first, _ = _install(tmp_path)
+    versions = root.resolve().parent
     for name in ("old", "older", "newest"):
-        tree = versions / name
-        (tree / "scripts").mkdir(parents=True)
-        (tree / "VERSION").write_text("0.0.1\n", encoding="utf-8")
-        trees.append(tree)
+        stage_mod.stage_version(repo=root, commit=first, versions_dir=versions, name=name)
 
-    pinned = versions / "older" / "scripts" / "run_aqg_codex_hook.py"
-    pinned.write_text("# runner\n", encoding="utf-8")
+    pinned = versions / "older" / "scripts" / "_aqg_context.sh"
     monkeypatch.setattr(stage_mod, "_host_pinned_paths", lambda: (pinned,))
 
     removed = stage_mod.prune_versions(
-        versions_dir=versions, keep=0, protected=(), repo=tmp_path
+        versions_dir=versions, keep=0, protected=(), repo=root
     )
     assert versions / "older" not in removed, (
         "pruned the version tree a host's hook command executes; those hooks "
         "would then fail on every tool call with nothing having warned anyone"
     )
     assert (versions / "older").exists()
+    assert not (versions / "old").exists()
+    assert not (versions / "newest").exists()
 
 
 def test_apply_really_swaps_the_root_when_only_a_pinned_host_is_outstanding(
@@ -297,7 +295,7 @@ def test_apply_really_swaps_the_root_when_only_a_pinned_host_is_outstanding(
         f"a pinned host's pending hook merge still froze the whole update: "
         f"{result.outcome} — {result.detail}"
     )
-    assert os.path.realpath(install) == str((tmp_path / "versions" / second).resolve()), (
+    assert run_mod.stage.version_commit(install) == second, (
         "the root never moved"
     )
     assert any("codex" in item for item in result.pending), (

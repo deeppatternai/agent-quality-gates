@@ -332,6 +332,26 @@ N times:
 > out again on demand. Pruning happens only after a successful phase 7, and **never** prunes the tree
 > `AQG_ROOT` currently points at, nor one the journal still references.
 
+Automatic `check(apply=True)` now runs retention after an `applied` result has
+been recorded. It protects the actual before/after trees, host hook pins, and
+the shared Git object-store tree (so more than two directories may remain).
+Both check and apply locks cover cleanup; an unresolved journal, pending
+installation work or a subsequent activation skips it. Only Git-registered, clean, unlocked worktrees can
+be removed, without `--force` or a recursive-delete fallback. Git operations
+use a five-second inspection/admission budget; each admitted removal has a
+separate 30-second timeout. Filesystem and host reads are checked before/after,
+not forcibly interrupted. A refused tree does not block other clean trees.
+Ignored local data is retained except disposable `__pycache__` bytecode with
+a corresponding tracked Python source. Partial removals/refusals are recorded.
+Cleanup failure never changes the update outcome, pending state, or retry
+admission. Best-effort diagnostics go to `aqg-state/update-cleanup-last-result.json`;
+the next successful automatic activation tries again. Manual `apply_commit`
+does not prune: its caller may still need to reconcile host configuration.
+Backups and non-version folders are excluded. Hooks with recorded physical
+paths are protected; arbitrary sessions caching older paths are not tracked.
+Pins are refreshed before each removal. AQG transactions share the apply lock;
+external configuration writers bypassing that lock are not atomically coordinated.
+
 ### 5.2 When someone is using it: neither stop nor force
 
 The trigger moment **always** overlaps with use — SessionStart fires as a session begins working, and a

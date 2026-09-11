@@ -344,6 +344,160 @@ def test_pruning_an_absent_versions_directory_is_not_an_error(tmp_path, repo):
     ) == ()
 
 
+@pytest.mark.parametrize("guard", ["dirty", "untracked", "locked", "unregistered"])
+def test_history_cleanup_never_forces_removal(tmp_path, repo, guard):
+    versions = tmp_path / "versions"
+    tree = stage_mod.stage_version(
+        repo=repo, commit=_commit(repo, "HEAD"), versions_dir=versions, name="old"
+    )
+    if guard == "dirty":
+        (tree / "VERSION").write_text("local edits", encoding="utf-8")
+    elif guard == "untracked":
+        (tree / "user-data").write_text("keep me", encoding="utf-8")
+    elif guard == "locked":
+        _git("worktree", "lock", str(tree), cwd=repo)
+    else:
+        (tree / ".git").unlink()
+        _git("worktree", "prune", cwd=repo)
+    progress = {}
+    assert stage_mod.prune_versions(versions_dir=versions, keep=0, protected=(), repo=repo, progress=progress) == ()
+    assert progress["skipped"][0]["path"] == str(tree)
+    assert tree.exists()
+    assert (tree / "VERSION").exists()
+
+
+def test_history_cleanup_budget_exhaustion_preserves_trees(tmp_path, repo):
+    versions = tmp_path / "versions"
+    tree = stage_mod.stage_version(
+        repo=repo, commit=_commit(repo, "HEAD"), versions_dir=versions, name="old"
+    )
+    with pytest.raises(stage_mod.StageError, match="budget"):
+        stage_mod.prune_versions(
+            versions_dir=versions, keep=0, protected=(), repo=repo, budget_seconds=0,
+        )
+    assert tree.exists()
+
+
+def test_history_cleanup_git_timeout_can_retry_without_forced_removal(tmp_path, repo, monkeypatch):
+    versions = tmp_path / "versions"
+    tree = stage_mod.stage_version(
+        repo=repo, commit=_commit(repo, "HEAD"), versions_dir=versions, name="old"
+    )
+    real_run = subprocess.run
+    def timed_out(args, **kwargs):
+        if "remove" in args:
+            assert kwargs["timeout"] == 30
+            raise subprocess.TimeoutExpired(args, kwargs["timeout"])
+        return real_run(args, **kwargs)
+    with monkeypatch.context() as patched:
+        patched.setattr(stage_mod.subprocess, "run", timed_out)
+        with pytest.raises(stage_mod.StageError, match="timed out"):
+            stage_mod.prune_versions(versions_dir=versions, keep=0, protected=(), repo=repo)
+    assert tree.exists()
+    assert stage_mod.prune_versions(versions_dir=versions, keep=0, protected=(), repo=repo) == (tree,)
+    assert not tree.exists()
+
+
+@pytest.mark.parametrize("ignored", ["user.cache", "cache/user-data", " user.cache"])
+def test_history_cleanup_preserves_ignored_data_without_blocking_clean_trees(tmp_path, repo, ignored):
+    versions = tmp_path / "versions"
+    dirty, clean = [stage_mod.stage_version(repo=repo, commit=_commit(repo, "HEAD"),
+        versions_dir=versions, name=name) for name in ("dirty", "clean")]
+    (repo / ".git" / "info" / "exclude").write_text("*.cache\ncache/\n", encoding="utf-8")
+    local = dirty / ignored
+    local.parent.mkdir(parents=True, exist_ok=True)
+    local.write_text("user data", encoding="utf-8")
+    os.utime(dirty, (1, 1))
+    report = {}
+    assert stage_mod.prune_versions(versions_dir=versions, keep=0, protected=(), repo=repo, progress=report) == (clean,)
+    assert local.read_text() == "user data"
+    assert report["removed"] == [str(clean)]
+    assert "ignored local data" in report["skipped"][0]["reason"]
+    assert report["skipped"][0]["reason"].endswith(ignored)
+
+
+def test_history_cleanup_allows_only_tracked_source_bytecode(tmp_path, repo):
+    (repo / "demo.py").write_text("print('hello')\n", encoding="utf-8")
+    _git("add", "demo.py", cwd=repo)
+    _git("commit", "-qm", "source", cwd=repo)
+    (repo / ".git" / "info" / "exclude").write_text("__pycache__/\n", encoding="utf-8")
+    versions = tmp_path / "versions"
+    good, unknown = [stage_mod.stage_version(repo=repo, commit=_commit(repo, "HEAD"),
+        versions_dir=versions, name=name) for name in ("good", "unknown")]
+    for tree, source in ((good, "demo"), (unknown, "user")):
+        cache = tree / "__pycache__"
+        cache.mkdir()
+        (cache / f"{source}.cpython-313.pyc").write_bytes(b"cache")
+    assert stage_mod.prune_versions(versions_dir=versions, keep=0, protected=(), repo=repo) == (good,)
+    assert unknown.exists()
+
+
+def test_history_cleanup_supports_symlinked_ancestor(tmp_path, repo):
+    base = tmp_path / "real"
+    base.mkdir()
+    alias = tmp_path / "alias"
+    alias.symlink_to(base, target_is_directory=True)
+    tree = stage_mod.stage_version(repo=repo, commit=_commit(repo, "HEAD"),
+        versions_dir=base / "versions", name="old")
+    assert stage_mod.prune_versions(versions_dir=alias / "versions", keep=0, protected=(), repo=repo) == (tree,)
+    assert not tree.exists()
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows directory junction")
+def test_history_cleanup_refuses_windows_junction(tmp_path, repo):
+    real = tmp_path / "real"
+    real.mkdir()
+    (real / "VERSION").write_text("user data", encoding="utf-8")
+    junction = tmp_path / "versions"
+    subprocess.run(["cmd", "/c", "mklink", "/J", str(junction), str(real)],
+                   capture_output=True, check=True)
+    with pytest.raises(stage_mod.StageError, match="symlinked versions"):
+        stage_mod.prune_versions(versions_dir=junction, keep=0, protected=(), repo=repo)
+    assert (real / "VERSION").read_text() == "user data"
+
+
+def test_history_cleanup_refreshes_pins_at_deletion(tmp_path, repo, monkeypatch):
+    versions = tmp_path / "versions"
+    tree = stage_mod.stage_version(repo=repo, commit=_commit(repo, "HEAD"), versions_dir=versions, name="old")
+    pins = []
+    monkeypatch.setattr(stage_mod, "_host_pinned_paths", lambda: tuple(pins))
+    def newly_pinned():
+        pins.append(tree / "VERSION")
+    assert stage_mod.prune_versions(versions_dir=versions, keep=0, protected=(), repo=repo, before_remove=newly_pinned) == ()
+    assert tree.exists()
+
+
+def test_history_cleanup_keeps_partial_progress_on_lost_lock(tmp_path, repo):
+    versions = tmp_path / "versions"
+    trees = [stage_mod.stage_version(repo=repo, commit=_commit(repo, "HEAD"),
+        versions_dir=versions, name=f"old-{i}") for i in range(2)]
+    for i, tree in enumerate(trees):
+        os.utime(tree, (i + 1, i + 1))
+    report = {}
+    def lost_after_first():
+        if not trees[0].exists():
+            raise RuntimeError("lost lock")
+    with pytest.raises(RuntimeError, match="lost lock"):
+        stage_mod.prune_versions(versions_dir=versions, keep=0, protected=(), repo=repo,
+            progress=report, before_remove=lost_after_first)
+    assert report["removed"] == [str(trees[0])]
+    assert trees[1].exists()
+
+
+def test_history_cleanup_revalidates_before_delete(tmp_path, repo):
+    versions = tmp_path / "versions"
+    tree = stage_mod.stage_version(
+        repo=repo, commit=_commit(repo, "HEAD"), versions_dir=versions, name="old"
+    )
+    def lost_lock():
+        raise RuntimeError("lock was replaced")
+    with pytest.raises(RuntimeError, match="lock was replaced"):
+        stage_mod.prune_versions(
+            versions_dir=versions, keep=0, protected=(), repo=repo, before_remove=lost_lock,
+        )
+    assert tree.exists()
+
+
 # --- fixes from audit aud_JNQoWlajKzLYGIst -------------------------------------
 
 

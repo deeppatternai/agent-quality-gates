@@ -42,11 +42,13 @@ from __future__ import annotations
 import os
 import re
 import shutil
+import stat
 import subprocess
 import tempfile
+import time
 import uuid
 from pathlib import Path
-from typing import Iterable, Optional, Tuple
+from typing import Callable, Iterable, Optional, Tuple
 
 #: A materialized version is recognizable by the sentinel every AQG checkout has.
 #: Used to refuse pointing the root at a directory that is not one.
@@ -111,7 +113,7 @@ def _require_safe_name(name: str) -> str:
     return name
 
 
-def _holds_the_object_store(path: Path) -> bool:
+def _holds_the_object_store(path: Path, *, timeout: float = 30) -> bool:
     """Whether deleting *path* would destroy the repository the others read.
 
     Asked of git rather than inferred from the shape of ``.git``. An earlier
@@ -127,7 +129,7 @@ def _holds_the_object_store(path: Path) -> bool:
     try:
         found = subprocess.run(
             ["git", "-C", str(path), "rev-parse", "--git-common-dir"],
-            capture_output=True, text=True, stdin=subprocess.DEVNULL, timeout=30,
+            capture_output=True, text=True, stdin=subprocess.DEVNULL, timeout=timeout,
         )
     except (OSError, subprocess.TimeoutExpired):
         # Cannot tell, so assume the dangerous answer: refusing to prune costs
@@ -162,7 +164,7 @@ def _is_version_tree(path: Path) -> bool:
     )
 
 
-def _is_prunable(path: Path) -> bool:
+def _is_prunable(path: Path, *, timeout: float = 30) -> bool:
     """Whether *path* may be removed.
 
     A version tree, and not the one carrying the repository. The sentinel alone
@@ -171,7 +173,14 @@ def _is_prunable(path: Path) -> bool:
     which is not hypothetical, because retention is "current plus previous" and
     on any install this would have happened on the second update.
     """
-    return _is_version_tree(path) and not _holds_the_object_store(path)
+    return _is_version_tree(path) and not _holds_the_object_store(path, timeout=timeout)
+
+
+def _is_indirection(path: Path) -> bool:
+    """Inspect this node, allowing symlinked ancestors but never junctions."""
+    return path.is_symlink() or (path.exists() and bool(
+        getattr(path.lstat(), "st_file_attributes", 0)
+        & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0)))
 
 
 #: git options applied to every invocation. `acquire` verifies a COMMIT and this
@@ -195,7 +204,7 @@ _GIT_CONVERSION_OFF = (
 )
 
 
-def _git(*args: str, cwd: Path) -> str:
+def _git(*args: str, cwd: Path, timeout: float = 300) -> str:
     # A commit-named generation is deeper than the initial clone. Native Git
     # otherwise rejects valid release paths once this crosses MAX_PATH.
     platform_config = ("-c", "core.longpaths=true") if os.name == "nt" else ()
@@ -206,7 +215,7 @@ def _git(*args: str, cwd: Path) -> str:
             text=True,
             capture_output=True,
             check=False,
-            timeout=300,
+            timeout=timeout,
         )
     except (OSError, subprocess.SubprocessError) as exc:
         raise StageError(f"git {args[0]} failed: {exc}") from exc
@@ -214,7 +223,7 @@ def _git(*args: str, cwd: Path) -> str:
         raise StageError(
             f"git {' '.join(args)} failed ({proc.returncode}): {proc.stderr.strip()}"
         )
-    return proc.stdout.strip()
+    return proc.stdout if "-z" in args else proc.stdout.strip()
 
 
 def stage_version(
@@ -457,9 +466,8 @@ def _host_pinned_paths() -> Tuple[Path, ...]:
     """Every path an installed host hook command executes, across all hosts.
 
     Imported lazily: `hosts` imports this module for staging, so binding it at
-    module scope would be a cycle. Any failure yields ``()`` — pruning must not
-    be broken by a host that cannot answer, and the live tree stays protected
-    either way.
+    module scope would be a cycle. Any failure refuses pruning: an unknown pin
+    cannot be treated as evidence that an old tree is unused.
     """
     try:
         from scripts.aqg_update import hosts as hosts_mod  # noqa: PLC0415
@@ -496,6 +504,9 @@ def prune_versions(
     protected: Iterable[Path],
     repo: Path,
     root: Optional[Path] = None,
+    budget_seconds: float = 5,
+    before_remove: Optional[Callable[[], None]] = None,
+    progress: Optional[dict] = None,
 ) -> Tuple[Path, ...]:
     """Remove all but the *keep* newest version trees. Returns what was removed.
 
@@ -505,11 +516,13 @@ def prune_versions(
 
     Only real directories directly inside ``versions_dir`` that carry the version
     sentinel are ever removed, and each removal takes its git worktree
-    registration with it: an ``rmtree``'d worktree leaves a stale entry behind
-    and the next ``worktree add`` for that name then refuses.
+    registration with it. Git must accept a non-forced removal; dirty, locked,
+    or unregistered trees are retained. There is no recursive-delete fallback.
+    The budget limits starting more work; an admitted removal has a separate
+    30-second timeout, never the shrinking remainder of the inspection budget.
     """
     versions_dir = Path(versions_dir)
-    if versions_dir.is_symlink():
+    if _is_indirection(versions_dir):
         # `iterdir()` on a link lists the TARGET's children, so pruning would
         # delete outside the directory this function claims to confine itself to.
         raise StageError(
@@ -518,33 +531,36 @@ def prune_versions(
         )
     if not versions_dir.is_dir():
         return ()
+    versions_dir = versions_dir.resolve()
+    progress = progress if progress is not None else {}
+    progress.setdefault("removed", [])
+    progress.setdefault("skipped", [])
+
+    deadline = time.monotonic() + budget_seconds
+    def remaining() -> float:
+        seconds = deadline - time.monotonic()
+        if seconds <= 0:
+            raise StageError("history cleanup budget exhausted; retained remaining versions")
+        return seconds
+
+    remaining()
 
     keep_paths = {Path(p).resolve() for p in protected}
-    # Structural, like the live tree above: a caller that eventually wires
-    # pruning up will not know codex exists, and a version-pinned host's hook
-    # command names a tree by absolute path. Delete that tree and its hooks
-    # fail on every tool call, on a host that was working a moment earlier,
-    # with nothing having warned anyone.
-    for pin in _host_pinned_paths():
-        # Exactly the version tree that HOLDS the pin, not every ancestor up to
-        # `/`: this set is consulted as "do not delete", so it should name the
-        # thing being protected and nothing else.
-        #
-        # The RESOLVED spelling only, and that is sufficient rather than
-        # sloppy: `_is_version_tree` refuses a symlink, so an entry in this
-        # directory that is a link is never a prune candidate in the first
-        # place. Protecting its name as well would be code that cannot run.
-        # `test_a_symlinked_version_entry_is_never_a_prune_candidate` pins that
-        # premise, so if it ever changes this becomes reachable loudly.
-        spelling = _canonical_or_none(pin)
-        if spelling is None:
-            continue
-        try:
-            inside = spelling.relative_to(versions_dir.resolve())
-        except (ValueError, OSError):
-            continue  # outside this versions dir; protects nothing here
-        if inside.parts:
-            keep_paths.add((versions_dir / inside.parts[0]).resolve())
+    def refresh_pins():
+        remaining()
+        pins = _host_pinned_paths()
+        remaining()
+        for pin in pins:
+            spelling = _canonical_or_none(pin)
+            if spelling is None:
+                raise StageError("cannot resolve a host hook pin; refusing history cleanup")
+            try:
+                inside = spelling.relative_to(versions_dir)
+            except ValueError:
+                continue
+            if inside.parts:
+                keep_paths.add(versions_dir / inside.parts[0])
+    refresh_pins()
     if root is not None:
         live = current_target(Path(root))
         if live is not None:
@@ -553,15 +569,54 @@ def prune_versions(
     # Directory mtime is the ordering signal, and it is approximate: writing
     # inside a tree updates it. A wrong order is bounded — the live tree, the
     # protected set, and anything without the sentinel are all excluded anyway.
-    candidates = [child for child in versions_dir.iterdir() if _is_prunable(child)]
+    candidates = []
+    for child in versions_dir.iterdir():
+        remaining()
+        if (not _is_indirection(child) and child.resolve().parent == versions_dir
+                and _is_prunable(child, timeout=remaining())):
+            candidates.append(child)
     candidates.sort(key=lambda p: p.stat().st_mtime)
     doomed = candidates[: max(len(candidates) - max(keep, 0), 0)]
 
     removed = []
     for tree in doomed:
+        if before_remove is not None:
+            before_remove()
+        refresh_pins()
         if tree.resolve() in keep_paths:
             continue
-        _remove_worktree(Path(repo), tree)
+        # Recheck boundaries at the destructive operation, under the caller's
+        # update locks. Never follow a newly introduced directory junction.
+        if (_is_indirection(tree) or tree.resolve().parent != versions_dir or not _is_version_tree(tree)
+                or (root is not None and current_target(Path(root)) == tree)):
+            raise StageError(f"version changed during history cleanup: {tree}")
+        try:
+            ignored = _git("ls-files", "--others", "--ignored", "--exclude-standard", "-z",
+                           cwd=tree, timeout=remaining()).split("\0")
+            # Runtime bytecode is disposable; ignored user data is not. Require
+            # a tracked source file for each permitted __pycache__ artifact.
+            tracked = set(_git("ls-files", "-z", cwd=tree, timeout=remaining()).split("\0")) if any(ignored) else set()
+            for item in filter(None, ignored):
+                p = Path(item)
+                name = re.fullmatch(r"(.+)\.cpython-\d+(?:\.opt-\d+)?\.pyc", p.name)
+                source = (p.parent.parent / (name[1] + ".py")).as_posix() if name else ""
+                if p.parent.name != "__pycache__" or source not in tracked:
+                    raise StageError(f"ignored local data retained: {item}")
+            remaining()
+            if before_remove is not None:
+                before_remove()
+            refresh_pins()
+            if tree.resolve() in keep_paths:
+                continue
+            if _is_indirection(tree) or tree.resolve().parent != versions_dir:
+                raise StageError(f"version path changed before removal: {tree}")
+            _git("worktree", "remove", str(tree), cwd=Path(repo), timeout=30)
+        except StageError as exc:
+            progress["skipped"].append({"path": str(tree), "reason": str(exc)})
+            if isinstance(exc.__cause__, subprocess.TimeoutExpired):
+                raise  # Stop after a timed-out command; never force a partial tree.
+            continue
         if not tree.exists():
             removed.append(tree)
+            progress["removed"].append(str(tree))
     return tuple(removed)
