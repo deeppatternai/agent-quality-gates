@@ -11,6 +11,8 @@ logs, and path-by-path inventories in engineering records rather than this file.
 
 ## [Unreleased]
 
+## [0.14.20] - 2026-09-12
+
 ### Fixed
 
 - Managed hook refreshes no longer reject an installation merely because the
