@@ -1,0 +1,6 @@
+{
+  "algorithm": "rsa-pkcs1v15-sha256",
+  "key_id": "stable-2026-09",
+  "schema": 1,
+  "signature": "VnK6Mg3hcI1zstGcPp6+louTK5OO/H/VM2jT17iiSopPr6VxrgFl8Vy1zseLtIsrVjaisxqmnyaoWi0x0KPFNAKjQJ0ihLhnlEi+N55wpvOfykYfRXmCwBZXIBq3MbXFXpFa1dl0a1PaSafiACrhKrC39l0WpyN2KP4Hto33prO8PdSSe/UOisiLWBybYmGsS95r9xLuVO7/cLKmzomqYQC+X0kwic5zRZdrQenKlJl0QM7/6THffLP6wWz0rJqdG3Vv3gYA03FXye4L3GOhY9n/WAzt6ElazihW1YD/qTTkgNK88ENbpVnC90HTrTDYfKQNPtYYtreyN1jNPd/Awq+IuH0KbgvDFhliTy08l7TSUNUk0zXm6HsW9y2NfYwCxP7yrl3jTSSciTf8qDB6ij7beu1FbV89au6N4dAfEpkEFk0dDfyuq48655/93jXVSLXbLd1gn5Tv/WuPVLeEVA27mCW6fcJtTfkB2gf+URvIvKB+Ume+3eVVmJwiPxemAZTCUJGdH/x/JsZPJEpiSuJ1AAppYv/+GJ03VcXMPRx/lSS4rpwtMrn8E0a1QRrPB0fLE7F9zP4770xIwXSFm9Bf3pmZ+QPI3IANyVSpHOHkOYHxAHC6lWko8ui1GPcPQuqL/3pCav1EPMI2noVGx+cRYegdbk8xscK6WR4e8Os="
+}
