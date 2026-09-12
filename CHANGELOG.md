@@ -11,6 +11,14 @@ logs, and path-by-path inventories in engineering records rather than this file.
 
 ## [Unreleased]
 
+## [0.14.21] - 2026-09-12
+
+### Changed
+
+- Release a new version for automatic-update verification. There are no
+  functional or source-code changes from 0.14.20; only release metadata and
+  documentation are updated.
+
 ## [0.14.20] - 2026-09-12
 
 ### Fixed
