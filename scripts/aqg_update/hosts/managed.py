@@ -26,8 +26,75 @@ COMMAND_MARKERS = ('cursor_aqg_hook.py', 'qoder_hook_adapter.py', 'agent_client_
 
 
 def preserve_interpreter(expected, actual):
-    """Prove aliases only for a mismatching whole command, never foreign text."""
+    """Preserve a usable installed interpreter when only argv[0] differs."""
     import re
+    import shlex
+
+    def usable(word):
+        try:
+            path = Path(word)
+            return path.is_absolute() and path.is_file() and os.access(path, os.X_OK)
+        except OSError:
+            return False
+
+    def forms(path):
+        values = [str(path), path.as_posix()]
+        if path.drive:
+            values += [prefix + path.drive[0].lower() + path.as_posix()[2:]
+                       for prefix in ('/mnt/', '/')]
+        return values
+
+    def command_interpreter(command):
+        for posix in (os.name != 'nt', os.name == 'nt'):
+            try:
+                words = shlex.split(command, posix=posix)
+            except ValueError:
+                continue
+            for index, word in enumerate(words[:-1]):
+                word = word.strip('"\'')
+                if any(marker in words[index + 1] for marker in COMMAND_MARKERS) and usable(word):
+                    return Path(word)
+        return None
+
+    def normalized(command, interpreter):
+        values = set(forms(interpreter))
+        spellings = values | {quote + value + quote for value in values for quote in ('"', "'")}
+        spellings.update(shlex.quote(value) for value in values)
+
+        def invokes_hook(suffix):
+            if not suffix or not suffix[0].isspace():
+                return False
+            tail = suffix.lstrip()
+            for posix in (os.name != 'nt', os.name == 'nt'):
+                try:
+                    words = shlex.split(tail, posix=posix)
+                except ValueError:
+                    continue
+                if words and any(marker in words[0] for marker in COMMAND_MARKERS):
+                    return True
+            return False
+
+        def probes_hook(suffix, spelling):
+            tail = suffix.lstrip()
+            prefix = ']; then '
+            if not tail.startswith(prefix + spelling):
+                return False
+            return invokes_hook(tail[len(prefix + spelling):])
+
+        for spelling in sorted(spellings, key=len, reverse=True):
+            offset = 0
+            while (index := command.find(spelling, offset)) >= 0:
+                suffix = command[index + len(spelling):]
+                prefix = command[:index]
+                probed = (command.startswith('if [ -x ')
+                          and prefix.rstrip().endswith(('if [ -x', 'elif [ -x'))
+                          and probes_hook(suffix, spelling))
+                if invokes_hook(suffix) or probed:
+                    command = prefix + '<AQG_PYTHON>' + suffix
+                    offset = index + len('<AQG_PYTHON>')
+                else:
+                    offset = index + len(spelling)
+        return command
 
     def commands(value):
         if isinstance(value, dict):
@@ -44,6 +111,24 @@ def preserve_interpreter(expected, actual):
         document = json.loads(expected)
         actual_commands = set(commands(json.loads(actual)))
     except ValueError:
+        pi_pattern = r'(?s)(const AQG_COMMANDS: Record<string, string\[\]> = )(\{.*?\})(;\r?\n\r?\n)'
+        pi_expected = re.search(pi_pattern, expected)
+        pi_actual = re.search(pi_pattern, actual)
+        if pi_expected and pi_actual:
+            expected_argvs = json.loads(pi_expected.group(2))
+            actual_argvs = json.loads(pi_actual.group(2))
+
+            def adapt_argv(name, argv):
+                installed = actual_argvs.get(name)
+                if (isinstance(argv, list) and isinstance(installed, list)
+                        and len(argv) > 1 and len(installed) == len(argv)
+                        and argv[1:] == installed[1:] and usable(installed[0])):
+                    return installed
+                return argv
+
+            adjusted = {name: adapt_argv(name, argv) for name, argv in expected_argvs.items()}
+            rendered = json.dumps(adjusted, ensure_ascii=False, indent=2)
+            return expected[:pi_expected.start(2)] + rendered + expected[pi_expected.end(2):]
         # Kimi's owned TOML block: ignore user commands outside its delimiters.
         start, end = '# BEGIN AQG MANAGED HOOKS', '# END AQG MANAGED HOOKS'
         if actual.count(start) != 1 or actual.count(end) != 1:
@@ -76,12 +161,6 @@ def preserve_interpreter(expected, actual):
                             identical.append(path)
                     except OSError:
                         continue
-                def forms(path):
-                    values = [str(path), path.as_posix()]
-                    if path.drive:
-                        values += [prefix + path.drive[0].lower() + path.as_posix()[2:]
-                                   for prefix in ('/mnt/', '/')]
-                    return values
                 for source in identical:
                     for dest in identical:
                         if source != dest:
@@ -96,6 +175,14 @@ def preserve_interpreter(expected, actual):
                 variant = variant.replace(source, dest)
             if variant in actual_commands:
                 return variant
+        expected_interpreter = command_interpreter(command)
+        if expected_interpreter is not None:
+            signature = normalized(command, expected_interpreter)
+            matches = [candidate for candidate in actual_commands
+                       if (installed := command_interpreter(candidate)) is not None
+                       and normalized(candidate, installed) == signature]
+            if len(matches) == 1:
+                return matches[0]
         return command
 
     if document is None:

@@ -30,6 +30,11 @@ try:
 except ModuleNotFoundError:
     from scripts._aqg_backup import BackupSession, migrate_legacy
 
+try:
+    from _aqg_interpreter import hook_interpreter
+except ModuleNotFoundError:
+    from scripts._aqg_interpreter import hook_interpreter
+
 
 # Hook configuration must retain the swappable entrance used to run installer.
 REPO_ROOT = Path(__file__).absolute().parent.parent
@@ -517,7 +522,7 @@ def _install_rule(cursor_root: Path) -> bool:
 def _quoted_command(event: str, aqg_root: Path | None = None) -> str:
     root = aqg_root if aqg_root is not None else REPO_ROOT
     args = [
-        str(Path(sys.executable).resolve()),
+        str(Path(hook_interpreter()).resolve()),
         str((root / "scripts/cursor_aqg_hook.py").absolute()) if aqg_root is not None else str(ADAPTER.absolute()),
         event,
         "--aqg-root",

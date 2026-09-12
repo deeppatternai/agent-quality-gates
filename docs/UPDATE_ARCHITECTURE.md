@@ -935,6 +935,21 @@ read-only inspection, which continues to use the running installer. Codex's
 interactive hook trust/digest approval remains a host action. Project-specific
 configurations and skill additions/removals retain their existing boundaries.
 
+Managed commands record the installer's absolute interpreter on every platform;
+hooks never select a different Python from the host's runtime `PATH`.
+`scripts/_aqg_interpreter.py` decides that spelling and is a tracked hook input.
+During refresh, the live updater may retain an installed argv[0] that differs
+from its own rendering only when the installed path is absolute, still names an
+executable file, and the remainder of each command is unchanged. The installed
+path is preserved rather than migrated. A missing interpreter, an ambiguous
+match, or any other command difference remains an explicit repair condition.
+This compatibility rule first applies after an updater containing it is active;
+an older updater that is already blocked still requires one manual reapply.
+The updater does not execute or version-probe the configured interpreter: the
+existing host configuration remains local authority, and a principal able to
+rewrite that executable configuration can already disable or redirect its hooks.
+Installers do require `sys.executable` itself to be an absolute executable file.
+
 Prepared JSON edits replace individual AQG-owned commands and preserve foreign
 commands, including those in the same matcher block, and unrelated settings.
 Kimi edits replace only the delimited AQG TOML block; Pi refreshes its dedicated

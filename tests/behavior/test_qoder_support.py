@@ -301,9 +301,9 @@ def test_windows_hook_generation_uses_bash_compatible_wrapper(
     installer = load_installer_module()
     monkeypatch.setattr(installer.os, "name", "nt")
     monkeypatch.setattr(
-        installer.sys,
-        "executable",
-        r"C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\python.exe",
+        installer,
+        "hook_interpreter",
+        lambda: r"C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\python.exe",
     )
     aqg_root = PureWindowsPath(r"C:\Users\Admin\.deeppattern\agent-quality-gates")
 

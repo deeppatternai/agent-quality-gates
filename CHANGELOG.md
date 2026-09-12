@@ -11,6 +11,25 @@ logs, and path-by-path inventories in engineering records rather than this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- Managed hook refreshes no longer reject an installation merely because the
+  updater runs under a different Python. The updater retains the installed
+  absolute interpreter when it is still an executable file and every remaining
+  command argument is unchanged.
+- Refresh remains fail-closed when the installed interpreter was removed or any
+  command tail changed; it reports the configuration as unrecognized instead of
+  silently switching the hook to another Python. A machine blocked before this
+  updater becomes active still needs the affected installer reapplied once.
+
+### Changed
+
+- Managed host installers on every platform continue to write the running
+  interpreter's absolute path. They do not resolve `python3` from the host's
+  runtime `PATH`. Project-scope hook configurations remain outside updater
+  inventory; reapply their installer to repair a removed interpreter. Codex
+  hooks are unchanged and still use the interpreter reviewed via `/hooks`.
+
 ## [0.14.19] - 2026-09-11
 
 ### Changed

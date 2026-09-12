@@ -36,6 +36,11 @@ try:
 except ModuleNotFoundError:
     from scripts._aqg_backup import BackupError, BackupSession, migrate_legacy
 
+try:
+    from _aqg_interpreter import hook_interpreter
+except ModuleNotFoundError:
+    from scripts._aqg_interpreter import hook_interpreter
+
 
 EXIT_OK = 0
 EXIT_ERROR = 1
@@ -745,7 +750,7 @@ def _rule_supported(client: str, scope: str) -> bool:
 def _hook_command(aqg_root: Path, script: str) -> str:
     adapter = aqg_root / "agent-packs" / "qoder" / "hooks" / "qoder_hook_adapter.py"
     values = [
-        sys.executable,
+        hook_interpreter(),
         str(adapter),
         "--aqg-root",
         str(aqg_root),

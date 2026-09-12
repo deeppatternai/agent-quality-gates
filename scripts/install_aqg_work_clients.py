@@ -32,6 +32,11 @@ try:
 except ModuleNotFoundError:
     from scripts._aqg_backup import BackupError, BackupSession, migrate_legacy
 
+try:
+    from _aqg_interpreter import hook_interpreter
+except ModuleNotFoundError:
+    from scripts._aqg_interpreter import hook_interpreter
+
 
 # Persist the managed entrance in client configuration, not its current target.
 REPO_ROOT = Path(__file__).absolute().parent.parent
@@ -985,7 +990,7 @@ def _install_mcp(client_root: Path, aqg_root: Path) -> bool:
 
 def _quoted_command(event: str, aqg_root: Path) -> str:
     args = [
-        str(Path(sys.executable).resolve()),
+        str(Path(hook_interpreter()).resolve()),
         str((aqg_root / "scripts" / "cursor_aqg_hook.py").absolute()),
         _event_for_adapter(event),
         "--aqg-root",

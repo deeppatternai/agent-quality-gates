@@ -30,6 +30,11 @@ try:
 except ModuleNotFoundError:
     from scripts._aqg_backup import BackupError, BackupSession, migrate_legacy
 
+try:
+    from _aqg_interpreter import hook_interpreter
+except ModuleNotFoundError:
+    from scripts._aqg_interpreter import hook_interpreter
+
 
 EXIT_OK = 0
 EXIT_ERROR = 1
@@ -725,7 +730,7 @@ def _load_json(path: Path, default: dict[str, object]) -> dict[str, object]:
 
 def _hook_command(aqg_root: Path, client_id: str, script: str) -> str:
     values = [
-        sys.executable,
+        hook_interpreter(),
         str((aqg_root / "scripts" / "agent_client_aqg_hook.py").absolute()),
         "--client",
         "trae" if client_id.startswith("trae") else "devin",

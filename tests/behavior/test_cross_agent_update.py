@@ -27,7 +27,9 @@ def test_python_executable_alias_does_not_change_hook_evidence(tmp_path, monkeyp
 
     assert path.read_text(encoding='utf8') == expected
     alias.write_bytes(b'different executable')
-    assert adapter.verify().hooks_status == 'stale'
+    # The installed path remains the authority while it is executable; the
+    # updater's Python identity and bytes do not have to match it.
+    assert adapter.verify().hooks_status == 'complete'
 
 
 def test_qoder_cli_only_owner_does_not_install_or_block_qoder(tmp_path):
@@ -247,7 +249,7 @@ def test_managed_hook_bodies_follow_swap_but_renderer_changes_require_merge(tmp_
         (tree/'skills').mkdir(parents=True)
         (tree/'VERSION').write_text('1.0.0')
         for name in [f'scripts/{FAMILIES[client]}.py', 'scripts/aqg_client_registry.py',
-                     'agent-packs/claude-code/hooks/start.sh']:
+                     'scripts/_aqg_interpreter.py', 'agent-packs/claude-code/hooks/start.sh']:
             path = tree/name
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text('# original')

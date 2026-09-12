@@ -10,6 +10,7 @@ import copy
 import hashlib
 import json
 import os
+import re
 import stat
 import subprocess
 import sys
@@ -174,6 +175,33 @@ def _json_object(text):
     return value
 
 
+def _pi_commands(text):
+    match = re.search(r'(?s)const AQG_COMMANDS: Record<string, string\[\]> = (\{.*?\});\r?\n\r?\n', text)
+    if match is None:
+        raise AdapterError('missing AQG Pi command map')
+    try:
+        commands = json.loads(match.group(1))
+    except ValueError as exc:
+        raise AdapterError('invalid AQG Pi command map') from exc
+    if not isinstance(commands, dict) or not all(
+            isinstance(name, str) and isinstance(argv, list)
+            and all(isinstance(word, str) for word in argv)
+            for name, argv in commands.items()):
+        raise AdapterError('invalid AQG Pi command map')
+    return commands
+
+
+def _toml_commands(text):
+    pattern = r'(?m)^command\s*=\s*("(?:[^"\\]|\\.)*")'
+    try:
+        commands = [json.loads(match.group(1)) for match in re.finditer(pattern, text)]
+    except ValueError as exc:
+        raise AdapterError('invalid AQG TOML command') from exc
+    if not commands:
+        raise AdapterError('missing AQG TOML commands')
+    return commands
+
+
 def merge_json(actual, expected, *, top_level, owned):
     """Remove owned commands individually, including from mixed matcher blocks."""
     result = _json_object(actual)
@@ -241,21 +269,28 @@ def prepare(adapter, target):
         marked = lambda command: any(marker in command for marker in COMMAND_MARKERS)
     before = read_config(path)
     actual = before.decode('utf-8')
-    expected = preserve_interpreter(render(target, root, home, client), actual)
+    refreshed = preserve_interpreter(render(target, root, home, client), actual)
     if client == 'pi':
         marker = adapter.installer.EXTENSION_MARKER
         if marker not in actual:
             raise AdapterError('unowned Pi extension')
-        after = expected
+        recognized = preserve_interpreter(canonical, actual)
+        if _pi_commands(recognized) != _pi_commands(actual):
+            raise AdapterError('unrecognized AQG Pi extension; refusing automatic replacement')
+        after = refreshed
     elif path.suffix == '.toml':
         start, end = '# BEGIN AQG MANAGED HOOKS', '# END AQG MANAGED HOOKS'
         if actual.count(start) != 1 or actual.count(end) != 1:
             raise AdapterError('missing or duplicated managed TOML block')
         prefix, rest = actual.split(start, 1)
-        _, suffix = rest.split(end, 1)
+        body, suffix = rest.split(end, 1)
         if any(marker in prefix + suffix for marker in COMMAND_MARKERS):
             raise AdapterError('managed commands outside owned TOML block')
-        after = prefix + expected.strip() + suffix
+        installed = start + body + end
+        recognized = preserve_interpreter(canonical, actual)
+        if _toml_commands(installed) != _toml_commands(recognized):
+            raise AdapterError('unrecognized AQG TOML block; refusing automatic replacement')
+        after = prefix + refreshed.strip() + suffix
     else:
         def commands(value):
             if isinstance(value, dict):
@@ -268,7 +303,7 @@ def prepare(adapter, target):
                 for item in value:
                     yield from commands(item)
         known = set(commands(_json_object(preserve_interpreter(canonical, actual))))
-        known.update(commands(_json_object(expected)))
+        known.update(commands(_json_object(refreshed)))
         def owned(value):
             command = value.get('command') if isinstance(value, dict) else None
             if not isinstance(command, str) or not marked(command):
@@ -276,7 +311,7 @@ def prepare(adapter, target):
             if command not in known:
                 raise AdapterError('unrecognized AQG command; refusing automatic replacement')
             return True
-        after = merge_json(actual, expected, top_level=client in ('trae', 'trae-cn'), owned=owned)
+        after = merge_json(actual, refreshed, top_level=client in ('trae', 'trae-cn'), owned=owned)
     return HookEdit(Path(path), before, after.encode('utf-8'), path.parent.resolve(),
                     stat.S_IMODE(path.stat().st_mode),
                     verifier=lambda: render(target, root, home, client, verify_path=path) == 'complete')
@@ -300,7 +335,7 @@ def trusted_snapshot(adapter, before, current):
         path, expected = adapter.canonical_config()
         markers = COMMAND_MARKERS
         if client == 'pi':
-            return actual == expected
+            return actual == preserve_interpreter(expected, actual)
         if path.suffix == '.toml':
             start, end = '# BEGIN AQG MANAGED HOOKS', '# END AQG MANAGED HOOKS'
             def split(text):

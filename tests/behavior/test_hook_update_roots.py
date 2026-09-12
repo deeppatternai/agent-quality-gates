@@ -43,6 +43,7 @@ def test_saved_hook_command_follows_generation_swap(
         (version / "skills").mkdir()
         (version / "VERSION").write_text(version.name, encoding="utf-8")
         shutil.copyfile(REPO / "scripts" / installer, version / "scripts" / installer)
+        shutil.copyfile(REPO / "scripts" / "_aqg_interpreter.py", version / "scripts" / "_aqg_interpreter.py")
         probe = version / adapter
         probe.parent.mkdir(parents=True, exist_ok=True)
         probe.write_text(
@@ -54,6 +55,9 @@ def test_saved_hook_command_follows_generation_swap(
         )
     root = tmp_path / "AQG entrance"
     root.symlink_to(versions[0], target_is_directory=True)
+    # The saved tree must carry its own helper; find it before the working tree.
+    monkeypatch.syspath_prepend(str(root / "scripts"))
+    monkeypatch.delitem(sys.modules, "_aqg_interpreter", raising=False)
     spec = importlib.util.spec_from_file_location(
         "_aqg_hook_swap_installer", root / "scripts" / installer,
     )

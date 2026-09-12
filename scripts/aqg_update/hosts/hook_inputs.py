@@ -31,6 +31,9 @@ def unchanged(
     if installers is None and client_id in FAMILIES:
         installers = (
             f"scripts/{FAMILIES[client_id]}.py", 'scripts/aqg_client_registry.py',
+            # Decides argv[0] of every managed command; a helper-only change
+            # must reconcile hooks like an installer change.
+            'scripts/_aqg_interpreter.py',
         )
         # These clients do not pin script digests. Bodies ride the logical root;
         # only renderer changes and removed/added hook files require a merge.

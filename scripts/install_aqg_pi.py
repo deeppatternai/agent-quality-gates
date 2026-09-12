@@ -21,6 +21,11 @@ try:
 except ModuleNotFoundError:
     from scripts._aqg_backup import BackupError, BackupSession, migrate_legacy
 
+try:
+    from _aqg_interpreter import hook_interpreter
+except ModuleNotFoundError:
+    from scripts._aqg_interpreter import hook_interpreter
+
 
 EXIT_OK = 0
 EXIT_ERROR = 1
@@ -243,7 +248,7 @@ def _install_skill(source: Path, target: Path, root: Path, mode: str) -> bool:
 
 def _command_argv(aqg_root: Path, script: str) -> list[str]:
     return [
-        sys.executable,
+        hook_interpreter(),
         str((aqg_root / "scripts" / "pi_aqg_hook.py").absolute()),
         "--aqg-root",
         str(aqg_root.absolute()),
