@@ -11,6 +11,21 @@ logs, and path-by-path inventories in engineering records rather than this file.
 
 ## [Unreleased]
 
+## [0.14.22] - 2026-09-14
+
+### Fixed
+
+- A failed or interrupted update no longer leaves historical `pending` state as
+  a permanent blocker. Later signed releases are planned again from current host
+  evidence, while unresolved or unverifiable host changes still fail closed.
+- Manual upgrades now serialize host reconciliation with automatic updates and
+  restore both the managed root and install state when reconciliation fails.
+
+### Changed
+
+- Healthy automatic-update checks now default to every 30 minutes instead of
+  every hour. The configurable interval and five-minute failure retry remain.
+
 ## [0.14.21] - 2026-09-12
 
 ### Changed

@@ -262,6 +262,21 @@ def test_the_rollback_trap_covers_every_reconciliation_step():
     )
 
 
+def test_reconciliation_is_verified_before_the_rollback_trap_is_cleared():
+    """Captured hook failures must still roll the root back."""
+    body = UPGRADE.read_text(encoding="utf-8")
+    closing = body[body.index("# Every reconciliation step"):body.index("# --- 6.")]
+
+    assert "codex_hooks_rc" in closing and "hooks_rc" in closing
+    assert "finalize_reconciliation" in closing
+    assert "rollback_reconciliation" in body
+    assert "AQG_RECONCILIATION_LOCK_HELD" in body
+    assert body.index("RECONCILIATION_LOCK_FILENAME") < body.index("run.apply_commit")
+    assert closing.index("codex_hooks_rc") < closing.index("finalize_reconciliation")
+    assert closing.index("hooks_rc") < closing.index("finalize_reconciliation")
+    assert closing.index("finalize_reconciliation") < closing.index("trap - EXIT")
+
+
 def test_skipping_one_client_withdraws_the_reconciliation_claim():
     """`--no-codex` skips the step that reconciles Codex.
 
@@ -271,8 +286,15 @@ def test_skipping_one_client_withdraws_the_reconciliation_claim():
     a run that will not reconcile every host must not claim to reconcile any.
     """
     body = UPGRADE.read_text(encoding="utf-8")
+    helper = body[body.index("reconciliation_enabled()") : body.index("# --- 0.")]
     gate = body[body.index('reconcile="0"'):body.index('echo "applying')]
-    assert '"$do_codex" == "1" && "$do_claude" == "1"' in gate, gate
+    outer_lock = body[body.index("# Hold one OS lock") : body.index("# Read VERSION")]
+
+    assert 'for enabled in "$do_codex" "$do_claude"' in helper, helper
+    assert '[[ "$enabled" == "1" ]] || return 1' in helper, helper
+    assert "reconciliation_enabled" in gate, gate
+    assert "reconciliation_enabled" in outer_lock, outer_lock
+    assert '"$do_codex" == "1" && "$do_claude" == "1"' not in body
 
 
 def test_applying_the_commit_already_live_reports_current(tmp_path, monkeypatch):

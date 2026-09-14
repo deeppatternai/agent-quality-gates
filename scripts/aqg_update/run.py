@@ -66,6 +66,8 @@ except ImportError:  # invoked with scripts/ itself on sys.path
 KILL_SWITCH = "AQG_NO_UPDATE_CHECK"
 
 LAST_CHECK_FILENAME = "update-last-check.json"
+RECONCILIATION_LOCK_FILENAME = "update-reconciliation.lock"
+RECONCILIATION_STATE_FILENAME = "update-reconciliation-state.json"
 
 #: How long a recorded check suppresses the next one. Sessions start many times
 #: a day and a remote does not need telling every time, but the right number
@@ -73,11 +75,11 @@ LAST_CHECK_FILENAME = "update-last-check.json"
 #: may want longer than this. It was twenty hours and hardcoded, which made
 #: every adjustment a code change and a release.
 #:
-#: The accepted cost of one hour rather than twenty: an install whose sessions
-#: are spread across a working day makes up to 24 checks a day instead of about
-#: one. A check is a git ref read against the release remote, and an install
-#: that wants the old rhythm back sets the variable below.
-DEFAULT_CHECK_INTERVAL_SECONDS = 3600
+#: The accepted cost of thirty minutes rather than one hour: an install whose
+#: sessions are spread across a working day makes up to 48 checks a day. A check
+#: is a git ref read against the release remote, and an install that wants a
+#: longer rhythm sets the variable below.
+DEFAULT_CHECK_INTERVAL_SECONDS = 1800
 
 #: Set this to a whole number of seconds to override the interval.
 INTERVAL_ENV = "AQG_UPDATE_INTERVAL_SECONDS"
@@ -375,8 +377,9 @@ def check(
     state_root: Optional[Path] = None,
     now: Optional[float] = None,
     apply: bool = True,
+    force: bool = False,
 ) -> CheckResult:
-    """Serialize checks across hosts; keep the transaction's apply lock separate."""
+    """Serialize checks; ``force`` bypasses timing only, never trust or safety."""
     if os.environ.get(KILL_SWITCH):
         return CheckResult(outcome="disabled")
     scope = identity = None
@@ -388,13 +391,50 @@ def check(
         discovery = _check_scope(root, remote, channel, False) if apply else None
         early_root = Path(state_root) if state_root is not None else state.state_root(create=False)
         previous = _read_record(early_root / f'update-check-{scope}.json') or {}
-        if previous.get('outcome') == 'failed' and _too_soon(state_root, time.time() if now is None else now, scope=scope, discovery_scope=discovery):
+        if (
+            not force
+            and previous.get("outcome") == "failed"
+            and _too_soon(
+                state_root,
+                time.time() if now is None else now,
+                scope=scope,
+                discovery_scope=discovery,
+            )
+        ):
             return CheckResult(outcome='too-soon')
         record_root = Path(state_root) if state_root is not None else state.state_root(create=True)
         record_root.mkdir(parents=True, exist_ok=True)
         with lock.install_lock(path=record_root / "update-check.lock") as check_lock:
-            result = _admitted_check(root=root, remote=remote, channel=channel,
-                keyring_path=keyring_path, state_root=state_root, now=now, apply=apply, scope=scope)
+            if apply:
+                # Manual upgrade holds this lock across its root swap, host
+                # writes, and finalization. An automatic retry must not plan
+                # from evidence while those files are changing underneath it.
+                with lock.install_lock(
+                    path=record_root / RECONCILIATION_LOCK_FILENAME
+                ):
+                    result = _admitted_check(
+                        root=root,
+                        remote=remote,
+                        channel=channel,
+                        keyring_path=keyring_path,
+                        state_root=state_root,
+                        now=now,
+                        apply=apply,
+                        scope=scope,
+                        force=force,
+                    )
+            else:
+                result = _admitted_check(
+                    root=root,
+                    remote=remote,
+                    channel=channel,
+                    keyring_path=keyring_path,
+                    state_root=state_root,
+                    now=now,
+                    apply=apply,
+                    scope=scope,
+                    force=force,
+                )
             if apply and result.outcome == "applied":
                 try:
                     pair = result.activation
@@ -448,7 +488,10 @@ def _prune_after_update(*, root, previous, expected, state_root, check_lock) -> 
         pass
 
 
-def _admitted_check(*, root, remote, channel, keyring_path, state_root, now, apply, scope):
+def _admitted_check(
+    *, root, remote, channel, keyring_path, state_root, now, apply, scope,
+    force=False,
+):
     """Run one check, record it, and return what happened.
 
     The order of the gates is the point, and it is: kill switch, clock, keyring,
@@ -466,7 +509,7 @@ def _admitted_check(*, root, remote, channel, keyring_path, state_root, now, app
 
     identity = _check_identity(root, remote, channel, apply)
     discovery = _check_scope(root, remote, channel, False) if apply else None
-    if _too_soon(state_root, now, scope=scope, discovery_scope=discovery):
+    if not force and _too_soon(state_root, now, scope=scope, discovery_scope=discovery):
         return CheckResult(outcome="too-soon")
 
     try:
@@ -624,6 +667,110 @@ def _transaction_paths(state_root):
     return storage / transaction.JOURNAL_FILENAME, storage / lock.LOCK_FILENAME
 
 
+def prepare_reconciliation_snapshot(
+    *, state_root: Optional[Path] = None
+) -> Path:
+    """Snapshot install state before a manual root swap.
+
+    The caller must already hold ``RECONCILIATION_LOCK_FILENAME``. The apply
+    lock makes the snapshot and transaction state mutually consistent.
+    """
+    journal, apply_lock = _transaction_paths(state_root)
+    snapshot = journal.parent / RECONCILIATION_STATE_FILENAME
+    with lock.install_lock(path=apply_lock):
+        if transaction.read_journal(journal) is not None:
+            raise RuntimeError(
+                f"cannot snapshot reconciliation state with journal {journal} present"
+            )
+        installed = state.read_state(path=_state_file(state_root))
+        if not isinstance(installed, Mapping):
+            raise RuntimeError("cannot reconcile a managed root with no install state")
+        state.write_state(dict(installed), path=snapshot)
+    return snapshot
+
+
+def rollback_reconciliation(
+    *,
+    root: Path,
+    expected_commit: str,
+    previous_root: Path,
+    state_root: Optional[Path] = None,
+) -> CheckResult:
+    """Restore both root and install state after manual host work fails."""
+    journal, apply_lock = _transaction_paths(state_root)
+    snapshot_path = journal.parent / RECONCILIATION_STATE_FILENAME
+    try:
+        with lock.install_lock(path=apply_lock):
+            if transaction.read_journal(journal) is not None:
+                return CheckResult(
+                    outcome="repair-required",
+                    detail=f"cannot roll back reconciliation with journal {journal} present",
+                )
+            installed = state.read_state(path=_state_file(state_root))
+            snapshot = state.read_state(path=snapshot_path)
+            live = stage.current_target(Path(root))
+            previous = Path(previous_root)
+            if (
+                not isinstance(installed, Mapping)
+                or installed.get("installed_commit") != expected_commit
+                or live is None
+                or stage.version_commit(live) != expected_commit
+            ):
+                return CheckResult(
+                    outcome="repair-required",
+                    detail="live root or install state changed before reconciliation rollback",
+                )
+            if (
+                not isinstance(snapshot, Mapping)
+                or not previous.is_absolute()
+                or not previous.is_dir()
+                or stage.version_commit(previous)
+                != snapshot.get("installed_commit")
+            ):
+                return CheckResult(
+                    outcome="repair-required",
+                    detail="previous root does not match the saved install state",
+                )
+
+            stage.swap_root(root=Path(root).absolute(), target=previous)
+            try:
+                state.write_state(dict(snapshot), path=_state_file(state_root))
+            except (OSError, ValueError, RuntimeError) as exc:
+                try:
+                    stage.swap_root(root=Path(root).absolute(), target=live)
+                except (OSError, ValueError, RuntimeError):
+                    return CheckResult(
+                        outcome="repair-required",
+                        detail=(
+                            "root rolled back but install state could not be "
+                            f"restored: {exc}"
+                        ),
+                    )
+                return CheckResult(
+                    outcome="failed",
+                    detail=(
+                        "install state restore failed; the new root was "
+                        f"restored: {exc}"
+                    ),
+                )
+            try:
+                snapshot_path.unlink()
+            except OSError:
+                pass
+            return CheckResult(
+                outcome="rolled-back",
+                detail="previous root and install state restored",
+            )
+    except lock.LockBusy:
+        return CheckResult(
+            outcome="busy", detail="another AQG update is in progress"
+        )
+    except (OSError, ValueError, RuntimeError) as exc:
+        return CheckResult(
+            outcome="failed", detail=f"reconciliation rollback failed: {exc}"
+        )
+
+
 def _transaction_gate(state_root, *, root=None):
     """Read recovery state under the apply lock, before any current fast path."""
     journal, apply_lock = _transaction_paths(state_root)
@@ -641,6 +788,147 @@ def _transaction_gate(state_root, *, root=None):
     return None
 
 
+def _reconcile_recorded_pending(
+    *, root: Path, installed, state_root, expected_commit: Optional[str] = None
+):
+    """Retire a stale manual-update handoff after checking live reality.
+
+    ``pending`` is allowed to outlive the work it described because manual
+    installers reconcile hosts after the root transaction. It must not outlive
+    proof that the reconciliation completed: otherwise every later release is
+    refused before it can make progress.
+    """
+    if (
+        expected_commit is None
+        and (not isinstance(installed, Mapping) or not installed.get("pending"))
+    ):
+        return installed, None
+
+    journal, apply_lock = _transaction_paths(state_root)
+    try:
+        with lock.install_lock(path=apply_lock):
+            state_file = _state_file(state_root)
+            latest = state.read_state(path=state_file)
+            if not isinstance(latest, Mapping):
+                return latest, CheckResult(
+                    outcome="failed",
+                    detail="cannot finalize an installation with no state",
+                )
+            if (
+                expected_commit is not None
+                and latest.get("installed_commit") != expected_commit
+            ):
+                return latest, CheckResult(
+                    outcome="failed",
+                    detail="install state changed before host reconciliation was finalized",
+                )
+            if transaction.read_journal(journal) is not None:
+                return latest, CheckResult(
+                    outcome="repair-required",
+                    detail=f"unresolved update journal: {journal}; repair before retrying",
+                )
+
+            live = stage.current_target(Path(root))
+            if live is None:
+                return latest, CheckResult(
+                    outcome="repair-required",
+                    detail="cannot reconcile pending work because the managed root is unavailable",
+                )
+            live_commit = stage.version_commit(live)
+            if live_commit != latest.get("installed_commit"):
+                return latest, CheckResult(
+                    outcome="repair-required",
+                    detail=(
+                        "cannot reconcile pending work because the live commit does not "
+                        "match install-state"
+                    ),
+                )
+
+            if not latest.get("pending"):
+                return latest, None
+
+            dropped: List[str] = []
+            evidence = _collect_evidence(latest, dropped, target_root=live)
+            candidate = dict(latest)
+            candidate["pending"] = []
+            built = plan_mod.build_plan(
+                state=candidate,
+                target=live,
+                evidence=evidence,
+                target_commit=live_commit,
+                current=live,
+            )
+            unresolved = tuple(
+                [
+                    f"{action.client_id}: {action.kind}"
+                    + (f" {action.subject}" if action.subject else "")
+                    + (f" - {action.detail}" if action.detail else "")
+                    for action in built.actions
+                    if action.kind in HOST_TOUCHING_KINDS
+                ]
+                + [f"{item.client_id}: {item.reason}" for item in built.deferred]
+                + [
+                    f"{item} (adapter could not report; treated as unknown)"
+                    for item in dropped
+                ]
+            )
+            if unresolved or not built.is_complete:
+                return latest, CheckResult(
+                    outcome="pending",
+                    detail="previous update still has unresolved host configuration",
+                    pending=(
+                        unresolved
+                        or tuple(str(x) for x in latest.get("pending", []))
+                    ),
+                )
+
+            state.write_state(candidate, path=state_file)
+            return candidate, None
+    except lock.LockBusy:
+        return installed, CheckResult(
+            outcome="busy", detail="another AQG update is in progress"
+        )
+    except (OSError, ValueError, RuntimeError) as exc:
+        return installed, CheckResult(
+            outcome="failed", detail=f"pending reconciliation failed: {exc}"
+        )
+
+
+def finalize_reconciliation(
+    *, root: Path, expected_commit: str, state_root: Optional[Path] = None
+) -> CheckResult:
+    """Verify a manual caller's completed host work and retire its handoff."""
+    try:
+        installed = state.read_state(path=_state_file(state_root))
+        refreshed, gate = _reconcile_recorded_pending(
+            root=Path(root),
+            installed=installed,
+            state_root=state_root,
+            expected_commit=expected_commit,
+        )
+        if gate is not None:
+            return gate
+        if isinstance(refreshed, Mapping) and refreshed.get("pending"):
+            return CheckResult(
+                outcome="pending", detail="host reconciliation remains incomplete"
+            )
+        try:
+            snapshot = (
+                _transaction_paths(state_root)[0].parent
+                / RECONCILIATION_STATE_FILENAME
+            )
+            snapshot.unlink()
+        except OSError:
+            pass
+        return CheckResult(
+            outcome="current", detail="host reconciliation verified and finalized"
+        )
+    except (OSError, ValueError, RuntimeError) as exc:
+        return CheckResult(
+            outcome="failed", detail=f"host reconciliation could not be finalized: {exc}"
+        )
+
+
 def _apply(
     *, root: Path, commit: str, version, installed, state_root,
     host_reconciliation: bool = False,
@@ -649,6 +937,15 @@ def _apply(
     sequence: int = 0,
     key_id: str = "unsigned-manual",
 ) -> CheckResult:
+    baseline_state = installed
+    planning_state = installed
+    if isinstance(installed, Mapping) and installed.get("pending"):
+        # Pending is a report from an earlier attempt, not a durable admission
+        # rule. Plan the new target from fresh host evidence; the new plan will
+        # still refuse any host state that is unsafe now.
+        planning_state = dict(installed)
+        planning_state["pending"] = []
+
     # Derived from where the root currently POINTS, not from a layout guessed
     # off its own path: the root is a symlink into a version directory, so the
     # directory that holds versions is that target's parent. Computing it as
@@ -715,9 +1012,12 @@ def _apply(
     committed = False
     try:
         dropped: List[str] = []
-        evidence = _collect_evidence(installed, dropped, target_root=target)
+        evidence = _collect_evidence(planning_state, dropped, target_root=target)
         built = plan_mod.build_plan(
-            state=installed, target=target, evidence=evidence, target_commit=commit,
+            state=planning_state,
+            target=target,
+            evidence=evidence,
+            target_commit=commit,
             current=live,
         )
         # Two different shapes: an Action that would change a host's configuration,
@@ -837,7 +1137,7 @@ def _apply(
 
         def check_baseline():
             latest = state.read_state(path=Path(state_root) / state.STATE_FILENAME if state_root is not None else None)
-            if stage.current_target(Path(root)) != live or latest != installed:
+            if stage.current_target(Path(root)) != live or latest != baseline_state:
                 raise transaction.TransactionError('live root or install state changed during planning; retry')
             if provenance == 'verified release' and sequence <= (latest or {}).get('release_sequence', -1):
                 raise transaction.TransactionError('verified release sequence no longer advances the installed floor')
@@ -853,7 +1153,8 @@ def _apply(
             record_state=lambda: _record_installed(
                 channel=channel, version=version, commit=commit,
                 sequence=sequence, key_id=key_id, pending=list(recorded_pending),
-                state_root=state_root, hosts=(installed or {}).get('hosts', {}),
+                state_root=state_root,
+                hosts=(planning_state or {}).get('hosts', {}),
             ),
             # `absolute`, never `resolve`: the root IS the symlink being replaced,
             # so resolving it hands the swap the version tree it points at — which
@@ -1124,6 +1425,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             remote=os.environ.get("AQG_UPDATE_REMOTE", "origin"),
             channel=os.environ.get("AQG_UPDATE_CHANNEL", "stable"),
             apply="--check-only" not in argv,
+            force="--force-check" in argv,
         )
         if result.outcome not in ("disabled", "too-soon", "current", "busy"):
             print(f"[aqg update] {result.outcome}: {result.detail}", file=sys.stderr)

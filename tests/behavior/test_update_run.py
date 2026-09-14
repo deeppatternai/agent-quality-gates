@@ -141,14 +141,68 @@ def test_an_old_check_does_not_suppress_a_new_one(tmp_path, state_root, monkeypa
     assert result.outcome == "no-keyring"
 
 
+def test_force_check_bypasses_cooldown_but_not_trust_checks(
+    tmp_path, state_root
+):
+    scope = run_mod._check_scope(tmp_path, "origin", "stable", True)
+    run_mod.record(
+        run_mod.CheckResult(outcome="failed"),
+        state_root=state_root,
+        at=10_000,
+        scope=scope,
+    )
+
+    args = dict(
+        root=tmp_path,
+        remote="origin",
+        channel="stable",
+        keyring_path=tmp_path / "absent.json",
+        state_root=state_root,
+        now=10_001,
+    )
+
+    assert run_mod.check(**args).outcome == "too-soon"
+    assert run_mod.check(**args, force=True).outcome == "no-keyring"
+
+
 # --- the interval that clock gate uses -----------------------------------------------------
 
 
-def test_the_default_interval_is_one_hour(monkeypatch):
+def test_the_default_interval_is_thirty_minutes(monkeypatch):
     """The default has to be a number this file states, not one a reader infers
     from a record's age. Debugging wants it short; a release may want it long."""
     monkeypatch.delenv(run_mod.INTERVAL_ENV, raising=False)
-    assert run_mod.check_interval_seconds() == 3600
+    assert run_mod.check_interval_seconds() == 1800
+
+
+def test_the_default_clock_gate_reopens_after_thirty_minutes(
+    tmp_path, state_root, monkeypatch
+):
+    monkeypatch.delenv(run_mod.INTERVAL_ENV, raising=False)
+    scope = run_mod._check_scope(tmp_path, "origin", "stable", True)
+    run_mod.record(
+        run_mod.CheckResult(outcome="current"),
+        state_root=state_root,
+        at=10_000,
+        scope=scope,
+    )
+
+    assert run_mod.check(
+        root=tmp_path,
+        remote="origin",
+        channel="stable",
+        keyring_path=tmp_path / "absent.json",
+        state_root=state_root,
+        now=11_799,
+    ).outcome == "too-soon"
+    assert run_mod.check(
+        root=tmp_path,
+        remote="origin",
+        channel="stable",
+        keyring_path=tmp_path / "absent.json",
+        state_root=state_root,
+        now=11_801,
+    ).outcome == "no-keyring"
 
 
 def test_the_interval_can_be_overridden_from_the_environment(monkeypatch):
@@ -178,7 +232,7 @@ def test_an_unusable_override_falls_back_to_the_default(monkeypatch, raw):
     seconds; anything else is malformed input, and malformed input takes the
     default rather than the process down."""
     monkeypatch.setenv(run_mod.INTERVAL_ENV, raw)
-    assert run_mod.check_interval_seconds() == 3600
+    assert run_mod.check_interval_seconds() == 1800
 
 
 @pytest.mark.parametrize("raw", ["1", "30", "59", "+30"])
@@ -292,6 +346,19 @@ def test_main_writes_nothing_to_stdout(tmp_path, state_root, monkeypatch, capsys
     monkeypatch.setenv(run_mod.KILL_SWITCH, "1")
     run_mod.main([])
     assert capsys.readouterr().out == ""
+
+
+def test_main_force_check_bypasses_only_the_clock(monkeypatch):
+    captured = {}
+
+    def checked(**kwargs):
+        captured.update(kwargs)
+        return run_mod.CheckResult(outcome="current")
+
+    monkeypatch.setattr(run_mod, "check", checked)
+    assert run_mod.main(["--force-check"]) == 0
+    assert captured["force"] is True
+    assert captured["apply"] is True
 
 
 def test_the_record_survives_a_check_that_did_nothing(tmp_path, state_root):
@@ -511,6 +578,330 @@ def _clean_plan(monkeypatch, target_commit):
         )
 
     monkeypatch.setattr(run_mod.plan_mod, "build_plan", only_activate)
+
+
+def test_old_pending_does_not_block_a_fresh_target_plan(
+    tmp_path, state_root, monkeypatch
+):
+    """A completed manual reconciliation must not freeze signed updates.
+
+    Legacy/manual callers recorded their handoff in install-state and then
+    completed it outside the transaction. The next automatic check must inspect
+    the live tree, retire that stale handoff, and continue in the same attempt.
+    """
+    root, first, second = _install(tmp_path)
+    run_mod._record_installed(
+        channel="stable",
+        version="0.16.0",
+        commit=first,
+        sequence=8,
+        key_id="manual",
+        pending=["codex: route_skill aqg-demo"],
+        state_root=state_root,
+    )
+
+    class Found:
+        manifest = {"version": "0.17.0", "release_sequence": 9}
+        commit = second
+        key_id = "fixture"
+        release_sequence = 9
+
+    from scripts.aqg_update.hosts.base import Evidence
+
+    monkeypatch.setattr(run_mod.acquire, "available_release", lambda *a, **k: Found())
+    monkeypatch.setattr(
+        run_mod,
+        "_collect_evidence",
+        lambda *a, **k: {
+            "codex": Evidence(
+                client_id="codex",
+                hooks_status="not-applicable",
+                hooks_detail="",
+                recorded_version=None,
+                routed_skills=("aqg-demo",),
+            )
+        },
+    )
+
+    result = run_mod.check(
+        root=root,
+        remote="origin",
+        channel="stable",
+        keyring_path=_write_keyring(tmp_path),
+        state_root=state_root,
+        now=10_000,
+    )
+
+    assert result.outcome == "applied", result.detail
+    assert run_mod.stage.version_commit(root) == second
+    installed = run_mod.state.read_state(path=state_root / "install-state.json")
+    assert installed["pending"] == []
+
+
+def test_unresolved_install_pending_still_protects_the_live_release(
+    tmp_path, state_root, monkeypatch
+):
+    """Fresh evidence, not historical text, decides whether an apply is safe."""
+    root, first, second = _install(tmp_path)
+    original_pending = ["codex: route_skill aqg-demo"]
+    run_mod._record_installed(
+        channel="stable",
+        version="0.16.0",
+        commit=first,
+        sequence=8,
+        key_id="manual",
+        pending=original_pending,
+        state_root=state_root,
+    )
+
+    class Found:
+        manifest = {"version": "0.17.0", "release_sequence": 9}
+        commit = second
+        key_id = "fixture"
+        release_sequence = 9
+
+    from scripts.aqg_update.hosts.base import Evidence
+
+    monkeypatch.setattr(run_mod.acquire, "available_release", lambda *a, **k: Found())
+    monkeypatch.setattr(
+        run_mod,
+        "_collect_evidence",
+        lambda *a, **k: {
+            "codex": Evidence(
+                client_id="codex",
+                hooks_status="not-applicable",
+                hooks_detail="",
+                recorded_version=None,
+                routed_skills=(),
+            )
+        },
+    )
+
+    result = run_mod.check(
+        root=root,
+        remote="origin",
+        channel="stable",
+        keyring_path=_write_keyring(tmp_path),
+        state_root=state_root,
+        now=10_000,
+    )
+
+    assert result.outcome == "pending"
+    assert any("route_skill aqg-demo" in item for item in result.pending)
+    assert run_mod.stage.version_commit(root) == first
+    installed = run_mod.state.read_state(path=state_root / "install-state.json")
+    assert installed["pending"] == original_pending
+
+
+def test_unobservable_host_keeps_a_fresh_retry_fail_closed(
+    tmp_path, state_root, monkeypatch
+):
+    root, first, second = _install(tmp_path)
+    run_mod._record_installed(
+        channel="stable",
+        version="0.16.0",
+        commit=first,
+        sequence=8,
+        key_id="manual",
+        pending=["codex: merge_hooks"],
+        state_root=state_root,
+    )
+
+    class Found:
+        manifest = {"version": "0.17.0", "release_sequence": 9}
+        commit = second
+        key_id = "fixture"
+        release_sequence = 9
+
+    def unavailable(installed, dropped, target_root=None):
+        dropped.append("codex: AdapterError: unreadable hooks")
+        return {}
+
+    monkeypatch.setattr(run_mod.acquire, "available_release", lambda *a, **k: Found())
+    monkeypatch.setattr(run_mod, "_collect_evidence", unavailable)
+
+    result = run_mod.check(
+        root=root,
+        remote="origin",
+        channel="stable",
+        keyring_path=_write_keyring(tmp_path),
+        state_root=state_root,
+        now=10_000,
+    )
+
+    assert result.outcome == "pending"
+    assert any("treated as unknown" in item for item in result.pending)
+    assert run_mod.stage.version_commit(root) == first
+
+
+def test_finalize_reconciliation_clears_a_completed_manual_handoff(
+    tmp_path, state_root, monkeypatch
+):
+    from scripts.aqg_update.hosts.base import Evidence
+
+    root, first, _ = _install(tmp_path)
+    run_mod._record_installed(
+        channel="stable",
+        version="0.16.0",
+        commit=first,
+        sequence=0,
+        key_id="manual",
+        pending=["codex: merge_hooks"],
+        state_root=state_root,
+    )
+    monkeypatch.setattr(
+        run_mod,
+        "_collect_evidence",
+        lambda *a, **k: {
+            "codex": Evidence(
+                client_id="codex",
+                hooks_status="not-applicable",
+                hooks_detail="",
+                recorded_version=None,
+                routed_skills=("aqg-demo",),
+                hooks_checked_against=str(root.resolve()),
+            )
+        },
+    )
+
+    result = run_mod.finalize_reconciliation(
+        root=root, expected_commit=first, state_root=state_root
+    )
+
+    assert result.outcome == "current", result.detail
+    installed = run_mod.state.read_state(path=state_root / "install-state.json")
+    assert installed["pending"] == []
+
+
+def test_finalize_reconciliation_refuses_a_different_live_commit(
+    tmp_path, state_root
+):
+    root, first, second = _install(tmp_path)
+    original_pending = ["codex: merge_hooks"]
+    run_mod._record_installed(
+        channel="stable",
+        version="0.16.0",
+        commit=first,
+        sequence=0,
+        key_id="manual",
+        pending=original_pending,
+        state_root=state_root,
+    )
+
+    result = run_mod.finalize_reconciliation(
+        root=root, expected_commit=second, state_root=state_root
+    )
+
+    assert result.outcome == "failed"
+    installed = run_mod.state.read_state(path=state_root / "install-state.json")
+    assert installed["pending"] == original_pending
+
+
+def test_finalize_reconciliation_refuses_an_unresolved_journal(
+    tmp_path, state_root
+):
+    root, first, _ = _install(tmp_path)
+    run_mod._record_installed(
+        channel="stable",
+        version="0.16.0",
+        commit=first,
+        sequence=0,
+        key_id="manual",
+        pending=["codex: merge_hooks"],
+        state_root=state_root,
+    )
+    journal = state_root / run_mod.transaction.JOURNAL_FILENAME
+    journal.write_text('{"phase":"repair_required"}', encoding="utf-8")
+
+    result = run_mod.finalize_reconciliation(
+        root=root, expected_commit=first, state_root=state_root
+    )
+
+    assert result.outcome == "repair-required"
+    installed = run_mod.state.read_state(path=state_root / "install-state.json")
+    assert installed["pending"] == ["codex: merge_hooks"]
+
+
+def test_finalize_reconciliation_reports_a_busy_apply_lock(
+    tmp_path, state_root
+):
+    root, first, _ = _install(tmp_path)
+    run_mod._record_installed(
+        channel="stable",
+        version="0.16.0",
+        commit=first,
+        sequence=0,
+        key_id="manual",
+        pending=["codex: merge_hooks"],
+        state_root=state_root,
+    )
+
+    with run_mod.lock.install_lock(path=state_root / run_mod.lock.LOCK_FILENAME):
+        result = run_mod.finalize_reconciliation(
+            root=root, expected_commit=first, state_root=state_root
+        )
+
+    assert result.outcome == "busy"
+
+
+def test_reconciliation_session_lock_blocks_an_automatic_apply(
+    tmp_path, state_root
+):
+    with run_mod.lock.install_lock(
+        path=state_root / run_mod.RECONCILIATION_LOCK_FILENAME
+    ):
+        result = run_mod.check(
+            root=tmp_path,
+            remote="origin",
+            channel="stable",
+            keyring_path=tmp_path / "absent.json",
+            state_root=state_root,
+            now=10_000,
+            force=True,
+        )
+
+    assert result.outcome == "busy"
+
+
+def test_reconciliation_rollback_restores_root_and_install_state(
+    tmp_path, state_root, monkeypatch
+):
+    root, first, second = _install(tmp_path)
+    run_mod._record_installed(
+        channel="stable",
+        version="0.16.0",
+        commit=first,
+        sequence=8,
+        key_id="old-release",
+        pending=[],
+        state_root=state_root,
+    )
+    previous = run_mod.stage.current_target(root)
+    run_mod.prepare_reconciliation_snapshot(state_root=state_root)
+    _clean_plan(monkeypatch, second)
+
+    applied = run_mod.apply_commit(
+        root=root,
+        commit=second,
+        version="0.17.0",
+        state_root=state_root,
+        host_reconciliation=True,
+    )
+    assert applied.outcome == "applied", applied.detail
+
+    rolled_back = run_mod.rollback_reconciliation(
+        root=root,
+        expected_commit=second,
+        previous_root=previous,
+        state_root=state_root,
+    )
+
+    assert rolled_back.outcome == "rolled-back", rolled_back.detail
+    assert run_mod.stage.version_commit(root) == first
+    installed = run_mod.state.read_state(path=state_root / "install-state.json")
+    assert installed["installed_commit"] == first
+    assert installed["release_sequence"] == 8
+    assert not (state_root / run_mod.RECONCILIATION_STATE_FILENAME).exists()
 
 
 @pytest.mark.parametrize("linked_parent", [False, True])
@@ -1165,7 +1556,7 @@ def test_launcher_preserves_network_configuration_without_empty_ca_overrides(tmp
     assert not (tmp_path / 'SHOULD_NOT_EXIST').exists()
 
 
-@pytest.mark.parametrize('value,expected', [('9' * 5000, 604800), ('0' * 5000 + '60', 60), ('-9' + '9' * 5000, 3600)])
+@pytest.mark.parametrize('value,expected', [('9' * 5000, 604800), ('0' * 5000 + '60', 60), ('-9' + '9' * 5000, 1800)])
 def test_oversized_interval_text_cannot_break_admission(monkeypatch, value, expected):
     monkeypatch.setenv(run_mod.INTERVAL_ENV, value)
     assert run_mod.check_interval_seconds() == expected

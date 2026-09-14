@@ -46,6 +46,7 @@ EOF
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo_root="$(cd "$script_dir/.." && pwd)"
+original_args=("$@")
 
 ref=""
 clean_only="0"
@@ -77,6 +78,14 @@ if [[ -n "$ref" && "$ref" == -* ]]; then
 fi
 
 step() { printf '\n\033[1m== %s ==\033[0m\n' "$1"; }
+
+reconciliation_enabled() {
+  [[ "$hooks_mode" != "skip" ]] || return 1
+  local enabled
+  for enabled in "$do_codex" "$do_claude"; do
+    [[ "$enabled" == "1" ]] || return 1
+  done
+}
 
 # --- 0. optional one-way layout migration ---------------------------------------
 #
@@ -137,6 +146,33 @@ print("migrated: " + str(done.root) + " -> " + str(done.target))
   exit 0
 fi
 
+# Hold one OS lock across the transactional root swap and every host write.
+# Re-entering the script under Python avoids Bash-4-only coprocess features and
+# keeps crash cleanup kernel-backed on macOS, Linux, and Git Bash alike.
+if [[ -L "$repo_root" && "$clean_only" != "1" \
+      && "${AQG_RECONCILIATION_LOCK_HELD:-0}" != "1" ]] \
+      && reconciliation_enabled; then
+  exec python3 -c '
+import os
+import subprocess
+import sys
+root, script, *args = sys.argv[1:]
+sys.path.insert(0, root)
+from scripts.aqg_update import lock, run, state
+try:
+    with lock.install_lock(
+        path=state.state_root(create=True) / run.RECONCILIATION_LOCK_FILENAME
+    ):
+        env = dict(os.environ)
+        env["AQG_RECONCILIATION_LOCK_HELD"] = "1"
+        done = subprocess.run(["bash", script, *args], env=env)
+except lock.LockBusy:
+    print("ERROR: another AQG update or host reconciliation is in progress.", file=sys.stderr)
+    raise SystemExit(1)
+raise SystemExit(done.returncode)
+' "$repo_root" "$script_dir/upgrade.sh" "${original_args[@]}"
+fi
+
 # Read VERSION without leaking a shell redirect error when the file is absent
 # (e.g. checking out a very old --ref): guard the redirect with -f.
 read_version() {
@@ -189,9 +225,19 @@ else
       # with it claimed reconciliation while leaving that host describing the old
       # tree — the exact state the claim exists to avoid. A run that will not
       # reconcile EVERY host must not claim to reconcile any.
-      if [[ "$hooks_mode" != "skip" && "$do_codex" == "1" && "$do_claude" == "1" ]]; then
+      if reconciliation_enabled; then
         reconcile="1"
       fi
+
+      if [[ "$reconcile" == "1" ]]; then
+        python3 -c '
+import sys
+sys.path.insert(0, sys.argv[1])
+from scripts.aqg_update import run
+run.prepare_reconciliation_snapshot()
+' "$repo_root"
+      fi
+
       echo "applying $target_commit transactionally (reconcile=$reconcile)"
       python3 -c '
 import sys
@@ -244,8 +290,21 @@ raise SystemExit(0 if result.outcome in ("applied", "current")
           echo "ERROR: a step after the version swap failed (exit $rc)." >&2
           echo "       Putting the root back to $pre_swap_target so the hosts and the" >&2
           echo "       tree they point into stay consistent. Re-run when fixed." >&2
-          ln -sfn "$pre_swap_target" "$repo_root" ||             echo "ERROR: could not restore the root; it is at $(readlink "$repo_root")." >&2
-          return $rc
+          python3 -c '
+import sys
+root, commit, previous = sys.argv[1:4]
+sys.path.insert(0, root)
+from scripts.aqg_update import run
+result = run.rollback_reconciliation(
+    root=root, expected_commit=commit, previous_root=previous
+)
+print("rollback: " + result.outcome + (". " + result.detail if result.detail else ""))
+raise SystemExit(0 if result.outcome == "rolled-back" else 1)
+' "$repo_root" "$target_commit" "$pre_swap_target" || {
+            echo "ERROR: could not restore both root and install state." >&2
+            return 1
+          }
+          return "$rc"
         }
         trap aqg_rollback_root EXIT
       fi
@@ -355,12 +414,32 @@ else
   _install_hooks
 fi
 
-# Every reconciliation step (2-5) has now run, so the root may stay where the
-# update put it. Cleared HERE and not a step earlier: an earlier version cleared
-# it before the Claude hook step, which is itself reconciliation — a failure
-# there would have left the root on the new tree with that host's config still
-# describing the old one, which is the whole hazard.
-if [[ "${reconcile:-0}" == "1" ]]; then trap - EXIT; fi
+# Every reconciliation step (2-5) must succeed and its result must be recorded
+# before the root may stay where the update put it. The hook installers capture
+# their return codes so they can print useful diagnostics; check those codes
+# while the rollback trap is still armed.
+if [[ "${reconcile:-0}" == "1" ]]; then
+  if [[ "$codex_hooks_rc" -ne 0 || "$hooks_rc" -ne 0 ]]; then
+    echo "ERROR: host reconciliation failed; restoring the previous AQG root." >&2
+    exit 1
+  fi
+
+  step "Finalize host reconciliation"
+  python3 -c '
+import sys
+root, commit = sys.argv[1], sys.argv[2]
+sys.path.insert(0, root)
+from scripts.aqg_update import run
+result = run.finalize_reconciliation(root=root, expected_commit=commit)
+print("reconciliation: " + result.outcome + (". " + result.detail if result.detail else ""))
+raise SystemExit(0 if result.outcome == "current" else 1)
+' "$repo_root" "$target_commit" || {
+    echo "ERROR: host reconciliation could not be finalized; restoring the previous AQG root." >&2
+    exit 1
+  }
+
+  trap - EXIT
+fi
 
 # --- 6. Verify -----------------------------------------------------------------
 step "Doctor (verify)"

@@ -856,10 +856,29 @@ contract and does not bypass release signature verification. Sidecar boundary
 fields document writes; they do not grant OS or agent sandbox permissions.
 
 The existing runner owns signature checks, locks and timing. Its default check
-interval is one hour; failed/interrupted/rolled-back attempts normally retry on
+interval is thirty minutes; failed/interrupted/rolled-back attempts normally retry on
 a later invocation after five minutes (an explicit interval override still wins).
 Skipping during cooldown does not renew that cooldown. Process death releases
-the OS lock; a leftover lock filename is not a permanent lock.
+the OS lock; a leftover lock filename is not a permanent lock. A manual
+`--force-check` bypasses only the cooldown and still passes through the keyring,
+signature, sequence, transaction, host-evidence and smoke gates.
+
+A previous failure is diagnostic history, not admission policy. Before planning
+a newer release, the runner removes the old handoff from its in-memory planning
+state and collects fresh host evidence against the new target. The fresh plan,
+not old pending text, decides whether that attempt may proceed. Work that is
+still observable remains a safety refusal; an unresolved journal, invalid
+signature, or rollback sequence is never bypassed. A successful transaction
+replaces the old handoff in install state. Manual upgrades finalize their
+handoff only after every host step succeeds, while the root rollback trap is
+still armed. They also hold a reconciliation lock across the root swap and all
+host writes so an automatic retry cannot plan from an in-flight configuration;
+failure restores both the previous root and its install-state snapshot.
+
+Every stored pending item is produced from planner actions, deferrals, or an
+adapter that could not report. A retry may omit the old text only in its
+in-memory planning copy: fresh dropped adapters and deferrals still block, and
+the old state remains unchanged unless the replacement transaction commits.
 
 Release discovery returns `current` only after signature verification establishes
 that the published sequence is not newer. A failed channel fetch, absent channel,
