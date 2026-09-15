@@ -108,14 +108,14 @@ def test_release_result_retains_rules_notice_without_blocking_update(home, monke
 def test_all_known_user_rule_locations_report_drift_without_writes(home):
     from scripts import install_aqg_work_clients as work, install_aqg_qoder as qoder, install_aqg_agent_clients as agent
     locations = list(rules.rule_locations(home))
-    native = home / 'AppData/Roaming' if os.name == 'nt' else home / '.config'
+    native = Path(os.environ['APPDATA'])
     expected = {
         'claude-code': home / '.claude/CLAUDE.md', 'codex': home / '.codex/AGENTS.md',
         'workbuddy': home / '.workbuddy/rules/aqg.md', 'codebuddy': home / '.codebuddy/rules/aqg.md',
         'workbuddy-ai': home / '.workbuddy-ai/rules/aqg.md', 'kimi-code': home / '.kimi-code/rules/aqg.md',
         'qoderwork': home / '.qoderwork/rules/aqg.md', 'qoderwake': home / '.qoderwake/rules/aqg.md',
         'qoder-cli': home / '.qoder/rules/aqg.md', 'qoder-cli-cn': home / '.qoder-cn/rules/aqg.md',
-        'zed': native / 'zed/AGENTS.md', 'devin': native / 'devin/AGENTS.md',
+        'zed': native / 'Zed/AGENTS.md', 'devin': native / 'devin/AGENTS.md',
     }
     assert dict(locations) == expected
     for client, path in expected.items():

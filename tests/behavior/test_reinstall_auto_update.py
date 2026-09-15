@@ -15,7 +15,7 @@ from pathlib import Path
 
 import pytest
 
-from scripts.aqg_update import acquire, run
+from scripts.aqg_update import acquire, run, stage
 from tests.behavior.test_update_acquire import _KEY, _KEY_ID, _git, _git_init, _publish, _sign
 
 REPO = Path(__file__).resolve().parents[2]
@@ -48,7 +48,7 @@ def installation(tmp_path_factory, monkeypatch):
         if source.is_file():
             dest = origin / name
             dest.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copyfile(source, dest)
+            shutil.copy2(source, dest)
     test_trust = json.dumps({"schema": 1, "keys": [{
         "key_id": _KEY_ID, "algorithm": "rsa-pkcs1v15-sha256",
         "modulus_hex": _KEY["modulus_hex"], "exponent": _KEY["exponent"],
@@ -127,7 +127,8 @@ def test_reinstall_then_signed_content_release_really_updates(installation, monk
     monkeypatch.delenv("AQG_NO_UPDATE_CHECK")
     result = run.check(root=root.resolve(), remote="origin", channel="stable", keyring_path=keyring, now=10000)
     assert result.outcome == "applied", (result, result.pending)
-    assert root.resolve().name == commit
+    assert root.resolve().name == "0.14.4"
+    assert stage.version_commit(root.resolve()) == commit
     assert (root / "VERSION").read_text().strip() == "0.14.4"
     for host in (".codex", ".claude"):
         assert marker in (home / host / "skills/aqg-code-construction/SKILL.md").read_text(encoding="utf-8")
@@ -155,7 +156,8 @@ def test_reinstall_then_signed_content_release_really_updates(installation, monk
         time.sleep(0.05)  # wait on the detached child's durable completion signal
     else:
         pytest.fail((home / ".deeppattern/aqg-state/update-last-check.json").read_text())
-    assert root.resolve().name == next_commit
+    assert root.resolve().name == "0.14.5"
+    assert stage.version_commit(root.resolve()) == next_commit
     assert applied["release_sequence"] == 9
     _install(home, root, "--verify")
 

@@ -15,8 +15,10 @@ def test_python_executable_alias_does_not_change_hook_evidence(tmp_path, monkeyp
     executable = tmp_path / 'Python' / 'python.exe'
     executable.parent.mkdir()
     executable.write_bytes(b'identical interpreter fixture')
+    executable.chmod(0o700)
     alias = executable.with_name('python3.exe')
     alias.write_bytes(executable.read_bytes())
+    alias.chmod(0o700)
     monkeypatch.setattr(sys, 'executable', str(alias))
     adapter = ManagedAdapter(client, home=tmp_path, aqg_root=Path(__file__).resolve().parents[2])
     path, expected = adapter.canonical_config()
@@ -59,6 +61,7 @@ def test_qoder_accepts_unresolved_interpreter_symlink(tmp_path, monkeypatch):
     from scripts.aqg_update.hosts.managed import ManagedAdapter
     executable = tmp_path / 'python.exe'
     executable.write_bytes(b'interpreter fixture')
+    executable.chmod(0o700)
     alias = tmp_path / 'python3.exe'
     alias.symlink_to(executable)
     monkeypatch.setattr(sys, 'executable', str(alias))

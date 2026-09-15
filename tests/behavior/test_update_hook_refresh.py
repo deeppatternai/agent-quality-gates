@@ -267,7 +267,9 @@ def test_foreign_alias_mentions_do_not_change_managed_command(tmp_path, monkeypa
     executable = tmp_path / 'python.exe'
     alias = tmp_path / 'python3.exe'
     executable.write_bytes(b'identical test interpreter')
+    executable.chmod(0o700)
     alias.write_bytes(executable.read_bytes())
+    alias.chmod(0o700)
     monkeypatch.setattr(sys, 'executable', str(executable))
     adapter = managed.ManagedAdapter(client, home=tmp_path, aqg_root=REPO)
     path, expected = adapter.canonical_config()

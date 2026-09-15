@@ -24,8 +24,11 @@ import pytest
 
 from scripts.aqg_update import migrate as migrate_mod
 from scripts.aqg_update import run as run_mod
+from scripts.aqg_update import stage as stage_mod
 
 UPGRADE = Path(__file__).resolve().parents[2] / "scripts" / "upgrade.sh"
+FIRST_VERSION = "0.16.0"
+SECOND_VERSION = "0.17.0"
 
 
 def _origin_and_install(tmp_path: Path):
@@ -45,11 +48,11 @@ def _origin_and_install(tmp_path: Path):
     (origin / "scripts" / "_aqg_context.sh").write_text("# helper\n", encoding="utf-8")
     (origin / "skills" / "aqg-demo").mkdir(parents=True)
     (origin / "skills" / "aqg-demo" / "SKILL.md").write_text("# demo\n", encoding="utf-8")
-    (origin / "VERSION").write_text("0.16.0\n", encoding="utf-8")
+    (origin / "VERSION").write_text(FIRST_VERSION + "\n", encoding="utf-8")
     git(origin, "add", "-A")
     git(origin, "commit", "-qm", "v1")
     first = git(origin, "rev-parse", "HEAD").stdout.decode().strip()
-    (origin / "VERSION").write_text("0.17.0\n", encoding="utf-8")
+    (origin / "VERSION").write_text(SECOND_VERSION + "\n", encoding="utf-8")
     git(origin, "add", "-A")
     git(origin, "commit", "-qm", "v2")
     second = git(origin, "rev-parse", "HEAD").stdout.decode().strip()
@@ -94,8 +97,10 @@ def test_applying_a_commit_swaps_the_root_and_keeps_the_old_version(
     )
     result = run_mod.apply_commit(root=install, commit=second, state_root=tmp_path / "state")
     assert result.outcome == "applied", result.detail
-    assert os.path.realpath(install) == str((tmp_path / "versions" / second).resolve())
-    assert (tmp_path / "versions" / first).is_dir(), "the previous version was destroyed"
+    live = tmp_path / "versions" / SECOND_VERSION
+    assert os.path.realpath(install) == str(live.resolve())
+    assert stage_mod.version_commit(live) == second
+    assert (tmp_path / "versions" / FIRST_VERSION).is_dir(), "the previous version was destroyed"
 
 
 def test_applying_a_commit_refuses_a_plan_that_touches_a_host(tmp_path, monkeypatch):
@@ -121,7 +126,7 @@ def test_applying_a_commit_refuses_a_plan_that_touches_a_host(tmp_path, monkeypa
     monkeypatch.setattr(run_mod.plan_mod, "build_plan", with_a_route)
     result = run_mod.apply_commit(root=install, commit=second, state_root=tmp_path / "state")
     assert result.outcome == "pending"
-    assert os.path.realpath(install) == str((tmp_path / "versions" / first).resolve())
+    assert os.path.realpath(install) == str((tmp_path / "versions" / FIRST_VERSION).resolve())
 
 
 def test_the_automatic_path_never_applies_an_unverified_commit():
@@ -207,7 +212,7 @@ def test_a_caller_that_will_reconcile_may_take_a_host_touching_update(
     assert any("aqg-demo" in item for item in result.pending), (
         "the caller was given no list of what it now has to reconcile"
     )
-    assert os.path.realpath(install) == str((tmp_path / "versions" / second).resolve())
+    assert os.path.realpath(install) == str((tmp_path / "versions" / SECOND_VERSION).resolve())
 
 
 def test_the_exemption_is_not_available_to_the_automatic_path():
@@ -336,8 +341,8 @@ def test_a_refusal_does_not_leave_a_staged_tree_blocking_the_next_attempt(
     """Found by running it, not by a test.
 
     The refusal path stages the tree and then declines to apply it, so
-    `versions/<commit>` was left behind — and because the directory is named
-    after the commit, every later attempt at that same version hit "a staged
+    `versions/<version>` was left behind, so every later attempt at that same
+    version hit "a staged
     version already exists" and reported pending forever. One `--no-hooks` run
     permanently wedged the upgrade.
     """
@@ -360,7 +365,7 @@ def test_a_refusal_does_not_leave_a_staged_tree_blocking_the_next_attempt(
     monkeypatch.setattr(run_mod.plan_mod, "build_plan", with_a_route)
     first_try = run_mod.apply_commit(root=install, commit=second, state_root=tmp_path / "s")
     assert first_try.outcome == "pending"
-    assert not (tmp_path / "versions" / second).exists(), (
+    assert not (tmp_path / "versions" / SECOND_VERSION).exists(), (
         "the refusal left a staged tree behind"
     )
 
