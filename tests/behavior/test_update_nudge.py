@@ -160,6 +160,7 @@ def test_cli_output_and_exit_survive_broken_trigger(tmp_path, entry, failure, ar
 def test_native_child_survives_foreground_exit_and_cannot_hold_its_pipes(managed, tmp_path):
     mod, root, tree = managed
     shutil.copyfile(ROOT / 'scripts/aqg_update/nudge.py', tree / 'scripts/aqg_update/nudge.py')
+    shutil.copyfile(ROOT / 'scripts/aqg_directory_links.py', tree / 'scripts/aqg_directory_links.py')
     ready, release, done = [tmp_path / name for name in ('ready', 'release', 'done')]
     git = shutil.which('git')
     assert git, 'Git is required by the updater'

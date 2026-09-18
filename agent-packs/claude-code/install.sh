@@ -192,6 +192,15 @@ echo "Installing Agent Quality Gates $version Claude Code skills into $dest"
 # Remove residue (renamed/removed skills) before linking.
 prune_stale_skill_symlinks "$dest"
 
+install_args=(
+  "$repo_root/scripts/aqg_skill_install.py"
+  --aqg-root "$repo_root"
+  --mode "$mode"
+)
+if [[ "$force" == "1" ]]; then
+  install_args+=(--force)
+fi
+
 for skill in "${skills[@]}"; do
   source_dir="$skills_root/$skill"
   target_dir="$dest/$skill"
@@ -199,24 +208,9 @@ for skill in "${skills[@]}"; do
     echo "ERROR: missing packaged skill: $source_dir" >&2
     exit 1
   fi
-  if [[ -e "$target_dir" || -L "$target_dir" ]]; then
-    if [[ "$force" != "1" ]]; then
-      echo "ERROR: target exists: $target_dir (use --force to replace)" >&2
-      exit 1
-    fi
-  fi
-  install_args=(
-    python3 "$repo_root/scripts/aqg_skill_install.py"
-    --source "$source_dir"
-    --target "$target_dir"
-    --aqg-root "$repo_root"
-    --mode "$mode"
-  )
-  if [[ "$force" == "1" ]]; then
-    install_args+=(--force)
-  fi
-  "${install_args[@]}"
+  install_args+=(--item "$source_dir" "$target_dir")
 done
+python3 "${install_args[@]}"
 
 echo "Done. Restart Claude Code or open a new session to load updated skills."
 

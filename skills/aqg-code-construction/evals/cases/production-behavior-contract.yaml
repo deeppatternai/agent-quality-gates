@@ -1,0 +1,36 @@
+id: production-behavior-contract
+title: 生产路径改动应要求 row 2 与 Behavior Contract
+description: 验证 Skill 会提示生产路径改动即使很小也要记录 Behavior Lock，并用结构化 Behavior Contract 连接测试证据。
+
+input:
+  prompt: |
+    只根据 aqg-code-construction 技能说明回答，不要读仓库、不要调用工具；请用 8 行以内说明：这次要改 `skills/demo/scripts/run.py` 的生产路径行为，即使 diff 很小，ledger 的 row 2 和 Behavior Contract 应该怎么写。
+    回答必须包含 production-path、row 2、Behavior Lock、Behavior Contract、MUST、GIVEN、WHEN、THEN 和 covers: R1。
+
+expect:
+  must_contain:
+    - "production-path"
+    - "row 2"
+    - "Behavior Lock"
+    - "Behavior Contract"
+    - "MUST"
+    - "GIVEN"
+    - "WHEN"
+    - "THEN"
+    - "covers: R1"
+
+judge:
+  type: rule_based
+  success:
+    - output_contains:
+        all:
+          - "production-path"
+          - "row 2"
+          - "Behavior Lock"
+          - "Behavior Contract"
+          - "MUST"
+          - "GIVEN"
+          - "WHEN"
+          - "THEN"
+          - "covers: R1"
+    - exit_code: 0

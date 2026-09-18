@@ -30,22 +30,36 @@ The shared destination is assumed to have a single mutator during an apply. The
 check-then-unlink in `prune` is re-validated immediately before the unlink, but
 real serialisation is the update lock's job, held by the transaction layer.
 
-On Windows this creates a directory **symlink** via ``os.symlink(...,
-target_is_directory=True)``, which needs Developer Mode or elevation. There is
-no junction code here. No Windows runner exists in this repo, so that path is
-unverified.
+On Windows a new route is a junction, so a standard user does not need symlink
+privilege. Existing exact symlink routes remain valid and keep their type. Both
+types are removed only through the shared entry-only, expectation-checked API.
 """
 
 from __future__ import annotations
 
 import os
-import stat
 from pathlib import Path
 from typing import Tuple
+
+try:  # package import from the repository root
+    from scripts import aqg_directory_links as directory_links
+except ImportError:  # installed scripts/ on sys.path
+    import aqg_directory_links as directory_links  # type: ignore[no-redef]
 
 
 class RouteError(RuntimeError):
     """A refusal from the routing layer. Always fail-closed."""
+
+
+def _is_windows() -> bool:
+    return os.name == "nt"
+
+
+def _link_kind(path: Path) -> str:
+    try:
+        return directory_links.link_kind(Path(path))
+    except OSError as exc:
+        raise RouteError(f"cannot inspect route at {path}: {exc}") from exc
 
 
 def _require_safe_name(name: str) -> str:
@@ -139,14 +153,22 @@ def _is_our_route(link: Path, source_root: Path) -> bool:
     would write cannot be fooled lexically, and is three lines instead of
     fifteen.
     """
-    if not link.is_symlink():
+    kind = _link_kind(link)
+    if kind == "junction":
+        try:
+            return directory_links.read_link_target(link) == Path(
+                os.path.normpath(_expected_link_text(source_root, link.name))
+            )
+        except OSError:
+            return False
+    if kind != "symlink":
         return False
     try:
         raw = os.readlink(link)
     except OSError:
         return False
     expected = _expected_link_text(source_root, link.name)
-    if os.name != "nt":
+    if not _is_windows():
         return raw == expected
     try:
         if _windows_print_name(link) != expected:
@@ -162,7 +184,10 @@ def _is_our_route(link: Path, source_root: Path) -> bool:
     return raw == extended
 
 
-def route(*, name: str, source_root: Path, dest_root: Path) -> bool:
+def route(
+    *, name: str, source_root: Path, dest_root: Path,
+    content_root: Path | None = None,
+) -> bool:
     """Point ``dest_root/name`` at ``source_root/name``. Returns whether it was
     created.
 
@@ -174,27 +199,35 @@ def route(*, name: str, source_root: Path, dest_root: Path) -> bool:
     """
     _require_safe_name(name)
     source_root = _require_absolute_root(source_root)
+    content_root = _require_absolute_root(
+        source_root if content_root is None else content_root
+    )
     dest_root = Path(dest_root)
-    source = source_root / name
+    source = content_root / name
     link = dest_root / name
 
     if not source.is_dir():
         raise RouteError(
-            f"the checkout does not ship {name!r} at {source}; a dangling route "
+            f"the staged checkout does not ship {name!r} at {source}; a "
+            f"dangling route "
             f"would make the host list a skill it cannot read"
         )
     if _is_our_route(link, source_root):
         return False
-    if link.exists() or link.is_symlink():
+    link_kind = _link_kind(link)
+    if link_kind != "missing":
         raise RouteError(
-            f"{link} exists and is not a route this layer created; refusing to "
-            f"replace it"
+            f"{link} exists as {link_kind} and is not a route this layer "
+            f"created; refusing to replace it"
         )
     try:
         dest_root.mkdir(parents=True, exist_ok=True)
-        # The text written here is what `_is_our_route` compares against.
-        os.symlink(_expected_link_text(source_root, name), link,
-                   target_is_directory=True)
+        expected = Path(_expected_link_text(source_root, name))
+        if _is_windows():
+            directory_links.create_junction(expected, link)
+        else:
+            # The text written here is what `_is_our_route` compares against.
+            os.symlink(str(expected), link, target_is_directory=True)
     except OSError as exc:
         raise RouteError(f"cannot route {name} into {dest_root}: {exc}") from exc
     return True
@@ -214,20 +247,14 @@ def prune(*, name: str, source_root: Path, dest_root: Path) -> bool:
     link = Path(dest_root) / name
     if not _is_our_route(link, source_root):
         return False
-    # Re-checked immediately before the unlink: `os.unlink` on a path that
-    # stopped being a symlink deletes that file. This narrows the window; the
-    # update lock is what actually serialises AQG's own callers.
-    try:
-        if not stat.S_ISLNK(os.lstat(link).st_mode):
-            return False
-    except FileNotFoundError:
+    kind = _link_kind(link)
+    expected = Path(_expected_link_text(source_root, name))
+    if kind not in {"symlink", "junction"}:
         return False
-    except OSError as exc:
-        raise RouteError(f"cannot re-check the route at {link}: {exc}") from exc
     try:
-        os.unlink(link)
-    except FileNotFoundError:
-        return False
+        directory_links.remove_directory_link(
+            link, expected_kind=kind, expected_target=expected
+        )
     except OSError as exc:
         raise RouteError(f"cannot remove the route at {link}: {exc}") from exc
     return True

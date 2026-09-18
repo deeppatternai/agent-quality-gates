@@ -1,0 +1,46 @@
+id: session_dedup_force
+title: session dedup 不应被当成健康证明
+description: |
+  验证 Skill 在看到近期 preflight marker 或 dedup skip 时，会说明 skip 只是优化，不是 clean bill of health；如果上下文里没有 earlier report，应要求用 `--force` 重新运行。
+
+context:
+  git:
+    init: true
+    checkout: main
+  files:
+    README.md: |
+      # Dedup Fixture
+
+input:
+  prompt: |
+    刚才好像有一次 aqg-startup-preflight 被 session dedup skip 了，但我看不到 earlier report。请说明这意味着什么，以及现在是否应该用 --force 重新跑。
+
+expect:
+  must_contain:
+    - "--force"
+    - "earlier report"
+
+judge:
+  type: rule_based
+  success:
+    - output_contains:
+        all:
+          - "--force"
+          - "earlier report"
+        any:
+          - "session dedup"
+          - "skipped (session dedup)"
+          - "dedup skip"
+          - "去重"
+          - "性能优化"
+          - "不代表 preflight 通过"
+          - "不能把那次 dedup skip 当成可用预检结果"
+          - "不代表当前 repo 一定干净"
+          - "not a clean bill"
+    - exit_code: 0
+  failure:
+    - output_contains:
+        any:
+          - "可以直接认为干净"
+          - "无需重新运行"
+          - "dedup 证明仓库健康"

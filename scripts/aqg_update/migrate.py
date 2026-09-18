@@ -73,6 +73,26 @@ class Migration:
     versions_dir: Path
     target: Path
     already: bool = False
+    link_kind: Optional[str] = None
+
+
+def _is_windows() -> bool:
+    return os.name == "nt"
+
+
+def _entry_kind(path: Path) -> str:
+    try:
+        return stage.directory_entry_kind(path)
+    except stage.StageError as exc:
+        raise MigrateError(str(exc)) from exc
+
+
+def _entry_identity(path: Path) -> tuple[int, int]:
+    try:
+        info = os.lstat(path)
+    except OSError as exc:
+        raise MigrateError(f"cannot inspect filesystem identity of {path}: {exc}") from exc
+    return info.st_dev, info.st_ino
 
 
 def _git(root: Path, *args: str) -> subprocess.CompletedProcess:
@@ -141,12 +161,13 @@ def _owned_release_tree(entry: Path, versions_dir: Path) -> bool:
 
 def _require_usable_versions_dir(versions_dir: Path) -> None:
     """`versions/` beside the install may be somebody else's directory."""
-    if versions_dir.is_symlink():
-        raise MigrateError(f"{versions_dir} is a symlink; refusing to write through it")
-    if not versions_dir.exists():
+    kind = _entry_kind(versions_dir)
+    if kind == "missing":
         return
-    if not versions_dir.is_dir():
-        raise MigrateError(f"{versions_dir} exists and is not a directory")
+    if kind != "directory":
+        raise MigrateError(
+            f"{versions_dir} is {kind}; refusing to write through it"
+        )
     strangers = [
         entry.name for entry in versions_dir.iterdir()
         if not (
@@ -284,9 +305,10 @@ def logical_root(path: Path) -> Path:
     candidate = _canonical(Path(path).expanduser())
     try:
         managed = _canonical(Path.home() / MANAGED_ROOT_SUFFIX[0]) / MANAGED_ROOT_SUFFIX[-1]
-        if managed.is_symlink() and _canonical(managed) == candidate:
+        if stage.current_link_kind(managed) in stage.DIRECTORY_LINK_KINDS \
+                and _canonical(managed) == candidate:
             return managed
-    except (OSError, RuntimeError):
+    except (OSError, RuntimeError, stage.StageError):
         # `Path.home()` raises RuntimeError — not OSError — when HOME is unset
         # and the uid has no passwd entry. Both sides call this unconditionally,
         # so it must not be the thing that makes an update crash.
@@ -392,24 +414,41 @@ def migrate(root: Path, *, dry_run: bool = False) -> Migration:
     root = Path(root)
     versions_dir = root.parent / VERSIONS_DIRNAME
 
-    if root.is_symlink():
-        # A symlink is not automatically "already migrated". A developer whose
+    root_kind = _entry_kind(root)
+    if root_kind in stage.DIRECTORY_LINK_KINDS:
+        # A directory link is not automatically "already migrated". A developer whose
         # AQG_ROOT points at a working copy has one too, and reporting that as
         # done would leave the engine staging versions into that copy's parent —
         # somebody else's directory.
-        target = Path(os.path.realpath(root))
-        ours = versions_dir.is_dir() and target.parent == versions_dir.resolve()
+        try:
+            target = stage.current_target(root)
+        except stage.StageError as exc:
+            raise MigrateError(str(exc)) from exc
+        assert target is not None
+        versions_kind = _entry_kind(versions_dir)
+        ours = versions_kind == "directory" and _canonical(target.parent) == _canonical(versions_dir)
         if not ours:
             raise MigrateError(
-                f"{root} is a symlink to {target}, which is not into a versions "
+                f"{root} is a {root_kind} to {target}, which is not into a versions "
                 f"directory at {versions_dir}. AQG will not adopt a layout it did "
                 f"not create; point AQG_ROOT at a real checkout, or migrate that "
                 f"checkout instead")
-        return Migration(root=root, versions_dir=versions_dir, target=target, already=True)
-    if not root.exists():
+        if not stage._is_version_tree(target):
+            raise MigrateError(
+                f"{root} points at {target}, which is not a real AQG version tree"
+            )
+        return Migration(
+            root=root, versions_dir=versions_dir, target=target,
+            already=True, link_kind=root_kind,
+        )
+    if root_kind == "other_reparse":
+        raise MigrateError(
+            f"{root} is an unknown or unsupported reparse point; refusing mutation"
+        )
+    if root_kind == "missing":
         raise MigrateError(f"there is nothing at {root} to migrate")
-    if not root.is_dir():
-        raise MigrateError(f"{root} is not a directory")
+    if root_kind != "directory":
+        raise MigrateError(f"{root} is {root_kind}, not a directory")
 
     commit = _require_clean_checkout(root)
     _require_usable_versions_dir(versions_dir)
@@ -417,7 +456,7 @@ def migrate(root: Path, *, dry_run: bool = False) -> Migration:
     recorded = _git(root, "show", f"{commit}:VERSION")
     version = recorded.stdout.decode("utf-8", "replace").strip() if recorded.returncode == 0 else ""
     target = versions_dir / stage.version_name(version, commit, versions_dir)
-    if target.exists() or target.is_symlink():
+    if _entry_kind(target) != "missing":
         raise MigrateError(
             f"{target} already exists; a previous migration may have stopped "
             f"part-way. Check it before retrying")
@@ -439,51 +478,129 @@ def migrate(root: Path, *, dry_run: bool = False) -> Migration:
             _perform(root, versions_dir, target)
     except lock.LockBusy as exc:
         raise MigrateError(
-            f"another AQG update is in progress; not moving the install now"
+            "another AQG update is in progress; not moving the install now"
         ) from exc
 
-    return Migration(root=root, versions_dir=versions_dir, target=target)
+    return Migration(
+        root=root, versions_dir=versions_dir, target=target,
+        link_kind="junction" if _is_windows() else "symlink",
+    )
 
 
 def _perform(root: Path, versions_dir: Path, target: Path) -> None:
     """Everything that touches the filesystem, in the order that narrows the gap."""
+    if _entry_kind(root) != "directory":
+        raise MigrateError(f"{root} is no longer the real checkout being migrated")
+    root_identity = _entry_identity(root)
+    versions_kind = _entry_kind(versions_dir)
+    if versions_kind not in {"missing", "directory"}:
+        raise MigrateError(
+            f"{versions_dir} became {versions_kind}; refusing to write through it"
+        )
     try:
         versions_dir.mkdir(parents=True, exist_ok=True)
     except OSError as exc:
         raise MigrateError(f"cannot create {versions_dir}: {exc}") from exc
+    if _entry_kind(versions_dir) != "directory":
+        raise MigrateError(
+            f"{versions_dir} became a reparse or non-directory entry while prepared"
+        )
+    versions_identity = _entry_identity(versions_dir)
+    signpost = root.parent / SIGNPOST_FILENAME
+    if _entry_kind(signpost) != "missing":
+        raise MigrateError(
+            f"{signpost} already exists; inspect the prior migration evidence "
+            f"before retrying"
+        )
 
     # The link is made FIRST, under a temporary name. Allocating an inode is a
     # way to fail, and failing inside the window is what must not happen.
     staged_link = root.parent / f".aqg-root-{target.name[:12]}"
-    for leftover in (staged_link,):
-        if leftover.is_symlink() or leftover.exists():
-            try:
-                os.unlink(str(leftover))
-            except OSError as exc:
-                raise MigrateError(f"cannot clear {leftover}: {exc}") from exc
+    desired_kind = "junction" if _is_windows() else "symlink"
+    leftover_kind = _entry_kind(staged_link)
+    if leftover_kind in stage.DIRECTORY_LINK_KINDS:
+        try:
+            leftover_target = stage.current_target(staged_link)
+            if leftover_target != target:
+                raise MigrateError(
+                    f"{staged_link} points at {leftover_target}, not {target}; "
+                    f"refusing to remove an unowned migration entry"
+                )
+            stage._remove_directory_link(
+                staged_link, kind=leftover_kind, target=target
+            )
+        except stage.StageError as exc:
+            raise MigrateError(str(exc)) from exc
+    elif leftover_kind != "missing":
+        raise MigrateError(
+            f"{staged_link} exists as {leftover_kind}; refusing to clear an "
+            f"entry not proven to belong to this migration"
+        )
     try:
-        os.symlink(str(target), str(staged_link), target_is_directory=True)
-    except OSError as exc:
-        raise MigrateError(f"cannot create a symlink beside {root}: {exc}") from exc
+        stage._create_directory_link(target, staged_link, kind=desired_kind)
+    except stage.StageError as exc:
+        raise MigrateError(
+            f"cannot create a staged {desired_kind} beside {root}: {exc}"
+        ) from exc
 
-    signpost = root.parent / SIGNPOST_FILENAME
-    _write_signpost(signpost, root, target)
+    signpost_created = _write_signpost(signpost, root, target)
+    if not signpost_created and _entry_kind(signpost) != "missing":
+        raise MigrateError(
+            f"{signpost} appeared while migration was being prepared; "
+            f"refusing to overwrite or later remove it"
+        )
 
     def undo() -> None:
-        if not root.exists() and target.exists():
+        restored_or_untouched = False
+        try:
+            root_kind = _entry_kind(root)
+            target_kind = _entry_kind(target)
+            root_current_identity = (
+                _entry_identity(root) if root_kind == "directory" else None
+            )
+            target_current_identity = (
+                _entry_identity(target) if target_kind == "directory" else None
+            )
+        except MigrateError:
+            return
+        restored_or_untouched = (
+            root_kind == "directory" and root_current_identity == root_identity
+        )
+        if (root_kind == "missing" and target_kind == "directory"
+                and target_current_identity == root_identity):
             try:
                 os.rename(str(target), str(root))
+                restored_or_untouched = True
             except OSError:
                 return
-        for leftover in (staged_link, signpost):
+        try:
+            if _entry_kind(staged_link) == desired_kind \
+                    and stage.current_target(staged_link) == target:
+                stage._remove_directory_link(
+                    staged_link, kind=desired_kind, target=target
+                )
+        except (MigrateError, stage.StageError):
+            pass
+        if signpost_created and restored_or_untouched:
             try:
-                os.unlink(str(leftover))
+                os.unlink(str(signpost))
             except OSError:
                 pass
 
     moved = False
     try:
         with _undo_on_signal(undo):
+            staged_kind, staged_target = stage.directory_link_state(staged_link)
+            if (_entry_kind(root) != "directory"
+                    or _entry_identity(root) != root_identity
+                    or _entry_kind(versions_dir) != "directory"
+                    or _entry_identity(versions_dir) != versions_identity
+                    or _entry_kind(target) != "missing"
+                    or (staged_kind, staged_target) != (desired_kind, target)):
+                raise MigrateError(
+                    "migration entries changed before the checkout move; "
+                    "nothing was renamed"
+                )
             try:
                 os.rename(str(root), str(target))
             except OSError as exc:
@@ -493,10 +610,21 @@ def _perform(root: Path, versions_dir: Path, target: Path) -> None:
                         f"so the install cannot be moved there without copying it. "
                         f"Move the checkout onto one filesystem first") from exc
                 hint = ""
-                if os.name == "nt" and getattr(exc, "winerror", None) in (5, 32):
+                if _is_windows() and getattr(exc, "winerror", None) in (5, 32):
                     hint = " Close applications reading AQG files, check directory permissions, and retry; the checkout was preserved."
                 raise MigrateError(f"cannot move {root} to {target}: {exc}.{hint}") from exc
             moved = True
+            staged_kind, staged_target = stage.directory_link_state(staged_link)
+            if (_entry_kind(root) != "missing"
+                    or _entry_kind(target) != "directory"
+                    or _entry_identity(target) != root_identity
+                    or _entry_kind(versions_dir) != "directory"
+                    or _entry_identity(versions_dir) != versions_identity
+                    or (staged_kind, staged_target) != (desired_kind, target)):
+                raise MigrateError(
+                    "migration entries changed after the checkout move; "
+                    "restoring the original root"
+                )
             try:
                 os.rename(str(staged_link), str(root))
             except OSError as exc:
@@ -511,33 +639,35 @@ def _perform(root: Path, versions_dir: Path, target: Path) -> None:
     if not moved:  # pragma: no cover - defensive
         undo()
         raise MigrateError("the install was not moved")
-    try:
-        os.unlink(str(signpost))
-    except OSError:
-        pass
+    if signpost_created:
+        try:
+            os.unlink(str(signpost))
+        except OSError:
+            pass
 
 
-def _write_signpost(path: Path, root: Path, target: Path) -> None:
+def _write_signpost(path: Path, root: Path, target: Path) -> bool:
     """A note beside the root, for the case nothing in this process gets to run.
 
     SIGKILL and power loss reach no handler. What survives them is a file, and
     the only useful thing to put in it is the exact command.
     """
     try:
-        path.write_text(
-            "AQG was moving this install onto the managed-update layout and did\n"
-            "not finish. If there is nothing at:\n\n"
-            f"    {root}\n\n"
-            "then the install is intact at:\n\n"
-            f"    {target}\n\n"
-            "Put it back with:\n\n"
-            f"    mv {target} {root}\n\n"
-            "or complete the move by hand with:\n\n"
-            f"    ln -s {target} {root}\n\n"
-            "This file is removed automatically when the move succeeds.\n",
-            encoding="utf-8",
-        )
+        with path.open("x", encoding="utf-8") as handle:
+            handle.write(
+                "AQG was moving this install onto the managed-update layout and did\n"
+                "not finish. If there is nothing at:\n\n"
+                f"    {root}\n\n"
+                "then the install is intact at:\n\n"
+                f"    {target}\n\n"
+                "Put it back with:\n\n"
+                f"    mv {target} {root}\n\n"
+                "or rerun the AQG installer to complete the managed root after\n"
+                "restoring the checkout. This file is removed automatically when\n"
+                "the move succeeds.\n"
+            )
+        return True
     except OSError:
         # Best effort. Failing to write the note must not stop the migration —
         # but it is the reason the note is written BEFORE anything moves.
-        pass
+        return False

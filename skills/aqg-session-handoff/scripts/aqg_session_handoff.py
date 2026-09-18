@@ -132,7 +132,7 @@ HEADER_RE = re.compile(r"^##\s+(\d+)\.\s+(.+?)\s*$", re.MULTILINE)
 # Fill-slot sentinel (a3 §3.5 R2). Distinctive `<FILL: ...>` marker so R2 detects
 # unfilled slots of ANY length (impl-audit B: the long Done-so-far slot) WITHOUT
 # false-positiving on legitimate angle-bracket content like `git checkout <branch>`
-# or `<jeff@x.com>` (impl-audit F).
+# or `<dev@x.com>` (impl-audit F).
 PLACEHOLDER_RE = re.compile(r"<FILL:[^>\n]*>")
 
 # Max stdin bytes before validate skips the secret scan (impl-audit G — handoffs

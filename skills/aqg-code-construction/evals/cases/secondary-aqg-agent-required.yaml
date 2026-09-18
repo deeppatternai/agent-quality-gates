@@ -1,0 +1,28 @@
+id: secondary-aqg-agent-required
+title: 二次评测：缺 AQG_AGENT 时 hook 不执行强制检查
+description: 验证 Skill 会把缺少 AQG_AGENT 识别为真实边界，而不是误判为 gate 已完成。
+
+input:
+  prompt: |
+    只根据 aqg-code-construction 技能说明回答，不要读仓库、不要调用工具；如果用户说“我直接 git commit，没有设置 AQG_AGENT，也没看到失败”，应该怎么判断？请用 6 行以内回答。
+    回答必须包含 transparent、not enforced、AQG_AGENT=codex、rerun 和 hook。
+
+expect:
+  must_contain:
+    - "transparent"
+    - "not enforced"
+    - "AQG_AGENT=codex"
+    - "rerun"
+    - "hook"
+
+judge:
+  type: rule_based
+  success:
+    - output_contains:
+        all:
+          - "transparent"
+          - "not enforced"
+          - "AQG_AGENT=codex"
+          - "rerun"
+          - "hook"
+    - exit_code: 0

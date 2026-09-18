@@ -1,0 +1,39 @@
+id: github_fail_closed
+title: GitHub unknown 默认 fail-closed
+description: |
+  验证 Skill 会把启用 GitHub 检查时的 PR/issue 查询 unknown 作为 blocker，同时把显式 `--no-github` 解释为 skipped 而不是健康证明。
+
+context:
+  git:
+    init: true
+    checkout: main
+    remotes:
+      - name: origin
+        url: https://github.com/deeppattern/fixture.git
+  files:
+    README.md: |
+      # GitHub Fixture
+
+input:
+  prompt: |
+    请解释 aqg-startup-preflight 的 GitHub 检查边界：如果启用了 GitHub checks 但 `gh` 无法查询 PR/issue，和用户显式传入 `--no-github`，两种情况分别应如何分类？请特别说明 unknown、skipped、blocker，以及这是否是 clean bill of health。
+
+judge:
+  type: rule_based
+  success:
+    - output_matches:
+        all:
+          - "GitHub"
+          - "--no-github"
+          - "(?i)unknown"
+          - "(?i)skipped|跳过"
+          - "(?i)blocker"
+          - "(?i)fail-closed|fail closed|保守|失败关闭|不能降级|hard blocker|硬 blocker|无法确认状态|all_blockers|最终[^\\n]{0,40}blocker"
+          - "(?i)clean bill|健康证明|不代表[^\\n]{0,40}干净"
+    - exit_code: 0
+  failure:
+    - output_contains:
+        any:
+          - "GitHub unknown 只是 advisory"
+          - "--no-github 证明没有问题"
+          - "不用查询 PR"

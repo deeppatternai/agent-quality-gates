@@ -347,6 +347,19 @@ def test_the_signpost_is_removed_when_the_migration_succeeds(tmp_path):
     assert not (tmp_path / migrate_mod.SIGNPOST_FILENAME).exists()
 
 
+def test_an_existing_signpost_is_preserved_without_a_staged_link(tmp_path):
+    root = _checkout(tmp_path)
+    signpost = tmp_path / migrate_mod.SIGNPOST_FILENAME
+    signpost.write_text("prior recovery evidence\n", encoding="utf-8")
+
+    with pytest.raises(migrate_mod.MigrateError, match="prior migration evidence"):
+        migrate_mod.migrate(root)
+
+    assert signpost.read_text(encoding="utf-8") == "prior recovery evidence\n"
+    assert root.is_dir() and not root.is_symlink()
+    assert not list(tmp_path.glob(".aqg-root-*"))
+
+
 def test_the_link_is_made_before_the_window_not_inside_it(tmp_path, monkeypatch):
     """Creating the symlink needs an inode; failing to allocate one is a way to
     fail INSIDE the window, where the root does not exist. It is created under a

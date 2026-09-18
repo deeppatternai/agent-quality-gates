@@ -64,7 +64,7 @@ class TestEnums:
 
     def test_actor_closed_enum(self):
         """gpt-5.5 #5: actor is a closed enum to prevent username leaks."""
-        s = _make_valid(); s["actor"] = "jeff"
+        s = _make_valid(); s["actor"] = "a-username"
         assert not mr.check_metrics_record(s).is_safe
 
     @pytest.mark.parametrize("actor", ["claude", "codex", "gpt-5.5", "gemini", "o3", "human", "ci-bot", "other"])

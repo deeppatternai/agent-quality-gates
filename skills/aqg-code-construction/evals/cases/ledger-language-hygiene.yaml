@@ -1,0 +1,26 @@
+id: ledger-language-hygiene
+title: ledger 应避免无意义中英文混杂
+description: 验证 Skill 会提示 ledger 使用一种工作语言，只有代码、命令输出或既有标识符例外。
+
+input:
+  prompt: |
+    我的 construction ledger 里中文、英文和命令输出混在一起。请按 aqg-code-construction 给出语言使用建议。
+    回答必须包含 one working language、code、command output 和 existing identifiers。
+
+expect:
+  must_contain:
+    - "one working language"
+    - "code"
+    - "command output"
+    - "existing identifiers"
+
+judge:
+  type: rule_based
+  success:
+    - output_contains:
+        all:
+          - "one working language"
+          - "code"
+          - "command output"
+          - "existing identifiers"
+    - exit_code: 0

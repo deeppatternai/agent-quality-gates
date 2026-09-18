@@ -1,0 +1,32 @@
+id: anti-horizontal-boundary
+title: anti-horizontal 需要提交历史证据
+description: 验证 Skill 不会声称单个 squashed diff 可以证明 anti-horizontal slicing，而是要求 per-commit numstat 数据。
+
+input:
+  prompt: |
+    只根据 aqg-test-quality-review 技能说明回答，不要读仓库、不要调用工具；为什么单个 squashed diff 不能证明 anti_horizontal？真正检测需要什么输入？请用 6 行以内回答。
+    回答必须包含 anti_horizontal、single squashed diff、cannot prove、--commits-numstat、per-commit、interleaving 和 bulk_shape_test_risk。
+
+expect:
+  must_contain:
+    - "anti_horizontal"
+    - "single squashed diff"
+    - "cannot prove"
+    - "--commits-numstat"
+    - "per-commit"
+    - "interleaving"
+    - "bulk_shape_test_risk"
+
+judge:
+  type: rule_based
+  success:
+    - output_contains:
+        all:
+          - "anti_horizontal"
+          - "single squashed diff"
+          - "cannot prove"
+          - "--commits-numstat"
+          - "per-commit"
+          - "interleaving"
+          - "bulk_shape_test_risk"
+    - exit_code: 0

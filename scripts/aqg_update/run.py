@@ -385,7 +385,11 @@ def check(
     scope = identity = None
     try:
         root = Path(root).expanduser()
-        root = root.absolute() if root.is_symlink() else migrate.logical_root(root)
+        root = (
+            root.absolute()
+            if stage.current_link_kind(root) in stage.DIRECTORY_LINK_KINDS
+            else migrate.logical_root(root)
+        )
         scope = _check_scope(root, remote, channel, apply)
         identity = _check_identity(root, remote, channel, apply)
         discovery = _check_scope(root, remote, channel, False) if apply else None
@@ -517,7 +521,7 @@ def _admitted_check(
     except trust.TrustError as exc:
         return _finish(CheckResult(outcome="no-keyring", detail=str(exc)), state_root, now, scope=scope, identity=identity)
 
-    if root.parent.name == "versions" and not root.is_symlink():
+    if root.parent.name == "versions" and stage.current_link_kind(root) is None:
         return _finish(CheckResult(outcome="invalid-root", detail=(
             f"{root} is a fixed version directory, not the managed entrance. "
             "Reapply this host's AQG configuration using the logical installation entrance; "
@@ -545,7 +549,11 @@ def _admitted_check(
     try:
         return _finish(
             _check_locked(
-                root=(Path(root).absolute() if Path(root).is_symlink() else migrate.logical_root(root)),
+                root=(
+                    Path(root).absolute()
+                    if stage.current_link_kind(Path(root)) in stage.DIRECTORY_LINK_KINDS
+                    else migrate.logical_root(root)
+                ),
                 remote=remote, channel=channel,
                 keyring=keyring, state_root=state_root, apply=apply,
             ),

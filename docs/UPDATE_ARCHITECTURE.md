@@ -203,7 +203,27 @@ is not atomic across files, so an in-place reset has a window in which a concurr
 half-updated tree. DE has no such exposure — only its own launcher reads its checkout, and the launcher
 holds the lock.
 
-So: stage into `versions/<version>/`, then one `rename(2)` on the symlink.
+So: stage into `versions/<version>/`, then one atomic directory-link replacement.
+POSIX uses a symlink. A fresh Windows managed root uses a directory junction so
+Developer Mode is not required; an already managed Windows symlink remains a
+symlink. Unknown reparse points, mount points whose targets cannot be proven to
+be local directories, and a linked `versions/` directory are refused rather
+than followed. Windows replacement continues to use `FileRenameInfoEx`; there
+is no unlink-then-rename fallback that would expose a missing root.
+
+The transaction journal records both the previous and new directory-link kind
+as well as their targets. Rollback recreates the recorded old kind. Journals
+written before link typing described symlinks only, so a missing kind field is
+interpreted as that exact legacy symlink contract, never inferred from the live
+entry. A junction root is not activated or rolled back to a version unless that
+tree contains the B-owned, versioned regular-file declaration
+`scripts/aqg_update/updater-capabilities-v1.json`. The running updater reads at
+most 4 KiB, rejects links, identity changes, malformed UTF-8/JSON, duplicate or
+extra keys, unknown schemas and unknown capability versions, and requires the
+exact `windows_directory_junction_root: 1` contract. It never imports or
+executes candidate code. Presence of the A-owned shared directory-link module
+is deliberately insufficient: A-only releases carry that module while their
+updater still has the legacy symlink-only lifecycle.
 
 New generations use readable release labels such as `0.14.5`. If that name already
 holds a different commit, the new generation uses `0.14.5-<12-char-commit>`; occupied
@@ -323,7 +343,7 @@ N times:
 ├── aqg-versions/
 │   ├── 0.15.0-a1b2c3d/                             ← ~17 MB
 │   └── 0.15.1-e4f5a6b/                             ← ~17 MB (current)
-├── agent-quality-gates -> aqg-versions/0.15.1-e4f5a6b   ← AQG_ROOT; the swap moves only this symlink
+├── agent-quality-gates -> aqg-versions/0.15.1-e4f5a6b   ← AQG_ROOT; symlink on POSIX, junction by default on Windows
 └── aqg-state/install-state.json                    ← state, outside the checkout (§4)
 ```
 
@@ -585,8 +605,14 @@ changed in 0.15.0". If any of those is unavailable, the item is deferred to `pen
 - **A correct existing route is left untouched**, not re-created. Churning symlinks on every check races
   concurrent sessions for no benefit (DE makes this point explicitly in `_route_skills`).
 - **Copy mode** must re-copy on content change; the mode is read from per-host recorded state.
-- **Windows**: directory junctions, and `core.symlinks` / `core.autocrlf` must be pinned in a managed
-  checkout — DE's `updater.py` treats these as install-time invariants, and it is right to.
+- **Windows**: new link-mode skill routes use directory junctions whose target is
+  the stable logical `AQG_ROOT/skills/<name>`, so a root swap and subsequent
+  retention do not pin them to an old physical tree. An existing exact managed
+  symlink is preserved. Route ownership and prune/remove classify and recheck
+  the entry without traversing its referent; unknown reparse points and foreign
+  targets are left untouched. `core.symlinks` / `core.autocrlf` remain pinned in
+  a managed checkout. Windows-native evidence is still required; the macOS
+  junction model tests only the updater state machine.
 
 ## 9. Trust — what replaces the human confirmation
 
@@ -749,7 +775,7 @@ PR6 depends on it.
 |---|---|---|---|---|
 | **1** | `state.py` (`install-state.json` read/write, atomic, 0600, self-migrating schema) + structured fields on `aqg_client_registry.py` (including the already-planned D1 for `rules_surface`) | install state can be recorded and read; `doctor` can report per-host versions | **no** — fields and files added only | **deep** |
 | **2** | the four-verb contract in `hosts/base.py` plus `claude_code` / `codex` / `cursor` / `generic` adapters, **wrapping** the existing installers | a uniform way to ask "what would change on this host" (`plan`) and "what is installed" (`verify`) | **no** — every existing CLI is preserved | **deep** |
-| **3** | version-tree layout (`git worktree`) + `stage.py` + atomic symlink swap + `lock.py` + `_aqg_context.sh` exporting `realpath` | the install can be swapped to another version tree by hand, and swapped back | slightly — `aqg_root` becomes a resolved path (§5.2) | **deep** |
+| **3** | version-tree layout (`git worktree`) + `stage.py` + atomic directory-link swap + `lock.py` + `_aqg_context.sh` exporting `realpath` | the install can be swapped to another version tree by hand, and swapped back | slightly — `aqg_root` becomes a resolved path (§5.2) | **deep** |
 | **4** | `plan.py` + `transaction.py` (journal / phases / rollback) + `dispatch.py` + `skills_route.py` | **full dry-run**: what this update would change and which class each item is; `--apply` must be passed explicitly, nothing automatic yet | no | **deep** |
 | **5** | `internal/release/skills/aqg-release/` + the manifest format + landing the public key set in this repo | signed `stable` tags can be cut | no — never ships to users | **deep** |
 | **6** | `trust.py` + `acquire.py` + trigger wiring (`_aqg_context.sh` / SessionStart) + `doctor` reporting `pending` + `upgrade.sh` calling the new engine internally | **automatic update goes live** | yes — this is the only step that actually turns automation on | **deep** |
@@ -841,9 +867,9 @@ Python process; the skill does not wait for network access or installation.
 Trigger import/launch failure is swallowed and writes no retry latch. The child
 receives the validated physical generation; the runner maps it to the logical
 entrance only if it still matches, otherwise rejecting the stale version before
-network access. Managed installations use actual directory symlinks on Windows
-as well as POSIX; junctions and unmanaged checkouts are not supported by this
-trigger or by the existing atomic-swap contract.
+network access. Managed installations use symlinks on POSIX and either junctions
+or retained legacy symlinks on Windows. Unmanaged checkouts remain unsupported
+by this trigger and the atomic-swap contract.
 
 The updater runs as the same user, without privilege elevation. The user's
 Python interpreter, executable PATH, Git authentication, proxy/CA settings and

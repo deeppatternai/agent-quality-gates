@@ -1,0 +1,35 @@
+id: stack_codemap_advisory
+title: STACK_STATUS 和 CODE_MAP 默认只是 advisory
+description: |
+  验证 Skill 不会把 `docs/STACK_STATUS.md` 缺失/过期或 `--check-codemap` 发现的 `CODE_MAP.md` 缺失误判成 blocker。
+
+context:
+  git:
+    init: true
+    checkout: main
+  files:
+    README.md: |
+      # Advisory Fixture
+
+input:
+  prompt: |
+    请解释 `docs/STACK_STATUS.md` 缺失或过期、以及启用 `--check-codemap` 后发现 `CODE_MAP.md` 缺失或 repo root clutter 时，aqg-startup-preflight 应如何分类。请说明什么时候才会从 advisory 升级为 blocker。
+
+judge:
+  type: rule_based
+  success:
+    - output_matches:
+        all:
+          - "STACK_STATUS"
+          - "CODE_MAP"
+          - "--check-codemap"
+          - "(?i)advisory|advisories"
+          - "(?i)not[^\\n]{0,40}blocker|不是[^\\n]{0,40}blocker|不是[^\\n]{0,40}阻塞"
+          - "(?i)required file|--required-file"
+    - exit_code: 0
+  failure:
+    - output_contains:
+        any:
+          - "STACK_STATUS 必然阻塞"
+          - "CODE_MAP 是 blocker"
+          - "root clutter 是 blocker"

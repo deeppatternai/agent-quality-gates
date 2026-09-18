@@ -1,0 +1,51 @@
+schema_version: v1alpha1
+
+environment:
+  type: none
+
+skills:
+  - source: local_path
+    path: .
+    include:
+      - SKILL.md
+      - scripts/**
+      - agents/**
+
+engine:
+  name: codex
+
+cases:
+  files:
+    - evals/cases/start-code-construction.yaml
+    - evals/cases/checker-boundary.yaml
+    - evals/cases/docs-only-exception.yaml
+    - evals/cases/ledger-language-hygiene.yaml
+    - evals/cases/production-behavior-contract.yaml
+    - evals/cases/predicted-objections.yaml
+    - evals/cases/audit-gate-policy.yaml
+    - evals/cases/secondary-aqg-agent-required.yaml
+    - evals/cases/secondary-warning-acknowledgement.yaml
+    - evals/cases/secondary-skipped-checks.yaml
+    - evals/cases/secondary-broad-except.yaml
+    - evals/cases/secondary-schema-row5.yaml
+    - evals/cases/secondary-ledger-pattern-scan.yaml
+    - evals/cases/secondary-tier-size-mismatch.yaml
+    - evals/cases/secondary-behavior-contract-semantics.yaml
+  defaults:
+    timeout_seconds: 300
+    max_turns: 8
+    expect:
+      exit_code: 0
+      must_not_contain:
+        - "LGTM"
+  parallelism: 1
+
+judge:
+  type: rule_based
+  success:
+    - exit_code: 0
+
+report:
+  formats:
+    - json
+    - html

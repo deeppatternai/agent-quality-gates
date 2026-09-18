@@ -190,6 +190,21 @@ def test_cli_analyze_smoke(tmp_path):
     assert "coverage_gap" in text  # source changed, no test → gap candidate
 
 
+def test_cli_analyze_next_step_uses_policy_depth_not_phase_placeholder(tmp_path):
+    df = tmp_path / "d.diff"
+    df.write_text(_DIFF)
+    rc, text = _run(["analyze", "--diff-file", str(df)])
+    assert rc == 0
+    assert "docs/policies/audit-trigger.md" in text
+    assert "routes to `/audit`" in text
+    assert "one policy-depth audit" in text
+    assert "relevant focus prompt(s)" in text
+    assert "candidate dispositions + findings" in text
+    assert "aqg_test_quality_review.py validate --file <ledger>" in text
+    assert "mode=<phase-transition recommended>" not in text
+    assert "for each flagged concern" not in text
+
+
 def test_cli_validate_smoke(tmp_path):
     lf = tmp_path / "ledger.md"
     lf.write_text(_ledger())

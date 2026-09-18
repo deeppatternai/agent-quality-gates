@@ -1,0 +1,32 @@
+id: precision-first-boundary
+title: ambiguous 和 mixed 测试应交给 judgement
+description: 验证 Skill 不会把含行为断言的 mixed 测试误判为 shape smell，并会说明 ambiguous 模式应 defer to judgement。
+
+input:
+  prompt: |
+    只根据 aqg-test-quality-review 技能说明回答，不要读仓库、不要调用工具；precision-first 边界是什么？如果一个测试既有 type guard 又有 value assertion，应如何处理？请用 6 行以内回答。
+    回答必须包含 precision-first、ambiguous、defer to judgement、mixed、type guard、value assertion 和 not a shape smell。
+
+expect:
+  must_contain:
+    - "precision-first"
+    - "ambiguous"
+    - "defer to judgement"
+    - "mixed"
+    - "type guard"
+    - "value assertion"
+    - "not a shape smell"
+
+judge:
+  type: rule_based
+  success:
+    - output_contains:
+        all:
+          - "precision-first"
+          - "ambiguous"
+          - "defer to judgement"
+          - "mixed"
+          - "type guard"
+          - "value assertion"
+          - "not a shape smell"
+    - exit_code: 0

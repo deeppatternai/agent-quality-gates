@@ -75,8 +75,11 @@ not the skill file.
 ### 1.2 Body shape
 
 Body is markdown after the frontmatter. Total file (including frontmatter)
-should stay under **150 lines**; the existing 5 skills run from 46 to 136
-lines. Recommended sections in order:
+should generally stay under **150 lines** when completeness allows. The current
+16 source skills run from 53 to 207 lines; `aqg-code-construction` and
+`aqg-session-handoff` are accepted longer-form exceptions because their
+discipline contracts would become ambiguous if compressed mechanically.
+Recommended sections in order:
 
 1. one-paragraph context: what the skill does, who triggers it
 2. **How To Run**: the exact bash snippet that resolves AQG_ROOT and

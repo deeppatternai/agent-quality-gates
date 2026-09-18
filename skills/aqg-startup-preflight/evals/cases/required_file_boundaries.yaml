@@ -1,0 +1,37 @@
+id: required_file_boundaries
+title: required-file 缺失和非法路径必须阻塞
+description: |
+  验证 Skill 会把 `--required-file` 声明的缺失文件、绝对路径和逃逸 project root 的路径归为 blocker，并给出停止或修正路径的下一步。
+
+context:
+  git:
+    init: true
+    checkout: main
+  files:
+    README.md: |
+      # Required File Fixture
+
+input:
+  prompt: |
+    请说明 aqg-startup-preflight 如何处理 `--required-file` 的边界：缺失的 `docs/SESSION_START_PROTOCOL.md`、绝对路径 `/tmp/secret.txt`、以及 `../outside.md` 这种逃逸 project root 的路径。请明确哪些是 blocker，以及 next safe step。
+
+judge:
+  type: rule_based
+  success:
+    - output_matches:
+        all:
+          - "--required-file"
+          - "(?i)required[- ]file|MISSING_REQUIRED|INVALID_REQUIRED"
+          - "(?i)blocker"
+          - "docs/SESSION_START_PROTOCOL.md"
+          - "(?i)missing|缺失"
+          - "(?i)absolute|绝对路径"
+          - "(?i)escape|escapes|逃逸|\\.\\./outside\\.md"
+          - "(?i)next safe step|下一步"
+    - exit_code: 0
+  failure:
+    - output_contains:
+        any:
+          - "required file 只是 advisory"
+          - "绝对路径可以直接使用"
+          - "../outside.md 可以直接使用"

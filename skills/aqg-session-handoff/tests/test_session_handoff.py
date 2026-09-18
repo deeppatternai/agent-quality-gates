@@ -157,7 +157,7 @@ def test_placeholder_residue_fails() -> None:
 
 def test_bare_angle_bracket_not_placeholder() -> None:
     # impl-audit F: legit `<branch>` / `<email>` must NOT trip R2
-    res = h.validate_handoff(_render(Environment="run `git checkout <branch>`; contact <jeff@x.com>"))
+    res = h.validate_handoff(_render(Environment="run `git checkout <branch>`; contact <dev@x.com>"))
     assert "R2" not in {v.split()[0] for v in res["violations"]}, res["violations"]
 
 

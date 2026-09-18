@@ -1,0 +1,30 @@
+id: audit-depth-authority
+title: audit depth 应来自 phase-transition 或 policy
+description: 验证 Skill 不会自行决定 audit depth，也不会让 caller 落到工具默认值。
+
+input:
+  prompt: |
+    只根据 aqg-multi-review 技能说明回答，不要读仓库、不要调用工具；如果 phase-transition 没有给出推荐，运行每个维度的 /audit 时深度应该从哪里来？请用 6 行以内回答。
+    回答必须包含 aqg-phase-transition、docs/policies/audit-trigger.md、do not fall through、tool default、/audit 和 per dimension。
+
+expect:
+  must_contain:
+    - "aqg-phase-transition"
+    - "docs/policies/audit-trigger.md"
+    - "do not fall through"
+    - "tool default"
+    - "/audit"
+    - "per dimension"
+
+judge:
+  type: rule_based
+  success:
+    - output_contains:
+        all:
+          - "aqg-phase-transition"
+          - "docs/policies/audit-trigger.md"
+          - "do not fall through"
+          - "tool default"
+          - "/audit"
+          - "per dimension"
+    - exit_code: 0

@@ -1,0 +1,32 @@
+id: subset-dimensions
+title: 用户缩窄维度时应只生成所选维度
+description: 验证 Skill 默认覆盖五维，但在用户明确缩窄时只为所选维度生成 focus prompts 和 audit 调度。
+
+input:
+  prompt: |
+    只根据 aqg-multi-review 技能说明回答，不要读仓库、不要调用工具；用户只想做 security 和 performance 两个维度的 review 时，应该如何选择维度和后续 audit 调度？
+    回答必须包含 default to all five、unless the user narrows、new --dimensions security performance、security、performance、per-dimension focus prompts 和 one external /audit per dimension。
+
+expect:
+  must_contain:
+    - "default to all five"
+    - "unless the user narrows"
+    - "new --dimensions security performance"
+    - "security"
+    - "performance"
+    - "per-dimension focus prompts"
+    - "one external /audit per dimension"
+
+judge:
+  type: rule_based
+  success:
+    - output_contains:
+        all:
+          - "default to all five"
+          - "unless the user narrows"
+          - "new --dimensions security performance"
+          - "security"
+          - "performance"
+          - "per-dimension focus prompts"
+          - "one external /audit per dimension"
+    - exit_code: 0

@@ -43,6 +43,12 @@ def installation(tmp_path_factory, monkeypatch):
     # Snapshot actual working sources, including the candidate fixes. Git owns
     # only synthetic fixture commits; no commit is made in the developer repo.
     names = _git(REPO, "ls-files", "-z").stdout.decode().split("\0")
+    for required in (
+        "scripts/aqg_directory_links.py",
+        "scripts/aqg_update/updater-capabilities-v1.json",
+    ):
+        if required not in names:
+            names.append(required)
     for name in filter(None, names):
         source = REPO / name
         if source.is_file():

@@ -8,6 +8,11 @@ import os
 import subprocess
 import sys
 
+try:
+    from scripts import aqg_directory_links as directory_links
+except ImportError:
+    import aqg_directory_links as directory_links  # type: ignore[no-redef]
+
 
 def nudge() -> None:
     """Detach a quiet updater for this managed installation, or silently skip."""
@@ -18,7 +23,8 @@ def nudge() -> None:
         root = Path.home() / '.deeppattern' / 'agent-quality-gates'
         # A development checkout must never update a separate user install,
         # even if it inherited AQG_ROOT from the invoking agent.
-        if not root.is_symlink() or root.resolve(strict=True) != physical:
+        if directory_links.link_kind(root) not in {"symlink", "junction"} \
+                or directory_links.read_link_target(root).resolve(strict=True) != physical:
             return
         if not (physical / 'scripts/aqg_update/run.py').is_file():
             return

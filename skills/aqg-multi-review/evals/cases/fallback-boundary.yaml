@@ -1,0 +1,34 @@
+id: fallback-boundary
+title: fallback-session-llm 应清楚标注降级边界
+description: 验证 Skill 会防止把 session-LLM fallback 包装成 cross-vendor panel。
+
+input:
+  prompt: |
+    只根据 aqg-multi-review 技能说明回答，不要读仓库、不要调用工具；如果使用 `new --fallback-session-llm`，ledger 和结论应该如何标注？请用 8 行以内回答。
+    回答必须包含 fallback_mode: session-llm、single-model、same-vendor、non-independent、audit_id: null、needs-cross-llm-rerun、cross-vendor 和 file:line。
+
+expect:
+  must_contain:
+    - "fallback_mode: session-llm"
+    - "single-model"
+    - "same-vendor"
+    - "non-independent"
+    - "audit_id: null"
+    - "needs-cross-llm-rerun"
+    - "cross-vendor"
+    - "file:line"
+
+judge:
+  type: rule_based
+  success:
+    - output_contains:
+        all:
+          - "fallback_mode: session-llm"
+          - "single-model"
+          - "same-vendor"
+          - "non-independent"
+          - "audit_id: null"
+          - "needs-cross-llm-rerun"
+          - "cross-vendor"
+          - "file:line"
+    - exit_code: 0

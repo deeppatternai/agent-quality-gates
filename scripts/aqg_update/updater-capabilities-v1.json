@@ -1,0 +1,6 @@
+{
+  "schema": 1,
+  "capabilities": {
+    "windows_directory_junction_root": 1
+  }
+}

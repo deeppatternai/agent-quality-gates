@@ -295,7 +295,7 @@ def self_test() -> int:
     assert not check_metrics_record(bad).is_safe
 
     # actor closed enum (gpt-5.5 #5)
-    bad = dict(valid); bad["actor"] = "jeff"
+    bad = dict(valid); bad["actor"] = "a-username"
     assert not check_metrics_record(bad).is_safe
     ok = dict(valid); ok["actor"] = "gpt-5.5"
     assert check_metrics_record(ok).is_safe

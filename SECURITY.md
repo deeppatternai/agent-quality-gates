@@ -1,6 +1,6 @@
 # Security Policy
 
-Agent Quality Gates (AQG) is a **private** engineering-quality toolkit — skills, hooks, and
+Agent Quality Gates (AQG) is a **local** engineering-quality toolkit — skills, hooks, and
 scripts installed into a local agent harness (Claude Code / Codex). It runs with the
 **developer's own privileges**: it is not a sandbox and does not attempt to contain a hostile
 agent. This policy covers vulnerabilities in AQG's own code and in the guards it ships.
@@ -12,7 +12,7 @@ Pre-1.0. Fixes land on `main` first and ship in the next tagged release (source 
 
 | Version | Supported |
 | --- | --- |
-| latest release (`0.13.x`) + `main` | :white_check_mark: |
+| latest release (`0.14.x`) + `main` | :white_check_mark: |
 | older tags | :x: — upgrade to latest |
 
 ## Reporting a vulnerability
@@ -23,8 +23,7 @@ Report it **privately to the maintainers**:
 
 - **Preferred** — GitHub private vulnerability reporting: repo **Security → Report a
   vulnerability**. If that option is absent, a maintainer enables it once in
-  **Settings → Security → Private vulnerability reporting** (it is off by default on this
-  private repo).
+  **Settings → Security → Private vulnerability reporting** (it is off by default).
 - **Otherwise** — reach a repository maintainer through a private channel; do not post the
   details anywhere public.
 
@@ -47,8 +46,8 @@ open** or leak. For example:
 
 - A **fail-closed guard that can be made to silently pass** — the secret-scan gate
   (`agent-packs/claude-code/hooks/pretooluse_secret_scan.sh`), the anti-tamper guard
-  (`pretooluse_aqg_tamper_guard.sh`, [#328](https://github.com/deeppatternai/agent-quality-gates/issues/328)),
-  or a tamper canary — certifying "clean" while a real secret or a neutered engine slips through.
+  (`pretooluse_aqg_tamper_guard.sh`), or a tamper canary — certifying "clean" while a real
+  secret or a neutered engine slips through.
 - A **secret-scan false negative** in `scripts/_secret_patterns.py` / `scripts/_redaction_common.py`
   that lets a real credential reach a decision log, ledger, or agent context.
 - A skill helper that can be driven into a **destructive or out-of-boundary action**, a

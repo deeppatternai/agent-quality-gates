@@ -1,0 +1,51 @@
+schema_version: v1alpha1
+
+environment:
+  type: none
+
+skills:
+  - source: local_path
+    path: .
+    include:
+      - SKILL.md
+      - scripts/**
+      - agents/**
+
+engine:
+  name: codex
+
+cases:
+  files:
+    - evals/cases/router-purpose.yaml
+    - evals/cases/audit-depth-authority.yaml
+    - evals/cases/ledger-validation-signals.yaml
+    - evals/cases/fallback-boundary.yaml
+    - evals/cases/alternative-tools.yaml
+    - evals/cases/no-self-review-claim.yaml
+    - evals/cases/how-to-run-contract.yaml
+    - evals/cases/subset-dimensions.yaml
+    - evals/cases/ledger-contract-fields.yaml
+    - evals/cases/repo-overrides-root.yaml
+    - evals/cases/audit-id-issuance.yaml
+    - evals/cases/convergent-findings-evidence.yaml
+    - evals/cases/fallback-overclaim-invalid.yaml
+    - evals/cases/inline-pr-comments-alternative.yaml
+    - evals/cases/read-only-output-boundary.yaml
+  defaults:
+    timeout_seconds: 300
+    max_turns: 8
+    expect:
+      exit_code: 0
+      must_not_contain:
+        - "LGTM"
+  parallelism: 1
+
+judge:
+  type: rule_based
+  success:
+    - exit_code: 0
+
+report:
+  formats:
+    - json
+    - html

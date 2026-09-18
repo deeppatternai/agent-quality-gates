@@ -1,0 +1,34 @@
+id: debug_case_helper_usage
+title: 应说明何时创建 debug case
+description: |
+  验证 Skill 能区分多步骤/跨边界调查应创建 debug case，单次本地 loop 可用 inline report，并能点出 helper 脚本和默认写入边界。
+
+input:
+  prompt: |
+    只根据 aqg-systematic-debugging 的说明回答，不要调用工具。
+    请说明什么时候需要创建 debug case，什么时候短 inline report 足够，并给出 helper 的关键命令。
+    回答必须包含 debug_case.py、new --title、validate、$CODEX_HOME/aqg-debug-cases、one command or hypothesis、repo/CI/production-read-only boundary 和 inline report。
+
+expect:
+  must_contain:
+    - "debug_case.py"
+    - "new --title"
+    - "validate"
+    - "$CODEX_HOME/aqg-debug-cases"
+    - "one command or hypothesis"
+    - "repo/CI/production-read-only boundary"
+    - "inline report"
+
+judge:
+  type: rule_based
+  success:
+    - output_contains:
+        all:
+          - "debug_case.py"
+          - "new --title"
+          - "validate"
+          - "$CODEX_HOME/aqg-debug-cases"
+          - "one command or hypothesis"
+          - "repo/CI/production-read-only boundary"
+          - "inline report"
+    - exit_code: 0

@@ -1,17 +1,19 @@
 {
   "skill_template_schema": 1,
   "name": "aqg-startup-preflight",
-  "description": "Verify worktree + GitHub live state (dirty git, gone upstream, behind remote, missing context files, open PRs/issues, stale status docs) at SESSION START for AI team project work, before the first code edit. Use exactly once per session, not for repeated mid-session checks; not after audit/review returns. Defaults to the current git root and supports explicit repo paths.",
+  "description": "Run a one-time SESSION START preflight before repository work by verifying worktree state, dirty git, behind remote/upstream fetch health, required context files, recent commits, and GitHub PR/issue visibility; surface blockers before the first edit. Supports multi-repo, offline/no-GitHub modes, and advisory checks for stale STACK_STATUS, CODE_MAP, and concurrent worktrees.",
   "version": "0.1.0",
   "primary_trigger_keywords": ["preflight", "startup", "session start", "worktree state"],
   "boundary_class": "writes-code",
   "audit_mode_required": "standard",
   "trigger_grammar": {
-    "keywords": ["preflight", "startup", "session start", "session begin", "first edit", "worktree state", "behind remote", "open PRs"],
+    "keywords": ["preflight", "startup", "session start", "session begin", "first edit", "worktree state", "behind remote", "open PRs", "required context", "no-github", "CODE_MAP", "concurrent worktrees"],
     "sentence_patterns": [
       "Run the AQG preflight before I edit anything",
       "Check worktree + GitHub state at session start",
       "Verify the repo is clean before I start coding",
+      "Run an offline startup preflight without GitHub checks",
+      "Check required context files and concurrent worktrees before changes",
       "我刚开 session, 先看下 worktree 干净吗"
     ]
   },

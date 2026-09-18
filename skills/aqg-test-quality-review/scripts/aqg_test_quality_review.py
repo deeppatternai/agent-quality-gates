@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """aqg-test-quality-review local helper — review-side test-quality analysis.
 
-Signal-only (per ADR 2026-05-08 §5): this script does NOT call audit-mcp.
+Signal-only (per ADR 2026-05-08 section 5): this script does NOT call audit tooling.
 It parses a unified diff, emits a structured test-quality ledger (mechanical
 candidates, each with a stable id + disposition) + per-concern focus prompts,
 and a preliminary needs_llm_judgement recommendation. The CALLER (human / Claude /
-EAF) runs de_audit per focus prompt and fills the final findings.
+EAF) runs /audit when the audit policy routes the logical change there and fills
+the final findings.
 
 Two subcommands:
 - `analyze`  → parse diff, emit ledger skeleton (pre-filled mechanical candidates)
@@ -18,7 +19,7 @@ Design (per ADR 2026-05-26-test-quality-review-skill-a1.md):
   `mixed` tests are treated as having a guard, not a smell.
 - anti-horizontal slicing is a TEMPORAL signal: a single squashed diff cannot
   prove it, so single-diff mode only emits an advisory `bulk_shape_test_risk`
-  (never an NLJ trigger). Real detection needs `--commits` (per-commit
+  (never an NLJ trigger). Real detection needs `--commits-numstat` (per-commit
   test/impl interleaving).
 
 The pure diff/classification/detection helpers live in `_tq_core.py` (split
@@ -369,10 +370,11 @@ def cmd_analyze(args: argparse.Namespace) -> int:
     print("```")
     print()
     print("## Next safe step")
-    print("- Run `/audit artifact=<diff> focus=<focus prompt> mode=<phase-transition recommended>` "
-          "for each flagged concern; fill candidate disposition + findings; then "
+    print("- Check `docs/policies/audit-trigger.md` for this logical change. If it "
+          "routes to `/audit`, run one policy-depth audit with the relevant focus "
+          "prompt(s), fill candidate dispositions + findings, then "
           "`aqg_test_quality_review.py validate --file <ledger>`.")
-    print("> Per ADR §5: this script emits SIGNAL only. Caller runs /audit.")
+    print("> Per ADR section 5: this script emits SIGNAL only. Caller runs /audit when policy routes it.")
     return 0
 
 
@@ -420,7 +422,7 @@ def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(
         prog="aqg_test_quality_review.py",
         description=("AQG review-side test-quality analysis (signal-only). Emits a "
-                     "test-quality ledger + focus prompts; caller runs /audit."),
+                     "test-quality ledger + focus prompts; caller runs /audit when policy routes it."),
     )
     sub = p.add_subparsers(dest="cmd", required=True)
 

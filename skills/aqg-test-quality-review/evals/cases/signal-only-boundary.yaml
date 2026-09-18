@@ -1,0 +1,32 @@
+id: signal-only-boundary
+title: 应保持只读 signal-only 边界
+description: 验证 Skill 会说明自己只解析 diff 并输出候选信号，不会运行测试、修改文件或自行调用 audit。
+
+input:
+  prompt: |
+    只根据 aqg-test-quality-review 技能说明回答，不要读仓库、不要调用工具；请用 6 行以内说明这个 Skill 做什么、边界是什么。
+    回答必须包含 signal-only、read-only、does not run tests、does not modify files、candidates not verdicts、/audit 和 docs/policies/audit-trigger.md。
+
+expect:
+  must_contain:
+    - "signal-only"
+    - "read-only"
+    - "does not run tests"
+    - "does not modify files"
+    - "candidates not verdicts"
+    - "/audit"
+    - "docs/policies/audit-trigger.md"
+
+judge:
+  type: rule_based
+  success:
+    - output_contains:
+        all:
+          - "signal-only"
+          - "read-only"
+          - "does not run tests"
+          - "does not modify files"
+          - "candidates not verdicts"
+          - "/audit"
+          - "docs/policies/audit-trigger.md"
+    - exit_code: 0

@@ -1,0 +1,30 @@
+id: secondary-tier-size-mismatch
+title: 二次评测：path tier 与 diff size 不匹配应阻断
+description: 验证 Skill 会指出 declared path 与 diff size 的 size mismatch 边界。
+
+input:
+  prompt: |
+    只根据 aqg-code-construction 技能说明回答，不要读仓库、不要调用工具；如果预计 diff 超过 300 行却把 ledger path 写成 full，应该怎么判断？请用 6 行以内回答。
+    回答必须包含 size mismatch、full、plan、>300、exit code 4 和 BLOCK。
+
+expect:
+  must_contain:
+    - "size mismatch"
+    - "full"
+    - "plan"
+    - ">300"
+    - "exit code 4"
+    - "BLOCK"
+
+judge:
+  type: rule_based
+  success:
+    - output_contains:
+        all:
+          - "size mismatch"
+          - "full"
+          - "plan"
+          - ">300"
+          - "exit code 4"
+          - "BLOCK"
+    - exit_code: 0

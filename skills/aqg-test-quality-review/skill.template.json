@@ -1,7 +1,7 @@
 {
   "skill_template_schema": 1,
   "name": "aqg-test-quality-review",
-  "description": "Use when reviewing whether a PR's tests assert BEHAVIOR (output / side-effects / errors) or only SHAPE (types / structure / key presence), when checking whether a diff weakened, deleted or skipped tests, for coverage gaps where source changed with no paired test, for flaky patterns (sleep / wall-clock / unseeded random / live network), or for anti-horizontal-slicing review. Reviews test-QUALITY of a git diff, not coverage %. Signal only — emits a structured test-quality ledger, per-concern focus prompts, and a `needs_llm_judgement` signal; the caller runs `/audit` per concern at the depth `docs/policies/audit-trigger.md` selects. Complements aqg-multi-review (deeper than its edge_cases dimension) and aqg-code-construction (construction-side TDD). Not a test runner or coverage-percentage gate. Does not replace the host built-in /review slash command.",
+  "description": "Use when reviewing the test-QUALITY of a PR/git diff for BEHAVIOR vs SHAPE assertions, coverage gaps where source changed without paired tests, weakened/deleted/skipped tests, flaky patterns, or anti-horizontal slicing. Review-side validation of already-written tests, deeper than aqg-multi-review's edge_cases slice and complementary to aqg-code-construction's construction-side TDD. Signal only - emits a structured ledger, focus prompts, and `needs_llm_judgement`; the caller runs `/audit` only when `docs/policies/audit-trigger.md` requires external review. Not a test runner, coverage-percentage gate, or replacement for host `/review`.",
   "version": "0.1.0",
   "wrapper_generated": true,
   "primary_trigger_keywords": ["test quality", "behavioral vs shape", "test coverage quality", "flaky tests", "weakened tests", "skipped tests", "PR test review"],
@@ -38,7 +38,7 @@
   ],
   "aqg_agent_gating": false,
   "owner_only_actions": [
-    "Production / branch protection / Owner-admin actions remain separate authorization gates; this skill is read-only — it parses a diff and emits a test-quality ledger + focus prompts, never modifies tests/source, never runs the suite, and never calls audit-mcp (the caller runs /audit per ADR 2026-05-08-aqg-skill-distribution-boundary-a1.md §5)"
+    "Production, branch protection, and Owner-admin actions remain separate authorization gates. This skill is read-only: it parses a diff and emits a test-quality ledger plus focus prompts; it never modifies tests/source, never runs the suite, and never calls audit tooling. The caller runs /audit only when docs/policies/audit-trigger.md routes the logical change there."
   ],
   "cases": [
     {

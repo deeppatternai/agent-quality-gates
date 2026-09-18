@@ -1,4 +1,4 @@
 interface:
   display_name: "AQG Multi-Review"
-  short_description: "5-dimension code review router (logic / edge / security / perf / concurrency)"
-  default_prompt: "Route this change through the 5-dimension review panel (logic, edge cases, security, performance, concurrency) and return per-dimension findings."
+  short_description: "5-dimension review router and multi-review ledger validator"
+  default_prompt: "Generate the 5-dimension review plan for this change, or validate a filled multi-review ledger."

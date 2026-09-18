@@ -1,0 +1,46 @@
+id: ledger-contract-fields
+title: 应说明 multi_review ledger 的必填结构
+description: 验证 Skill 能列出 validate 所要求的顶层 multi_review 映射、维度、findings、decision 和 audit_id 字段。
+
+input:
+  prompt: |
+    只根据 aqg-multi-review 技能说明回答，不要读仓库、不要调用工具；一个可验证的 multi-review YAML ledger 至少需要哪些结构字段和取值？
+    回答必须包含 multi_review:、dimensions_audited、findings、CRITICAL、HIGH、MEDIUM、LOW、evidence、decision、accept、reject、needs-cross-llm-rerun、decision_reason 和 audit_id。
+
+expect:
+  must_contain:
+    - "multi_review:"
+    - "dimensions_audited"
+    - "findings"
+    - "CRITICAL"
+    - "HIGH"
+    - "MEDIUM"
+    - "LOW"
+    - "evidence"
+    - "decision"
+    - "accept"
+    - "reject"
+    - "needs-cross-llm-rerun"
+    - "decision_reason"
+    - "audit_id"
+
+judge:
+  type: rule_based
+  success:
+    - output_contains:
+        all:
+          - "multi_review:"
+          - "dimensions_audited"
+          - "findings"
+          - "CRITICAL"
+          - "HIGH"
+          - "MEDIUM"
+          - "LOW"
+          - "evidence"
+          - "decision"
+          - "accept"
+          - "reject"
+          - "needs-cross-llm-rerun"
+          - "decision_reason"
+          - "audit_id"
+    - exit_code: 0

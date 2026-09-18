@@ -1,11 +1,22 @@
 ---
 name: aqg-systematic-debugging
-description: Root-cause debugging workflow for AI team project failures in any repository path, including failing checks, CI errors, test failures, production/read-only preflight failures, health probe failures, status drift, calibration mismatch, audit-tool anomalies, or repeated/surprising evidence conflicts. Use before proposing or applying a fix when symptoms, logs, checks, or model/audit outputs disagree. Does not replace the host built-in /debug slash command.
+description: Root-cause debugging workflow for unresolved project failures or contradictory evidence, including failing checks, CI errors, and preflight failures. Use it to build a reproducible feedback loop, test one hypothesis at a time, and verify a minimal fix before proposing changes; do not use it for ordinary implementation, review, or already-understood small fixes.
 ---
 
 # AQG Systematic Debugging
 
-Use this skill when something is failing or inconsistent. It enforces the rule: no root-cause evidence, no fix proposal.
+Purpose: turn a failing or contradictory project state into an evidence-backed
+root cause. The core rule is: **no root-cause evidence, no fix proposal.**
+
+Use when an unresolved failure or evidence conflict blocks a safe fix: failing
+commands/checks/CI/tests/probes/preflight, disagreement between local/CI/logs/
+status/model/audit evidence, or a recurring failure after prior fixes. Do not
+use for ordinary implementation/review, already-confirmed small fixes, external
+audits, product/architecture decisions, or production-write boundaries.
+
+Expected output: a reproducible loop or explicit blocker, the evidence tested,
+the confirmed root cause or current best non-confirmation, and the minimal next
+action.
 
 ## Phase 0 — Build the Feedback Loop FIRST
 
@@ -60,19 +71,32 @@ a loop.
    - Code path: caller -> callee -> storage/network boundary.
    - Evidence path: corpus/split/manifest -> scoring -> report -> status doc.
    - Production/read-only path: local script -> SSH/probe -> service endpoint -> logs.
-5. Form one hypothesis at a time.
+5. Form falsifiable hypotheses.
+   - If the cause is still ambiguous, generate 3-5 ranked candidates before testing.
    - State: "I think X is the cause because Y evidence."
    - Test it with the smallest check.
-   - Do not stack multiple speculative fixes.
+   - Test one hypothesis per loop iteration; do not stack speculative fixes.
 6. Only after evidence supports a root cause, choose the minimal fix.
    - Keep repo-only/offline, read-only production checks, production authorization, and runtime writes separate.
    - Do not cross an Owner-only or production boundary while debugging.
-7. Verify the fix against the original symptom AND a regression check **scaled to blast radius**: trivial → one check; high-stakes (security / concurrency / multi-file / irreversible) → the adjacent regression surface (the tests covering the changed code's blast radius). Derive that surface from the changed paths → their nearest test files/modules; run the smallest targeted subset (e.g. `pytest <those paths>` / `-k`) that covers them, and record the scope + rationale. Still focused — NOT the full suite: that authoritative full-suite / clean-env run is CI's job (or the project's gate); AQG stays focused, not a CI/CD platform.
-8. Use `aqg-evidence-closeout` before final answer.
+7. Verify the fix against the original symptom and a regression check **scaled to blast radius**.
+   - Trivial: one focused check can be enough.
+   - High-stakes (security / concurrency / multi-file / irreversible): derive the adjacent regression surface from the changed paths and nearest tests/modules.
+   - Run the smallest targeted subset (e.g. `pytest <those paths>` / `-k`) that covers the risk, and record the scope + rationale.
+   - Stay focused: not the full suite; the authoritative clean-env run is CI's job or the project's gate.
+8. Close the loop.
+   - Remove temporary instrumentation and confirm any debug marker is gone.
+   - Ask what would have prevented the bug; if the answer is structural, hand it off as an architecture/testability follow-up.
+   - Use `aqg-evidence-closeout` before final answer.
 
 If the referenced startup-preflight or evidence-closeout skill is unavailable, record that tool gap in `Boundaries` and continue with equivalent manual checks.
 
 ## Debug Case Helper
+
+Create a debug case when the investigation spans more than one command or
+hypothesis, crosses a repo/CI/production-read-only boundary, or may need to be
+resumed later. A short inline report is enough for a single local failure solved
+in one loop.
 
 Resolve the AQG root, then generate or validate a debug case skeleton:
 
@@ -115,5 +139,6 @@ Debug status:
 - evidence: <key lines/facts>
 - hypothesis tested: <result>
 - root cause: <confirmed / not confirmed>
+- cleanup/prevention: <debug instrumentation removed / structural follow-up>
 - next action: <minimal fix or blocker>
 ```

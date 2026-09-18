@@ -117,7 +117,7 @@ Continuity Drill / Context Wipe Test 是终极 e2e 手段。
 
 两门在 `python3` 完全缺失时都 fail-OPEN（环境跑不了任何 Python 门；能做的只有 stderr 可见提示），且**命中真实违规都 exit 2 拦截**。所以哲学是一致的、不矛盾：**不可逆性 + blast radius 决定降级方向** —— fail-closed 守不可逆（secret 泄漏），warn-open 守可恢复（skill lint）。下方 §4 的 sub-agent verify contract 用同一条规则（高 stakes fail-closed，普通 fail-open）。
 
-## 4. Sub-agent + AQG Contract（verifiable provenance）
+## 4. Sub-agent + AQG contract（可验证 provenance）
 
 每个 sub-agent claim 必须有**可验证 provenance**，不只信 self-attestation：
 
@@ -168,7 +168,7 @@ Continuity Drill / Context Wipe Test 是终极 e2e 手段。
 | AQG self-improvement loop（weekly retro 自动聚类）| weekly cron + grep + 聚类 | AQG own |
 | **Decision + knowledge continuity** | append-only decision LOG schema（grammar + secret-scan gate）+ memory schema/staleness scan + handoff manifest | AQG own —— 抗的是**知识退化**（"当初为何这么定" / 记忆是否过期 / 跨 session 接不接得上），与抗系统退化同源 |
 
-### Layer 4：Runtime contract
+### Layer 4：运行时 contract
 
 AQG own schemas + validators + required evidence fields + compliance reports；项目 own 真实 runtime adapters + instrumentation。
 

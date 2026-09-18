@@ -160,6 +160,15 @@ if [[ "$mode" == "copy" ]]; then
   helper_mode="copy"
 fi
 
+install_args=(
+  "$repo_root/scripts/aqg_skill_install.py"
+  --aqg-root "$repo_root"
+  --mode "$helper_mode"
+)
+if [[ "$force" == "1" ]]; then
+  install_args+=(--force)
+fi
+
 for skill in "${skills[@]}"; do
   source_dir="$skills_root/$skill"
   target_dir="$dest/$skill"
@@ -169,18 +178,9 @@ for skill in "${skills[@]}"; do
     exit 1
   fi
 
-  install_args=(
-    "$repo_root/scripts/aqg_skill_install.py"
-    --source "$source_dir"
-    --target "$target_dir"
-    --aqg-root "$repo_root"
-    --mode "$helper_mode"
-  )
-  if [[ "$force" == "1" ]]; then
-    install_args+=(--force)
-  fi
-  python3 "${install_args[@]}"
+  install_args+=(--item "$source_dir" "$target_dir")
 done
+python3 "${install_args[@]}"
 
 echo "Done. Restart Codex or open a new session to load updated skills."
 # install_aqg.sh / upgrade.sh set AQG_SKIP_HOOK_PROMPT=1 because they own a

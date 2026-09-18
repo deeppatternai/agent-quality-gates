@@ -4,19 +4,20 @@
 This helper is the data + output side of the `aqg-security-review` skill (see
 `skills/aqg-security-review/SKILL.md`). It prints structured reference tables
 that the reviewer walks through during the 6-step workflow defined in the skill,
-then emits a closeout-importable ledger skeleton.
+then emits a closeout-ready ledger skeleton.
 
 Position in AQG's three-layer security model:
   - aqg-security-review (this) = in-session prompt-driven checklist
   - semgrep                    = deterministic SAST
-  - audit-mcp `de_audit`      = LLM external review
+  - audit-mcp `/audit`        = LLM external review
 
-This script does NOT scan code. It prints the reference tables and a ledger
-skeleton for the reviewer to fill from current-session evidence. For automated
-SAST run semgrep; for cross-model verification call `de_audit`.
+This script does NOT run automated regex / AST / secret scanning. It prints the
+reference tables and a ledger skeleton for the reviewer to fill from
+current-session evidence. For automated SAST run semgrep; for cross-model
+verification call `/audit`.
 
 Exit codes:
-  0: success — checklist printed; closeout-importable skeleton emitted
+  0: success — checklist printed; closeout-ready skeleton emitted
   1: reserved — not currently emitted (placeholder for a future surface-blocker)
   2: usage error — argparse on bad flags; or a non-empty --surface that filters
      to no valid surface (fail-closed, not an empty checklist)
@@ -36,20 +37,20 @@ from typing import Any
 
 
 # ============================================================================
-# Data tables (canonical OWASP 2021 / CWE Top 25 2023 / secure-defaults 8 cat.)
+# Data tables (OWASP 2025 / CWE Top 25 2025 / secure-defaults 8 cat.)
 #
-# CATALOG SNAPSHOT — point-in-time as of 2024 (OWASP Top 10 = 2021 edition; CWE
-# Top 25 = 2023 base + 2024 net-new). This is a STATIC snapshot, NOT a live
+# CATALOG SNAPSHOT - point-in-time as of 2026-09-16 (OWASP Top 10 = 2025
+# edition; CWE Top 25 = 2025 release). This is a STATIC snapshot, NOT a live
 # authority: when OWASP/CWE publish a newer edition, re-verify these tables and
-# bump this date — a stale catalog must not be presented as current guidance.
+# bump this date; a stale catalog must not be presented as current guidance.
 # ============================================================================
 
 
-# OWASP Top 10 (2021 edition). Each entry: 3 patterns + severity + fix sketch.
+# OWASP Top 10 (2025 edition). Each entry: 3 patterns + severity + fix sketch.
 # Severities reflect typical impact in production; project context can override.
 OWASP_TOP_10: list[dict[str, Any]] = [
     {
-        "id": "A01:2021",
+        "id": "A01:2025",
         "name": "Broken Access Control",
         "patterns": [
             {"pattern": "missing authorization check on state-changing endpoint",
@@ -61,58 +62,13 @@ OWASP_TOP_10: list[dict[str, Any]] = [
             {"pattern": "client-side-only role gating (frontend hides admin button, API exposed)",
              "severity": "CRITICAL",
              "fix": "enforce role check server-side on every privileged route"},
-            {"pattern": "authorization fails OPEN — an exception/error in the permission-check path falls through to allow (try/except returns True; a missing else leaves access granted)",
-             "severity": "CRITICAL",
-             "fix": "fail-closed: default-deny; treat any check error as denial (OWASP 2025 A10 Mishandling of Exceptional Conditions)"},
+            {"pattern": "server-side URL fetch or resource access bypasses authorization boundaries (SSRF / IDOR / forced browsing)",
+             "severity": "HIGH",
+             "fix": "deny by default; enforce allowlists, resource ownership, and private-network blocks"},
         ],
     },
     {
-        "id": "A02:2021",
-        "name": "Cryptographic Failures",
-        "patterns": [
-            {"pattern": "MD5 / SHA-1 used for password hashing or signature",
-             "severity": "HIGH",
-             "fix": "use Argon2id / bcrypt for passwords; SHA-256+ for signatures"},
-            {"pattern": "hand-rolled AES wrapper (custom IV, ECB mode, key stored alongside data)",
-             "severity": "CRITICAL",
-             "fix": "use Google Tink / libsodium / Themis high-level AEAD primitives"},
-            {"pattern": "secrets transmitted over HTTP / stored in plaintext config",
-             "severity": "HIGH",
-             "fix": "TLS-only transport; secrets via secret manager (AWS SM / Vault / Doppler)"},
-        ],
-    },
-    {
-        "id": "A03:2021",
-        "name": "Injection",
-        "patterns": [
-            {"pattern": "user input concatenated into SQL string",
-             "severity": "HIGH",
-             "fix": "parameterized queries / ORM bindings; never f-string SQL"},
-            {"pattern": "user input passed to shell / `subprocess.run(shell=True)`",
-             "severity": "CRITICAL",
-             "fix": "shell=False + argument list; or use pathlib + library APIs"},
-            {"pattern": "unsafe template rendering (eval, dynamic Jinja with autoescape=False)",
-             "severity": "HIGH",
-             "fix": "logic-less template (Mustache / Handlebars / Liquid); autoescape=True"},
-        ],
-    },
-    {
-        "id": "A04:2021",
-        "name": "Insecure Design",
-        "patterns": [
-            {"pattern": "no rate limit on auth / password-reset / OTP endpoints",
-             "severity": "HIGH",
-             "fix": "global + per-IP + per-account rate limits; lockout on burst"},
-            {"pattern": "trust boundary missing — frontend computes price / discount, server accepts",
-             "severity": "HIGH",
-             "fix": "all sensitive computation server-side; treat client as untrusted"},
-            {"pattern": "no threat model for sensitive feature (payment, file upload, OAuth)",
-             "severity": "MEDIUM",
-             "fix": "STRIDE / abuse-case walk before merge"},
-        ],
-    },
-    {
-        "id": "A05:2021",
+        "id": "A02:2025",
         "name": "Security Misconfiguration",
         "patterns": [
             {"pattern": "default credentials or sample config shipped to production",
@@ -127,26 +83,68 @@ OWASP_TOP_10: list[dict[str, Any]] = [
         ],
     },
     {
-        "id": "A06:2021",
-        "name": "Vulnerable and Outdated Components",
+        "id": "A03:2025",
+        "name": "Software Supply Chain Failures",
         "patterns": [
-            {"pattern": "no dependency scanning in CI (npm audit / pip-audit / cargo audit)",
+            {"pattern": "no dependency scanning, SBOM, or vulnerability alerting in CI",
              "severity": "HIGH",
-             "fix": "Dependabot / Renovate + audit gate in CI"},
+             "fix": "Dependabot / Renovate + SCA audit gate + SBOM tracking"},
             {"pattern": "lockfile not committed / not used in CI (`npm install` instead of `npm ci`)",
              "severity": "MEDIUM",
-             "fix": "commit lockfile; CI uses frozen install (`npm ci` / `pip-sync` or `uv sync --frozen` or `pip install --require-hashes` / `cargo --locked`)"},
-            {"pattern": "EOL / deprecated package still in tree (e.g. moment.js → date-fns / luxon; request → undici / got / axios)",
-             "severity": "MEDIUM",
-             "fix": "migrate to maintained replacement; track via SBOM"},
-            {"pattern": "dependency confusion — an internal package name is also resolvable from a public registry (scope/namespace unclaimed, registry source not pinned)",
+             "fix": "commit lockfile; CI uses frozen install (`npm ci` / `uv sync --frozen` / `cargo --locked`)"},
+            {"pattern": "dependency confusion or untrusted artifact source (registry/source not pinned, unsigned artifact)",
              "severity": "HIGH",
-             "fix": "scope internal packages (@org/*); pin the registry source per scope; verify integrity hashes; claim internal names on public registries (OWASP 2025 A03 Software Supply Chain Failures)"},
+             "fix": "scope internal packages; pin registry per scope; verify signatures, provenance, and hashes"},
         ],
     },
     {
-        "id": "A07:2021",
-        "name": "Identification and Authentication Failures",
+        "id": "A04:2025",
+        "name": "Cryptographic Failures",
+        "patterns": [
+            {"pattern": "MD5 / SHA-1 used for password hashing or signature",
+             "severity": "HIGH",
+             "fix": "use Argon2id / bcrypt for passwords; SHA-256+ for signatures"},
+            {"pattern": "hand-rolled AES wrapper (custom IV, ECB mode, key stored alongside data)",
+             "severity": "CRITICAL",
+             "fix": "use Google Tink / libsodium / Themis high-level AEAD primitives"},
+            {"pattern": "secrets transmitted over HTTP / stored in plaintext config",
+             "severity": "HIGH",
+             "fix": "TLS-only transport; secrets via secret manager (AWS SM / Vault / Doppler)"},
+        ],
+    },
+    {
+        "id": "A05:2025",
+        "name": "Injection",
+        "patterns": [
+            {"pattern": "user input concatenated into SQL string",
+             "severity": "HIGH",
+             "fix": "parameterized queries / ORM bindings; never f-string SQL"},
+            {"pattern": "user input passed to shell / `subprocess.run(shell=True)`",
+             "severity": "CRITICAL",
+             "fix": "shell=False + argument list; or use pathlib + library APIs"},
+            {"pattern": "unsafe template rendering (eval, dynamic Jinja with autoescape=False)",
+             "severity": "HIGH",
+             "fix": "logic-less template (Mustache / Handlebars / Liquid); autoescape=True"},
+        ],
+    },
+    {
+        "id": "A06:2025",
+        "name": "Insecure Design",
+        "patterns": [
+            {"pattern": "no rate limit on auth / password-reset / OTP endpoints",
+             "severity": "HIGH",
+             "fix": "global + per-IP + per-account rate limits; lockout on burst"},
+            {"pattern": "trust boundary missing — frontend computes price / discount, server accepts",
+             "severity": "HIGH",
+             "fix": "all sensitive computation server-side; treat client as untrusted"},
+            {"pattern": "no threat model for sensitive feature (payment, file upload, OAuth)",
+             "severity": "MEDIUM",
+             "fix": "STRIDE / abuse-case walk before merge"},
+        ],
+    },
+    {
+        "id": "A07:2025",
+        "name": "Authentication Failures",
         "patterns": [
             {"pattern": "session token in localStorage (XSS-stealable)",
              "severity": "HIGH",
@@ -160,12 +158,12 @@ OWASP_TOP_10: list[dict[str, Any]] = [
         ],
     },
     {
-        "id": "A08:2021",
-        "name": "Software and Data Integrity Failures",
+        "id": "A08:2025",
+        "name": "Software or Data Integrity Failures",
         "patterns": [
             {"pattern": "untrusted deserialization (pickle / yaml.load / unsafe Java ObjectInputStream)",
              "severity": "CRITICAL",
-             "fix": "JSON / yaml.safe_load / SerialKiller filter / format-specific safe parser"},
+             "fix": "JSON / yaml.safe_load / JEP 290 ObjectInputFilter / format-specific safe parser"},
             {"pattern": "CI pipeline pulls unsigned artifact / unverified install script",
              "severity": "HIGH",
              "fix": "pin sha256 / use signed releases / SLSA provenance"},
@@ -175,8 +173,8 @@ OWASP_TOP_10: list[dict[str, Any]] = [
         ],
     },
     {
-        "id": "A09:2021",
-        "name": "Security Logging and Monitoring Failures",
+        "id": "A09:2025",
+        "name": "Security Logging and Alerting Failures",
         "patterns": [
             {"pattern": "auth failures / privileged actions not logged",
              "severity": "MEDIUM",
@@ -190,54 +188,50 @@ OWASP_TOP_10: list[dict[str, Any]] = [
         ],
     },
     {
-        "id": "A10:2021",
-        "name": "Server-Side Request Forgery (SSRF)",
+        "id": "A10:2025",
+        "name": "Mishandling of Exceptional Conditions",
         "patterns": [
-            {"pattern": "URL fetched server-side from user input without allowlist",
-             "severity": "HIGH",
-             "fix": "use ssrf_filter (Ruby) / ssrf-req-filter (Node) / explicit host allowlist"},
-            {"pattern": "metadata endpoint reachable (169.254.169.254 / AWS IMDS / GCP metadata)",
+            {"pattern": "authorization fails open when permission checks raise or return an unexpected value",
              "severity": "CRITICAL",
-             "fix": "block private + link-local IPs; require IMDSv2 with token"},
-            {"pattern": "URL parser bypasses (DNS rebinding, decimal IP, IDN homograph)",
+             "fix": "default deny; treat check errors and unknown states as denial"},
+            {"pattern": "partial state is committed after a security-critical operation fails",
              "severity": "HIGH",
-             "fix": "resolve DNS once + check resolved IP against allowlist; reject IDN in sensitive contexts"},
+             "fix": "wrap in transactions / compensating rollback; make failure atomic"},
+            {"pattern": "unchecked return value from crypto, auth, parser, or verifier library",
+             "severity": "HIGH",
+             "fix": "check every security-critical return/result; propagate or fail closed"},
         ],
     },
 ]
 
 
-# CWE Top 25 (2023 base edition) + appended high-value net-new entries (CWE-200, CWE-400).
-# Curated checklist, not a strict single-year Top 25; current live release is CWE Top 25:2025
-# (cross-check the live catalog). Compact form: id + name + severity + fix sketch.
+# CWE Top 25 (2025 release). Compact form: id + name + severity + fix sketch.
 CWE_TOP_25: list[dict[str, str]] = [
-    {"cwe": "CWE-787", "name": "Out-of-bounds Write", "severity": "CRITICAL", "fix": "bounds check; use safe collection / Vec / std::array"},
-    {"cwe": "CWE-79", "name": "Cross-site Scripting (XSS)", "severity": "HIGH", "fix": "DOMPurify (JS) / Bleach (Py) / Ammonia (Rust); template autoescape"},
-    {"cwe": "CWE-89", "name": "SQL Injection", "severity": "HIGH", "fix": "parameterized query / ORM bind; never string-concat SQL"},
-    {"cwe": "CWE-416", "name": "Use After Free", "severity": "CRITICAL", "fix": "RAII / smart pointers / borrow checker (Rust); audit raw `delete`"},
-    {"cwe": "CWE-78", "name": "OS Command Injection", "severity": "CRITICAL", "fix": "subprocess argv list; no `shell=True` with user input"},
-    {"cwe": "CWE-20", "name": "Improper Input Validation", "severity": "HIGH", "fix": "schema-based validation (Zod / Pydantic / serde); allowlist not blocklist"},
-    {"cwe": "CWE-125", "name": "Out-of-bounds Read", "severity": "HIGH", "fix": "bounds check; safe slice; avoid raw pointer arithmetic"},
-    {"cwe": "CWE-22", "name": "Path Traversal", "severity": "HIGH", "fix": "resolve real path + verify under allowlisted root; reject `..` segments"},
+    {"cwe": "CWE-79", "name": "Improper Neutralization of Input During Web Page Generation ('Cross-site Scripting')", "severity": "HIGH", "fix": "DOMPurify (JS) / nh3 (Py) / Ammonia (Rust); template autoescape"},
+    {"cwe": "CWE-89", "name": "Improper Neutralization of Special Elements used in an SQL Command ('SQL Injection')", "severity": "HIGH", "fix": "parameterized query / ORM bind; never string-concat SQL"},
     {"cwe": "CWE-352", "name": "Cross-Site Request Forgery (CSRF)", "severity": "HIGH", "fix": "Gorilla CSRF / anti-csrf token + SameSite cookie + Origin check"},
-    {"cwe": "CWE-434", "name": "Unrestricted Upload of Dangerous File", "severity": "HIGH", "fix": "validate mime + magic bytes + extension; store outside web root"},
     {"cwe": "CWE-862", "name": "Missing Authorization", "severity": "HIGH", "fix": "explicit `assert_can(user, action, resource)` on every privileged op"},
+    {"cwe": "CWE-787", "name": "Out-of-bounds Write", "severity": "CRITICAL", "fix": "bounds check; use safe collection / Vec / std::array"},
+    {"cwe": "CWE-22", "name": "Improper Limitation of a Pathname to a Restricted Directory ('Path Traversal')", "severity": "HIGH", "fix": "resolve real path + verify under allowlisted root; reject `..` segments"},
+    {"cwe": "CWE-416", "name": "Use After Free", "severity": "CRITICAL", "fix": "RAII / smart pointers / borrow checker (Rust); audit raw `delete`"},
+    {"cwe": "CWE-125", "name": "Out-of-bounds Read", "severity": "HIGH", "fix": "bounds check; safe slice; avoid raw pointer arithmetic"},
+    {"cwe": "CWE-78", "name": "Improper Neutralization of Special Elements used in an OS Command ('OS Command Injection')", "severity": "CRITICAL", "fix": "subprocess argv list; no `shell=True` with user input"},
+    {"cwe": "CWE-94", "name": "Improper Control of Generation of Code ('Code Injection')", "severity": "CRITICAL", "fix": "no eval / Function() / exec() with user input; sandboxed evaluator if unavoidable"},
+    {"cwe": "CWE-120", "name": "Buffer Copy without Checking Size of Input ('Classic Buffer Overflow')", "severity": "CRITICAL", "fix": "size-checked copy APIs; bounds-checked containers; fuzz unsafe parsers"},
+    {"cwe": "CWE-434", "name": "Unrestricted Upload of File with Dangerous Type", "severity": "HIGH", "fix": "validate mime + magic bytes + extension; store outside web root"},
     {"cwe": "CWE-476", "name": "NULL Pointer Dereference", "severity": "MEDIUM", "fix": "Optional / Result / null check before deref"},
-    {"cwe": "CWE-287", "name": "Improper Authentication", "severity": "HIGH", "fix": "use vetted auth library; no hand-rolled session / token logic"},
-    {"cwe": "CWE-190", "name": "Integer Overflow", "severity": "MEDIUM", "fix": "checked arithmetic (u128, BigInt); explicit overflow check"},
-    {"cwe": "CWE-502", "name": "Deserialization of Untrusted Data", "severity": "CRITICAL", "fix": "yaml.safe_load / JSON only / SerialKiller filter; never pickle untrusted"},
-    {"cwe": "CWE-77", "name": "Command Injection", "severity": "CRITICAL", "fix": "argv list; escape via library, never manual"},
-    {"cwe": "CWE-119", "name": "Improper Memory Buffer Restriction", "severity": "HIGH", "fix": "safe-by-default container; bounds-checked access"},
-    {"cwe": "CWE-798", "name": "Hard-coded Credentials", "severity": "CRITICAL", "fix": "secret manager + env var; rotate on detect; gitleaks pre-commit"},
-    {"cwe": "CWE-918", "name": "Server-Side Request Forgery", "severity": "HIGH", "fix": "ssrf_filter / ssrf-req-filter; deny private + link-local IPs"},
-    {"cwe": "CWE-306", "name": "Missing Authentication for Critical Function", "severity": "CRITICAL", "fix": "require auth on every state-changing endpoint; no debug bypass"},
-    {"cwe": "CWE-362", "name": "Race Condition", "severity": "MEDIUM", "fix": "atomic ops / lock / transactional update; check-then-act → compare-and-swap"},
-    {"cwe": "CWE-269", "name": "Improper Privilege Management", "severity": "HIGH", "fix": "least privilege; drop suid; no privilege re-elevation in same session"},
-    {"cwe": "CWE-94", "name": "Code Injection", "severity": "CRITICAL", "fix": "no eval / Function() / exec() with user input; sandboxed evaluator if unavoidable"},
+    {"cwe": "CWE-121", "name": "Stack-based Buffer Overflow", "severity": "CRITICAL", "fix": "bounds-check stack buffers; avoid fixed-size stack copies; prefer safe containers"},
+    {"cwe": "CWE-502", "name": "Deserialization of Untrusted Data", "severity": "CRITICAL", "fix": "yaml.safe_load / JSON only / JEP 290 ObjectInputFilter; never pickle untrusted"},
+    {"cwe": "CWE-122", "name": "Heap-based Buffer Overflow", "severity": "CRITICAL", "fix": "bounds-check heap buffers; prefer safe allocation wrappers; fuzz parsers"},
     {"cwe": "CWE-863", "name": "Incorrect Authorization", "severity": "HIGH", "fix": "policy engine (OPA / Cedar) over scattered conditionals; test matrix"},
-    {"cwe": "CWE-276", "name": "Incorrect Default Permissions", "severity": "MEDIUM", "fix": "umask 0027; chmod 0600 on secrets; review umask in installers"},
-    {"cwe": "CWE-200", "name": "Exposure of Sensitive Information to an Unauthorized Actor", "severity": "HIGH", "fix": "allowlist response fields (Pydantic response_model / Rails :only), not blocklist; never return stack traces, internal IDs, or full user objects to under-authorized callers (2024 Top 25 #17; still in 2025 Top 25 #20)"},
-    {"cwe": "CWE-400", "name": "Uncontrolled Resource Consumption", "severity": "HIGH", "fix": "per-endpoint CPU/mem/time budget; pagination max-limit on list endpoints; RE2 or regex timeout for user-supplied patterns; validate file size + recursion depth before processing (2024 Top 25 #24; dropped from 2025 Top 25, retained as a resource-exhaustion / DoS check)"},
+    {"cwe": "CWE-20", "name": "Improper Input Validation", "severity": "HIGH", "fix": "schema-based validation (Zod / Pydantic / serde); allowlist not blocklist"},
+    {"cwe": "CWE-284", "name": "Improper Access Control", "severity": "HIGH", "fix": "centralize deny-by-default access controls; test unauthenticated and under-authorized paths"},
+    {"cwe": "CWE-200", "name": "Exposure of Sensitive Information to an Unauthorized Actor", "severity": "HIGH", "fix": "allowlist response fields; never return stack traces, internal IDs, or full user objects to under-authorized callers"},
+    {"cwe": "CWE-306", "name": "Missing Authentication for Critical Function", "severity": "CRITICAL", "fix": "require auth on every state-changing endpoint; no debug bypass"},
+    {"cwe": "CWE-918", "name": "Server-Side Request Forgery (SSRF)", "severity": "HIGH", "fix": "explicit host allowlist; deny private + link-local IPs; mitigate DNS rebinding"},
+    {"cwe": "CWE-77", "name": "Improper Neutralization of Special Elements used in a Command ('Command Injection')", "severity": "CRITICAL", "fix": "argv list; escape via library, never manual"},
+    {"cwe": "CWE-639", "name": "Authorization Bypass Through User-Controlled Key", "severity": "HIGH", "fix": "derive resource keys server-side; enforce ownership after lookup; test IDOR paths"},
+    {"cwe": "CWE-770", "name": "Allocation of Resources Without Limits or Throttling", "severity": "HIGH", "fix": "per-endpoint CPU/mem/time budgets; max pagination limits; file-size and recursion-depth caps"},
 ]
 
 
@@ -326,7 +320,7 @@ SURFACES: list[str] = [
 
 
 def _print_owasp() -> None:
-    print("## OWASP Top 10 (2021 — legacy edition; current release is OWASP 2025)\n")
+    print("## OWASP Top 10 (2025 current baseline)\n")
     print("| id | category | severity range | example patterns |")
     print("|---|---|---|---|")
     for entry in OWASP_TOP_10:
@@ -337,7 +331,7 @@ def _print_owasp() -> None:
 
 
 def _print_cwe() -> None:
-    print("## CWE Top 25 (2023 base — legacy edition) + appended net-new (CWE-200, CWE-400); current live release is CWE Top 25:2025\n")
+    print("## CWE Top 25 (2025 current baseline)\n")
     print("| cwe | name | severity | fix sketch |")
     print("|---|---|---|---|")
     for c in CWE_TOP_25:
@@ -357,14 +351,14 @@ def _print_defaults() -> None:
 
 def _print_skeleton(repo: Path, surfaces: list[str]) -> None:
     today = dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
-    print("## Closeout-importable security_review block\n")
+    print("## Closeout-ready security_review block\n")
     print("```yaml")
     print("security_review:")
     print(f"  reviewed_at: {today}")
     print(f"  repo: {json.dumps(str(repo))}")
     print(f"  surfaces_audited: [{', '.join(surfaces)}]")
     print("  owasp_findings: []  # TODO fill from §2 walk")
-    print("  cwe_findings: []    # TODO fill from §3 scan")
+    print("  cwe_findings: []    # TODO fill from section 3 review")
     print("  secure_defaults: [] # TODO fill from §4b: layer / library / anti_pattern_avoided")
     print("  defense_in_depth: {} # TODO fill from §4c")
     print("  decision: TODO     # accept | reject | needs-secret-rotation")
@@ -373,13 +367,10 @@ def _print_skeleton(repo: Path, surfaces: list[str]) -> None:
     print("```\n")
 
 
-def _emit_json(repo: Path, surfaces: list[str]) -> None:
+def _emit_json(repo: Path, surfaces: list[str], section: str = "all") -> None:
     payload = {
         "repo": str(repo),
         "surfaces_audited": surfaces,
-        "owasp_top_10": OWASP_TOP_10,
-        "cwe_top_25": CWE_TOP_25,
-        "secure_defaults": SECURE_DEFAULTS,
         "ledger_skeleton": {
             "security_review": {
                 "reviewed_at": dt.datetime.now(dt.timezone.utc).isoformat(),
@@ -395,6 +386,12 @@ def _emit_json(repo: Path, surfaces: list[str]) -> None:
             }
         },
     }
+    if section in ("owasp", "all"):
+        payload["owasp_top_10"] = OWASP_TOP_10
+    if section in ("cwe", "all"):
+        payload["cwe_top_25"] = CWE_TOP_25
+    if section in ("defaults", "all"):
+        payload["secure_defaults"] = SECURE_DEFAULTS
     print(json.dumps(payload, indent=2, ensure_ascii=False))
 
 
@@ -414,7 +411,7 @@ def _sanitize_inline(text: str) -> str:
 def _build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="aqg_security_review.py",
-        description="Print OWASP / CWE / secure-defaults checklist + closeout skeleton.",
+        description="Print OWASP / CWE / secure-defaults checklist + closeout-ready skeleton.",
     )
     p.add_argument("--repo", type=Path, default=Path.cwd(),
                    help="repo root path; defaults to current working directory")
@@ -449,14 +446,14 @@ def main() -> int:
         return 2
 
     if args.json:
-        _emit_json(args.repo, surfaces)
+        _emit_json(args.repo, surfaces, args.list)
         return 0
 
     print(f"# AQG Security Review — checklist for {_sanitize_inline(str(args.repo))}\n")
     print(f"surfaces: {', '.join(surfaces)}\n")
-    print("Catalogs: OWASP 2021 + CWE 2023 are LEGACY editions; current live releases "
-          "are OWASP Top 10:2025 / CWE 2025 — cross-check the live catalog for "
-          "new or re-ranked categories.\n")
+    print("Catalogs: OWASP Top 10:2025 / CWE Top 25:2025 current baselines "
+          "(static snapshot as of 2026-09-16); cross-check the live catalog for "
+          "future releases.\n")
     print("Three-layer position: in-session checklist (this) + semgrep SAST + /audit.\n")
 
     if args.list in ("owasp", "all"):
@@ -467,8 +464,9 @@ def main() -> int:
         _print_defaults()
     _print_skeleton(args.repo, surfaces)
 
-    print("Next: walk §2 (OWASP) → §3 (CWE) → §4 (defense layers) → §5 (decision) → "
-          "§6 (paste the closeout block into `.aqg/current_ledger.md`).")
+    print("Next: walk section 2 (OWASP) -> section 3 (CWE) -> section 4 "
+          "(defense layers) -> section 5 (decision) -> section 6 (paste the "
+          "closeout block into `.aqg/current_ledger.md`).")
     return 0
 
 

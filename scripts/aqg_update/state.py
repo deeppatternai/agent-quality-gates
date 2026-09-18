@@ -43,6 +43,11 @@ import os
 from pathlib import Path
 from typing import Any, Dict, Optional
 
+try:
+    from scripts import aqg_directory_links as directory_links
+except ImportError:
+    import aqg_directory_links as directory_links  # type: ignore[no-redef]
+
 try:  # invoked as a package (tests, `python3 -m`)
     from scripts._aqg_backup import BackupError, _atomic_write_bytes
 except ImportError:  # invoked with scripts/ itself on sys.path
@@ -99,6 +104,13 @@ def _require_int(payload: Dict[str, Any], key: str) -> int:
 
 class StateError(RuntimeError):
     """A refusal to read or write install state. Always fail-closed."""
+
+
+def _directory_entry_kind(path: Path) -> str:
+    try:
+        return directory_links.link_kind(Path(path))
+    except OSError as exc:
+        raise StateError(f"cannot inspect state path {path}: {exc}") from exc
 
 
 def _resolve(path: Path, label: str) -> Path:
@@ -161,14 +173,20 @@ def state_root(*, create: bool = True) -> Path:
 
     # Checked in both modes: a read through a redirected root is exactly as
     # wrong as a write through one.
-    if root.is_symlink():
-        raise StateError(f"refusing to use state root through symlink: {root}")
+    kind = _directory_entry_kind(root)
+    if kind in {"symlink", "junction", "other_reparse"}:
+        raise StateError(f"refusing to use state root through {kind}: {root}")
 
     if create:
         try:
             root.mkdir(parents=True, exist_ok=True)
         except OSError as exc:
             raise StateError(f"cannot create state root {root}: {exc}") from exc
+        kind = _directory_entry_kind(root)
+        if kind != "directory":
+            raise StateError(
+                f"state root became {kind} while it was being prepared: {root}"
+            )
         try:  # best-effort: Windows has no meaningful POSIX mode
             os.chmod(root, 0o700)
         except OSError:

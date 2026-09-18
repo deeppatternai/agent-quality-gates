@@ -2,7 +2,7 @@
   "_doc": "writes_paths is empty because debug_case.py default --output-dir is $CODEX_HOME/aqg-debug-cases (outside the AQG repo, schema disallows ~ / absolute paths). Users may pass --output-dir docs/debugging-cases/ to write project-relative; in that case the project path is user-controlled, not skill-asserted boundary.",
   "skill_template_schema": 1,
   "name": "aqg-systematic-debugging",
-  "description": "Root-cause debugging workflow for AI team project failures in any repository path, including failing checks, CI errors, test failures, production/read-only preflight failures, health probe failures, status drift, calibration mismatch, audit-tool anomalies, or repeated/surprising evidence conflicts. Use before proposing or applying a fix when symptoms, logs, checks, or model/audit outputs disagree. Does not replace the host built-in /debug slash command.",
+  "description": "Root-cause debugging workflow for unresolved project failures or contradictory evidence, including failing checks, CI errors, and preflight failures. Use it to build a reproducible feedback loop, test one hypothesis at a time, and verify a minimal fix before proposing changes; do not use it for ordinary implementation, review, or already-understood small fixes.",
   "version": "0.1.0",
   "wrapper_generated": true,
   "host_overrides": {

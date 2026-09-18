@@ -1,0 +1,38 @@
+id: preflight_and_boundary_trace
+title: repo 状态相关失败应先跑 preflight 并追踪边界
+description: |
+  验证 Skill 在分支、PR、dirty files、状态文档或远端状态可能影响判断时，会要求先运行 project preflight，并把失败追踪到 Git/GitHub、代码、证据或生产只读路径边界。
+
+input:
+  prompt: |
+    只根据 aqg-systematic-debugging 的说明回答，不要调用工具。
+    场景：CI 红、本地复现结果不同，当前分支、PR、dirty files、状态文档和远端 tracking 都可能影响判断。
+    请说明 Step 3/4 应怎么处理。回答必须包含 project preflight、repo state、--no-fetch、live remote tracking、Git/GitHub、Code path、Evidence path、Production/read-only path 和 boundary。
+
+expect:
+  must_contain:
+    - "project preflight"
+    - "repo state"
+    - "--no-fetch"
+    - "live remote tracking"
+    - "Git/GitHub"
+    - "Code path"
+    - "Evidence path"
+    - "Production/read-only path"
+    - "boundary"
+
+judge:
+  type: rule_based
+  success:
+    - output_contains:
+        all:
+          - "project preflight"
+          - "repo state"
+          - "--no-fetch"
+          - "live remote tracking"
+          - "Git/GitHub"
+          - "Code path"
+          - "Evidence path"
+          - "Production/read-only path"
+          - "boundary"
+    - exit_code: 0

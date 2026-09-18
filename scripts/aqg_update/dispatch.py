@@ -96,7 +96,9 @@ class Resources:
 
     @property
     def skills_source(self) -> Path:
-        return Path(self.target) / "skills"
+        # Routes must survive a root swap and retention of the old physical
+        # generation. The logical entrance is stable; target/skills is not.
+        return Path(self.root) / "skills"
 
 
 @dataclass(frozen=True)
@@ -129,6 +131,7 @@ def _apply_one(action: Action, resources: Resources) -> Outcome:
         created = skills_route.route(
             name=_subject_of(action),
             source_root=resources.skills_source,
+            content_root=Path(resources.target) / "skills",
             dest_root=_dest_for(resources, action),
         )
         return Outcome(

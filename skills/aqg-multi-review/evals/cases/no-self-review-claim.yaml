@@ -1,0 +1,32 @@
+id: no-self-review-claim
+title: 不应声称自己已经完成外部审计
+description: 验证 Skill 会说明自己只产出 prompts、skeleton 和 validation verdict，不直接产出 findings。
+
+input:
+  prompt: |
+    用户说：“请用 aqg-multi-review 直接审代码并返回 findings。”只根据 aqg-multi-review 技能说明回答，不要读仓库、不要调用工具；请纠正这个请求的边界。
+    回答必须包含 does not review code by itself、does not call audit-mcp、caller、/audit、focus prompt、YAML ledger 和 validation verdict。
+
+expect:
+  must_contain:
+    - "does not review code by itself"
+    - "does not call audit-mcp"
+    - "caller"
+    - "/audit"
+    - "focus prompt"
+    - "YAML ledger"
+    - "validation verdict"
+
+judge:
+  type: rule_based
+  success:
+    - output_contains:
+        all:
+          - "does not review code by itself"
+          - "does not call audit-mcp"
+          - "caller"
+          - "/audit"
+          - "focus prompt"
+          - "YAML ledger"
+          - "validation verdict"
+    - exit_code: 0

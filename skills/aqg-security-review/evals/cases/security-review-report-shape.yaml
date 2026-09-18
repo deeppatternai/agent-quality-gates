@@ -1,0 +1,34 @@
+# 稳定用例 ID，需与文件名保持一致。
+id: security-review-report-shape
+# 报告中显示的中文标题。
+title: 安全评审必须输出 OWASP/CWE/secure-defaults 与决策形状
+description: |
+  验证 Skill 被触发后，会说明 helper、三类检查表和最终 `security_review`
+  证据块，而不是只给泛泛的安全建议。
+
+input:
+  # 模拟真实用户在安全敏感改动前触发 Skill。
+  prompt: |
+    我改了一个登录后的用户资料 API，会处理 auth、用户输入和日志。
+    请使用 aqg-security-review Skill 说明你会如何检查，并给出最终报告应该包含的字段。
+    请按 Skill 的 Agent Response Contract 回答，并明确写出 helper 名称 `aqg_security_review.py`。
+    这个评测只看最终回答；可以读取 Skill 指令本身，但不要实际运行命令、不要读取项目代码、不要联网。
+
+judge:
+  # 关键词足以判断是否遵守报告契约。
+  # Options: rule_based | agent_judge | script.
+  type: rule_based
+  success:
+    - output_contains:
+        all:
+          - "aqg_security_review.py"
+          - "OWASP"
+          - "CWE"
+          - "secure"
+          - "security_review"
+          - "decision"
+          - "evidence"
+        any:
+          - "surfaces_audited"
+          - "surface"
+          - "安全面"

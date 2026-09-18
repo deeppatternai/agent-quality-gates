@@ -1,0 +1,34 @@
+id: audit-id-issuance
+title: 应说明 AQG_DE_RESULTS_DIR 的 audit_id 发行校验
+description: 验证 Skill 会说明 validate 如何在配置 Decision Engine 结果目录时校验 audit_id，并保持未配置目录时的兼容行为。
+
+input:
+  prompt: |
+    只根据 aqg-multi-review 技能说明回答，不要读仓库、不要调用工具；validate 如何处理 AQG_DE_RESULTS_DIR 和 audit_id 发行校验？未配置结果目录、找不到 id、或找到 id 时分别代表什么？
+    回答必须包含 AQG_DE_RESULTS_DIR、audit_id、issued、fabricated、unverifiable、downgrade、needs_llm_judgement 和 prior behavior is preserved。
+
+expect:
+  must_contain:
+    - "AQG_DE_RESULTS_DIR"
+    - "audit_id"
+    - "issued"
+    - "fabricated"
+    - "unverifiable"
+    - "downgrade"
+    - "needs_llm_judgement"
+    - "prior behavior is preserved"
+
+judge:
+  type: rule_based
+  success:
+    - output_contains:
+        all:
+          - "AQG_DE_RESULTS_DIR"
+          - "audit_id"
+          - "issued"
+          - "fabricated"
+          - "unverifiable"
+          - "downgrade"
+          - "needs_llm_judgement"
+          - "prior behavior is preserved"
+    - exit_code: 0

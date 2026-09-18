@@ -41,7 +41,7 @@
 
 ## 装机流程
 
-### Step 1：Clone AQG repo
+### Step 1：克隆 AQG repo
 
 本地稳定安装路径统一用 `$HOME/.deeppattern/agent-quality-gates`。把 `AQG_ROOT` 设成它：
 

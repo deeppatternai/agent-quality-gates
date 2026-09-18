@@ -72,8 +72,11 @@ It merges only the AQG pilot handlers into `${CODEX_HOME:-$HOME/.codex}/hooks.js
 does not replace other handlers, and writes the reviewed root into the command
 entries so desktop Codex does not depend on shell-profile inheritance. Restart
 Codex and review/trust the commands in Hooks settings or CLI `/hooks`. This is
-not full Claude Hook parity; it currently wires only the live-verified secret
-scan and handoff reminder paths.
+not full Claude Hook parity; it currently wires only the `Bash`/`apply_patch`
+secret-scan handler. The Bash path is live-verified; `apply_patch` parsing is
+unit-tested but live deny delivery remains unverified. Codex handoff automation
+via `UserPromptSubmit` is intentionally retired because a pasted handoff and a
+new handoff request cannot be safely distinguished from prompt text alone.
 
 ### Optional: tamper-resistance guard (#328, partial)
 

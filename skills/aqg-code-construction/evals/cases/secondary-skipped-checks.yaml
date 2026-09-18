@@ -1,0 +1,30 @@
+id: secondary-skipped-checks
+title: 二次评测：skipped_checks 必须有具体 reason
+description: 验证 Skill 会拒绝空泛 skipped_checks，并要求使用 check/reason 字典结构。
+
+input:
+  prompt: |
+    只根据 aqg-code-construction 技能说明回答，不要读仓库、不要调用工具；如果本地 pytest 暂时不能跑，ledger 的 skipped_checks 应该怎么写？请用 8 行以内回答。
+    回答必须包含 skipped_checks、check、reason、concrete、vague 和 hard block。
+
+expect:
+  must_contain:
+    - "skipped_checks"
+    - "check"
+    - "reason"
+    - "concrete"
+    - "vague"
+    - "hard block"
+
+judge:
+  type: rule_based
+  success:
+    - output_contains:
+        all:
+          - "skipped_checks"
+          - "check"
+          - "reason"
+          - "concrete"
+          - "vague"
+          - "hard block"
+    - exit_code: 0

@@ -1,0 +1,48 @@
+# skill-up 评测配置版本，保持为 v1alpha1。
+schema_version: v1alpha1
+
+environment:
+  # 纯文本流程 Skill，不需要额外沙箱运行时。
+  # Options: none | opensandbox | docker.
+  type: none
+
+skills:
+  # 安装当前 aqg-security-review Skill 供被测 Agent 使用。
+  - source: local_path
+    path: .
+    include:
+      - SKILL.md
+      - scripts/**
+
+engine:
+  # 本机可用的 Agent Engine；不指定 model，使用本地默认配置。
+  # Built-in options: claude_code | codex | qodercli | qwen_code.
+  name: codex
+
+cases:
+  # 每个用例锁住一个安全评审纪律点或已知契约边界。
+  files:
+    - evals/cases/security-review-report-shape.yaml
+    - evals/cases/audit-depth-policy-for-sensitive-change.yaml
+    - evals/cases/rotation-owner-boundary.yaml
+    - evals/cases/semgrep-and-audit-are-complementary.yaml
+    - evals/cases/deprecated-libraries-not-recommended.yaml
+    - evals/cases/manual-closeout-not-auto-import.yaml
+    - evals/cases/surface-flag-label-not-table-filter.yaml
+    - evals/cases/fake-test-key-fixture-reject-not-rotation.yaml
+    - evals/cases/owner-only-actions-not-claimed.yaml
+    - evals/cases/real-work-helper-before-findings.yaml
+    - evals/cases/no-code-modification-boundary.yaml
+  defaults:
+    timeout_seconds: 600
+    max_turns: 4
+    expect:
+      exit_code: 0
+  retry_policy:
+    max_retries: 1
+    retry_on: [timeout, error]
+
+report:
+  # 默认生成 JSON；需要人工查看时可临时用 --format html。
+  # Options: json | junit | html.
+  formats: [json]

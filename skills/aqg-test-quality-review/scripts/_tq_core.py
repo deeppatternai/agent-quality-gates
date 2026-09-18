@@ -524,7 +524,7 @@ def bulk_shape_test_risk(counts: Counts) -> bool:
             and counts.shape_ratio >= BULK_SHAPE_RATIO_MIN)
 
 
-# Per-concern focus prompts — the caller passes these to de_audit(focus=...).
+# Focus prompts for a caller-run /audit when the audit policy routes there.
 FOCUS_PROMPTS: dict[str, str] = {
     "shape_vs_behavioral": (
         "For each flagged test, decide if it asserts on BEHAVIOR (output values / "
@@ -541,7 +541,7 @@ FOCUS_PROMPTS: dict[str, str] = {
         "covered."
     ),
     "anti_horizontal": (
-        "Only meaningful with --commits. Given per-commit test/impl interleaving, "
+        "Only meaningful with --commits-numstat. Given per-commit test/impl interleaving, "
         "decide if tests were written VERTICALLY (test→impl→test tracer-bullet) or "
         "HORIZONTALLY (all tests batched, then all impl — yields tests of imagined "
         "behavior). See docs/TESTING_METHODOLOGY.md."

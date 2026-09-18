@@ -1,0 +1,35 @@
+id: concurrent_worktrees_boundary
+title: concurrent worktrees 是 advisory，脏共享 checkout 才阻塞编辑
+description: |
+  验证 Skill 会把 concurrent worktrees 或 dirty-at-start 作为并发 advisory，同时把需要编辑时的 dirty shared checkout 作为 blocker。
+
+context:
+  git:
+    init: true
+    checkout: main
+  files:
+    README.md: |
+      # Concurrency Fixture
+
+input:
+  prompt: |
+    如果 aqg-startup-preflight 发现多个 worktree、或者 session start 前已有 dirty-at-start 证据，应如何分类？请区分 concurrent worktrees advisory、dirty worktree 对编辑任务的 blocker，以及为什么应该使用 isolated worktree 而不是 shared checkout。
+
+judge:
+  type: rule_based
+  success:
+    - output_matches:
+        all:
+          - "(?i)concurrent worktrees|多个 worktree|并发"
+          - "(?i)advisory|advisories"
+          - "(?i)dirty worktree|脏"
+          - "(?i)blocker"
+          - "(?i)isolated|隔离|独立"
+          - "(?i)shared checkout|共享"
+    - exit_code: 0
+  failure:
+    - output_contains:
+        any:
+          - "多个 worktree 是 blocker"
+          - "shared checkout 可以直接 patch"
+          - "dirty-at-start 可以忽略"

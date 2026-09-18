@@ -1,0 +1,46 @@
+id: session_start_preflight
+title: session 开始前输出 preflight 报告
+description: |
+  验证 Skill 在用户准备修改仓库前，会把自己定位为一次性的 session-start preflight，并报告仓库状态、GitHub 可见性、blocker 和 next safe step。
+
+context:
+  git:
+    init: true
+    checkout: main
+  files:
+    README.md: |
+      # Fixture Project
+    docs/ENGINEERING_FRAMEWORK.md: |
+      # Engineering Framework
+    docs/DOCUMENTATION_OPERATING_MODEL.md: |
+      # Documentation Operating Model
+
+input:
+  prompt: |
+    我刚打开这个仓库，准备开始改代码。请使用 aqg-startup-preflight 从当前 git root 做启动预检，并按报告格式说明 repo、GitHub、blocker 和 next safe step。
+
+expect:
+  must_contain:
+    - "Preflight"
+    - "repo"
+    - "GitHub"
+    - "blocker"
+    - "next safe step"
+
+judge:
+  type: rule_based
+  success:
+    - output_contains:
+        all:
+          - "Preflight"
+          - "repo"
+          - "GitHub"
+          - "blocker"
+          - "next safe step"
+    - exit_code: 0
+  failure:
+    - output_contains:
+        any:
+          - "无需预检"
+          - "不用检查"
+          - "LGTM"

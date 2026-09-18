@@ -1,0 +1,34 @@
+id: ledger-validation-signals
+title: validate 应说明 needs_llm_judgement 触发条件
+description: 验证 Skill 会指出 validate 可以通过结构检查但仍触发 needs_llm_judgement。
+
+input:
+  prompt: |
+    只根据 aqg-multi-review 技能说明回答，不要读仓库、不要调用工具；validate 什么时候会触发 needs_llm_judgement？请列出关键触发条件。
+    回答必须包含 needs_llm_judgement、cross-dimension、overlapping evidence、3+ dimensions、accept、CRITICAL、audit_id 和 zero findings。
+
+expect:
+  must_contain:
+    - "needs_llm_judgement"
+    - "cross-dimension"
+    - "overlapping evidence"
+    - "3+ dimensions"
+    - "accept"
+    - "CRITICAL"
+    - "audit_id"
+    - "zero findings"
+
+judge:
+  type: rule_based
+  success:
+    - output_contains:
+        all:
+          - "needs_llm_judgement"
+          - "cross-dimension"
+          - "overlapping evidence"
+          - "3+ dimensions"
+          - "accept"
+          - "CRITICAL"
+          - "audit_id"
+          - "zero findings"
+    - exit_code: 0

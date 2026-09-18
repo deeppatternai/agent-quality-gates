@@ -1,0 +1,34 @@
+id: behavior-vs-shape
+title: 应区分行为断言和形状断言
+description: 验证 Skill 会把仅检查类型、结构、key 是否存在的测试识别为 SHAPE 风险，并把输出、side-effects、errors 归为 BEHAVIOR。
+
+input:
+  prompt: |
+    只根据 aqg-test-quality-review 技能说明回答，不要读仓库、不要调用工具；评审新增测试时，如何判断它只断言 SHAPE 而不是 BEHAVIOR？请用 6 行以内回答。
+    回答必须包含 shape_over_behavioral、SHAPE、BEHAVIOR、types、key presence、output values、side-effects 和 errors。
+
+expect:
+  must_contain:
+    - "shape_over_behavioral"
+    - "SHAPE"
+    - "BEHAVIOR"
+    - "types"
+    - "key presence"
+    - "output values"
+    - "side-effects"
+    - "errors"
+
+judge:
+  type: rule_based
+  success:
+    - output_contains:
+        all:
+          - "shape_over_behavioral"
+          - "SHAPE"
+          - "BEHAVIOR"
+          - "types"
+          - "key presence"
+          - "output values"
+          - "side-effects"
+          - "errors"
+    - exit_code: 0

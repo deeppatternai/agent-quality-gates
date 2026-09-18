@@ -145,6 +145,14 @@ def read_journal(path: Path) -> Optional[Dict[str, Any]]:
             f"{payload.get('phase') if isinstance(payload, dict) else payload!r}; "
             f"this AQG cannot interpret it"
         )
+    for key in ("previous_link_kind", "new_link_kind"):
+        value = payload.get(key)
+        if value is not None and value not in stage.DIRECTORY_LINK_KINDS:
+            raise TransactionError(
+                f"the update journal at {path} records unsupported {key} "
+                f"{value!r}; refusing to infer how the managed root should be "
+                f"restored"
+            )
     return payload
 
 
@@ -158,7 +166,11 @@ def _clear_journal(path: Path) -> None:
     _fsync_dir(path.parent)
     # Called under the install lock: no active journal references these files.
     directory = path.parent / 'hook-backups'
-    if directory.is_dir() and not directory.is_symlink():
+    try:
+        directory_kind = stage.directory_entry_kind(directory)
+    except stage.StageError:
+        directory_kind = "unreadable"
+    if directory_kind == "directory":
         try:
             for backup in directory.iterdir():
                 if (backup.suffix == '.bak' and len(backup.stem) == 64
@@ -228,10 +240,18 @@ def _apply_locked(
     smoke: Optional[Callable[[], bool]],
     record_state: Optional[Callable[[], None]] = None,
 ) -> Result:
-    previous_root = stage.current_target(Path(resources.root))
+    root_kind, previous_root = stage.directory_link_state(Path(resources.root))
+    previous_link_kind = (
+        root_kind if root_kind in stage.DIRECTORY_LINK_KINDS else None
+    )
+    new_link_kind = previous_link_kind or (
+        "junction" if stage._is_windows() else "symlink"
+    )
     base = {
         "target": str(resources.target),
         "previous_root": str(previous_root) if previous_root else None,
+        "previous_link_kind": previous_link_kind,
+        "new_link_kind": new_link_kind,
     }
 
     edits = {edit.path: edit for edit in resources.hook_edits.values()}
@@ -254,7 +274,7 @@ def _apply_locked(
         # moment. Letting the exception past without undoing would leave the
         # root on a version that had just failed.
         earned = tuple(getattr(exc, "aqg_outcomes", ()))
-        return _undo(journal, base, earned, previous_root, resources,
+        return _undo(journal, base, earned, previous_root, previous_link_kind, resources,
                      reason=f"the apply raised {type(exc).__name__}: {exc}")
     failed = [o for o in outcomes if o.status == "failed"]
 
@@ -262,7 +282,7 @@ def _apply_locked(
         _write_journal(journal, {**base, "phase": "smoking"})
         if not _smoke_passed(lambda: all(edit.verify() for edit in edits.values())
                              and _smoke_passed(smoke)):
-            return _undo(journal, base, outcomes, previous_root, resources,
+            return _undo(journal, base, outcomes, previous_root, previous_link_kind, resources,
                          reason="the new version did not pass its smoke check")
 
         # BEFORE the journal is cleared. A crash between "the root is live" and
@@ -293,7 +313,7 @@ def _apply_locked(
         _clear_journal(journal)
         return Result(status="committed", outcomes=outcomes)
 
-    return _undo(journal, base, outcomes, previous_root, resources,
+    return _undo(journal, base, outcomes, previous_root, previous_link_kind, resources,
                  reason=failed[0].detail)
 
 
@@ -329,6 +349,7 @@ def _undo(
     base: Dict[str, Any],
     outcomes: Tuple[dispatch.Outcome, ...],
     previous_root: Optional[Path],
+    previous_link_kind: Optional[str],
     resources: dispatch.Resources,
     *,
     reason: str,
@@ -369,7 +390,10 @@ def _undo(
                 ),
             )
         try:
-            stage.swap_root(root=Path(resources.root), target=previous_root)
+            stage.swap_root(
+                root=Path(resources.root), target=previous_root,
+                link_kind=previous_link_kind,
+            )
         except stage.StageError as exc:
             _write_journal(journal, {**record, "phase": "repair_required"})
             extra = (
@@ -424,11 +448,25 @@ def recover_hook_update(journal: Path, root: Path, installed) -> bool:
         return False
     previous = Path(payload.get('previous_root') or '')
     target = Path(payload.get('target') or '')
-    live = stage.current_target(root)
+    # Journals written before directory-link typing only ever described
+    # symlinks. Treat missing fields as that exact legacy contract; do not infer
+    # junction from whatever happens to be on disk now.
+    previous_link_kind = payload.get('previous_link_kind', 'symlink')
+    new_link_kind = payload.get('new_link_kind', 'symlink')
+    try:
+        live = stage.current_target(root)
+        live_link_kind = stage.current_link_kind(root)
+        previous_tree_kind = stage.directory_entry_kind(previous)
+        target_tree_kind = stage.directory_entry_kind(target)
+    except stage.StageError:
+        return False
     if (live is None or not previous.is_absolute() or not target.is_absolute()
             or previous.parent != target.parent or live.parent != target.parent
             or live not in (previous, target) or previous == target
-            or previous.is_symlink() or target.is_symlink()
+            or previous_link_kind not in stage.DIRECTORY_LINK_KINDS
+            or new_link_kind not in stage.DIRECTORY_LINK_KINDS
+            or live_link_kind != (new_link_kind if live == target else previous_link_kind)
+            or previous_tree_kind != 'directory' or target_tree_kind != 'directory'
             or not (previous / 'VERSION').is_file()):
         return False
     edits = []
@@ -447,7 +485,11 @@ def recover_hook_update(journal: Path, root: Path, installed) -> bool:
         seen.add(path)
         backup = Path(entry.get('backup', ''))
         directory = journal.parent / 'hook-backups'
-        if (backup.parent != directory or directory.is_symlink()
+        try:
+            backup_directory_kind = stage.directory_entry_kind(directory)
+        except stage.StageError:
+            return False
+        if (backup.parent != directory or backup_directory_kind != 'directory'
                 or backup.name != str(entry.get('before_sha256')) + '.bak'):
             return False
         before = read_config(backup)
@@ -479,7 +521,9 @@ def recover_hook_update(journal: Path, root: Path, installed) -> bool:
     try:
         _write_journal(journal, {**payload, 'phase': 'rolling_back'})
         if live == target:
-            stage.swap_root(root=root, target=previous)
+            stage.swap_root(
+                root=root, target=previous, link_kind=previous_link_kind
+            )
         for edit in reversed(edits):
             edit.restore()
     except (OSError, ValueError, RuntimeError):

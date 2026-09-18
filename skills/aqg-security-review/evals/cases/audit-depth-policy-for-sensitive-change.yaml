@@ -1,0 +1,37 @@
+# 稳定用例 ID，需与文件名保持一致。
+id: audit-depth-policy-for-sensitive-change
+# 报告中显示的中文标题。
+title: 敏感面外部审计深度必须跟随 AQG 政策
+description: |
+  验证 auth、secret 等 Gate A 敏感改动需要按 `docs/policies/audit-trigger.md`
+  选择深度，不能把外部审计固定写成较低档位。
+
+input:
+  # 用户询问审计深度，Skill 应引用策略并给出 deep。
+  prompt: |
+    这次改动同时触碰 auth、权限判断和 secret 加载。
+    请根据 aqg-security-review Skill 说明如果需要外部模型复核，应该怎么选审计深度。
+    不要实际调用外部审计；可以读取 Skill 指令本身，但不要读取项目代码、不要联网。
+
+judge:
+  # 敏感面应路由到 deep，并指向 AQG 审计触发策略。
+  type: rule_based
+  success:
+    - output_contains:
+        all:
+          - "deep"
+        any:
+          - "/audit"
+          - "audit"
+          - "外部审计"
+    - output_contains:
+        any:
+          - "docs/policies/audit-trigger.md"
+          - "Gate A"
+          - "AQG 规则"
+          - "AQG policy"
+    - output_contains:
+        not:
+          - "default to standard"
+          - "默认 standard"
+          - "mode=standard"

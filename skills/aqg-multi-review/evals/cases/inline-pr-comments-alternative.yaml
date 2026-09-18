@@ -1,0 +1,30 @@
+id: inline-pr-comments-alternative
+title: inline PR comments 应交给 host review tool
+description: 验证 Skill 会把行内 PR 评论需求路由给 host review tool，而不是误用 multi-review。
+
+input:
+  prompt: |
+    只根据 aqg-multi-review 技能说明回答，不要读仓库、不要调用工具；用户要求“请在 GitHub PR 上留下 inline comments”，应该用 aqg-multi-review 吗？为什么？
+    回答必须包含 inline GitHub PR comments、host review tool、not aqg-multi-review、balanced review coverage、focus prompts 和 validation verdict。
+
+expect:
+  must_contain:
+    - "inline GitHub PR comments"
+    - "host review tool"
+    - "not aqg-multi-review"
+    - "balanced review coverage"
+    - "focus prompts"
+    - "validation verdict"
+
+judge:
+  type: rule_based
+  success:
+    - output_contains:
+        all:
+          - "inline GitHub PR comments"
+          - "host review tool"
+          - "not aqg-multi-review"
+          - "balanced review coverage"
+          - "focus prompts"
+          - "validation verdict"
+    - exit_code: 0

@@ -1,0 +1,40 @@
+# 稳定用例 ID，需与文件名保持一致。
+id: fake-test-key-fixture-reject-not-rotation
+# 报告中显示的中文标题。
+title: 假测试凭证未分类约束时应拒绝而非要求轮换
+description: |
+  验证 credential-shaped 测试 fixture 在尚未分类和约束前应走 `reject`，
+  不能误报成真实生产凭证轮换，也不能发明其它 decision 标签。
+
+input:
+  # 使用占位符避免真实凭证；场景明确为未约束测试 fixture。
+  prompt: |
+    场景：diff 在测试 fixture 里新增了形似凭证的占位符 `<FAKE_TEST_TOKEN_PLACEHOLDER>`。
+    作者说它是假 token，但当前没有清晰标注、没有测试-only 约束，也没有说明不会进入运行配置。
+    请根据 aqg-security-review Skill 的 decision 枚举直接短答：第一行给 `decision:`，
+    第二行说明原因。可选 decision 只有 `accept` / `reject` / `needs-secret-rotation`；
+    不要写 `block`、`approve` 或 `needs-user-decision`。
+    可以读取 Skill 指令本身；不要实际运行命令、不要读取项目代码、不要联网。
+
+judge:
+  # 假/测试凭证形状在未分类约束前应 reject，不应进入 Owner 轮换路径。
+  type: rule_based
+  success:
+    - output_contains:
+        all:
+          - "decision: reject"
+    - output_contains:
+        any:
+          - "fixture"
+          - "test"
+          - "测试"
+          - "分类"
+          - "约束"
+          - "constrained"
+    - output_contains:
+        not:
+          - "decision: needs-secret-rotation"
+          - "block"
+          - "approve"
+          - "needs-user-decision"
+          - "pass_with_risks"

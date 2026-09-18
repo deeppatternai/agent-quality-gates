@@ -1,0 +1,30 @@
+id: start-code-construction
+title: 开始代码构造时应给出 6 步与 ledger 入口
+description: 验证用户准备写代码时，Skill 会把工作引导到 aqg-code-construction 的构造期流程，而不是普通代码审查。
+
+input:
+  prompt: |
+    我要开始改一个功能。请使用 aqg-code-construction 的方式，只说明开工前应该做的动作，不要写代码。
+    回答中必须点名 ledger 路径、6-step、Pattern Mining、Behavior Lock、Local Verification 和 AQG_AGENT。
+
+expect:
+  must_contain:
+    - ".aqg/code-construction"
+    - "6-step"
+    - "Pattern Mining"
+    - "Behavior Lock"
+    - "Local Verification"
+    - "AQG_AGENT"
+
+judge:
+  type: rule_based
+  success:
+    - output_contains:
+        all:
+          - ".aqg/code-construction"
+          - "6-step"
+          - "Pattern Mining"
+          - "Behavior Lock"
+          - "Local Verification"
+          - "AQG_AGENT"
+    - exit_code: 0

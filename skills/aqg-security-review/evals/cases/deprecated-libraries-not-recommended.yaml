@@ -1,0 +1,31 @@
+# 稳定用例 ID，需与文件名保持一致。
+id: deprecated-libraries-not-recommended
+# 报告中显示的中文标题。
+title: 安全默认库不能推荐已弃用或不维护选项
+description: |
+  验证 XSS 清洗和 Java 反序列化建议会落到维护中的默认方案，
+  而不是把 Bleach 或 SerialKiller 当作新项目推荐。
+
+input:
+  # 用户显式点名旧库，Skill 应把它们识别为 legacy/anti-pattern，而非推荐默认。
+  prompt: |
+    Python HTML sanitization 我还能新推荐 Bleach 吗？Java 反序列化还能新推荐 SerialKiller 吗？
+    请只根据 aqg-security-review Skill 当前 secure-default snapshot 给出建议；可以读取 Skill 指令本身，但不要读取项目代码、不要联网、不要查最新资料。
+
+judge:
+  # 可以提到旧库，但必须说明不是新的推荐默认。
+  type: rule_based
+  success:
+    - output_contains:
+        all:
+          - "nh3"
+        any:
+          - "JEP 290"
+          - "ObjectInputFilter"
+    - output_contains:
+        any:
+          - "deprecated"
+          - "unmaintained"
+          - "弃用"
+          - "不维护"
+          - "不要新推荐"

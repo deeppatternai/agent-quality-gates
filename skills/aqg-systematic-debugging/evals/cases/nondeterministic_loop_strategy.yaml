@@ -1,0 +1,38 @@
+id: nondeterministic_loop_strategy
+title: 非确定性失败应先提高复现率再调试
+description: |
+  验证 Skill 面对低概率 flaky 问题时，会先把反馈环做成可调试信号：提高 reproduction rate、循环/并行/stress，而不是直接猜测或修复。
+
+input:
+  prompt: |
+    只根据 aqg-systematic-debugging 的说明回答，不要调用工具。
+    场景：失败只有 1% 重现率，用户想让你直接猜一个 fix。
+    请说明如何先让它可调试。回答必须包含 non-deterministic、reproduction rate、100、parallelise、stress、deterministic、feedback loop、until it is debuggable 和 do not proceed。
+
+expect:
+  must_contain:
+    - "non-deterministic"
+    - "reproduction rate"
+    - "100"
+    - "parallelise"
+    - "stress"
+    - "deterministic"
+    - "feedback loop"
+    - "until it is debuggable"
+    - "do not proceed"
+
+judge:
+  type: rule_based
+  success:
+    - output_contains:
+        all:
+          - "non-deterministic"
+          - "reproduction rate"
+          - "100"
+          - "parallelise"
+          - "stress"
+          - "deterministic"
+          - "feedback loop"
+          - "until it is debuggable"
+          - "do not proceed"
+    - exit_code: 0

@@ -1,0 +1,40 @@
+id: concern-signal-matrix
+title: 应覆盖核心测试质量信号矩阵
+description: 验证 Skill 能列出主要 concern 及机械信号，而不是只讨论行为/形状这一项。
+
+input:
+  prompt: |
+    只根据 aqg-test-quality-review 技能说明回答，不要读仓库、不要调用工具；请用 8 行以内列出这个 Skill 机械检测的主要测试质量 concern 和触发信号。
+    回答必须包含 shape_over_behavioral、coverage_gap、test_suppression、flaky、bulk_shape_test_risk、source changed without a paired changed test、skip/disable、sleep、wall-clock、unseeded random 和 live network。
+
+expect:
+  must_contain:
+    - "shape_over_behavioral"
+    - "coverage_gap"
+    - "test_suppression"
+    - "flaky"
+    - "bulk_shape_test_risk"
+    - "source changed without a paired changed test"
+    - "skip/disable"
+    - "sleep"
+    - "wall-clock"
+    - "unseeded random"
+    - "live network"
+
+judge:
+  type: rule_based
+  success:
+    - output_contains:
+        all:
+          - "shape_over_behavioral"
+          - "coverage_gap"
+          - "test_suppression"
+          - "flaky"
+          - "bulk_shape_test_risk"
+          - "source changed without a paired changed test"
+          - "skip/disable"
+          - "sleep"
+          - "wall-clock"
+          - "unseeded random"
+          - "live network"
+    - exit_code: 0

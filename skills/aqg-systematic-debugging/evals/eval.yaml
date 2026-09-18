@@ -1,0 +1,52 @@
+# skill-up 评测配置版本；保持为 v1alpha1。
+schema_version: v1alpha1
+
+environment:
+  # 每个用例的运行环境；none 表示不额外启动沙箱。
+  type: none
+
+skills:
+  # 安装被测 Skill；路径相对当前 Skill 根目录。
+  - source: local_path
+    path: .
+    include:
+      - SKILL.md
+      - agents/**
+      - scripts/**
+      - skill.template.json
+
+engine:
+  # 使用本机 Codex 引擎配置运行评测。
+  name: codex
+
+cases:
+  # 用例路径相对当前 Skill 根目录。
+  files:
+    - evals/cases/routing_boundaries.yaml
+    - evals/cases/feedback_loop_first.yaml
+    - evals/cases/ranked_hypotheses_one_at_a_time.yaml
+    - evals/cases/cannot_build_loop_blocks_fix.yaml
+    - evals/cases/close_loop_verification.yaml
+    - evals/cases/debug_case_helper_usage.yaml
+    - evals/cases/preflight_and_boundary_trace.yaml
+    - evals/cases/stop_rules_sensitive_boundary.yaml
+    - evals/cases/nondeterministic_loop_strategy.yaml
+  defaults:
+    timeout_seconds: 300
+    max_turns: 8
+    expect:
+      exit_code: 0
+      must_not_contain:
+        - "TODO"
+        - "LGTM"
+        - "不能帮助"
+  parallelism: 1
+
+judge:
+  type: rule_based
+  success:
+    - exit_code: 0
+
+report:
+  # 输出 JSON 报告，便于后续诊断 result.json / grading.json。
+  formats: [json]

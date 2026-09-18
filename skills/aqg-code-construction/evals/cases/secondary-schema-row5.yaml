@@ -1,0 +1,30 @@
+id: secondary-schema-row5
+title: 二次评测：schema/contract 改动需要 row 5 回归证据
+description: 验证 Skill 会要求 schema scope 改动在 Local Verification row 5 记录 regression 证据。
+
+input:
+  prompt: |
+    只根据 aqg-code-construction 技能说明回答，不要读仓库、不要调用工具；如果改了 `templates/api.yaml` 或 `schemas/user.json`，Local Verification row 5 有什么额外边界？请用 8 行以内回答。
+    回答必须包含 schema scope、row 5、Local Verification、regression、contract 和 hard block。
+
+expect:
+  must_contain:
+    - "schema scope"
+    - "row 5"
+    - "Local Verification"
+    - "regression"
+    - "contract"
+    - "hard block"
+
+judge:
+  type: rule_based
+  success:
+    - output_contains:
+        all:
+          - "schema scope"
+          - "row 5"
+          - "Local Verification"
+          - "regression"
+          - "contract"
+          - "hard block"
+    - exit_code: 0

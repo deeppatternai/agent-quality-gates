@@ -1,0 +1,28 @@
+id: secondary-broad-except
+title: 二次评测：broad except 需要边界标记
+description: 验证 Skill 会指出新增 broad except 的硬边界：必须在 5 行内有 top-level boundary marker。
+
+input:
+  prompt: |
+    只根据 aqg-code-construction 技能说明回答，不要读仓库、不要调用工具；如果 diff 新增 `except Exception`，checker 的边界要求是什么？请用 6 行以内回答。
+    回答必须包含 broad except、except Exception、# aqg: top-level boundary、within 5 lines 和 hard block。
+
+expect:
+  must_contain:
+    - "broad except"
+    - "except Exception"
+    - "# aqg: top-level boundary"
+    - "within 5 lines"
+    - "hard block"
+
+judge:
+  type: rule_based
+  success:
+    - output_contains:
+        all:
+          - "broad except"
+          - "except Exception"
+          - "# aqg: top-level boundary"
+          - "within 5 lines"
+          - "hard block"
+    - exit_code: 0

@@ -1,0 +1,30 @@
+id: secondary-behavior-contract-semantics
+title: 二次评测：Behavior Contract 结构检查不证明语义质量
+description: 验证 Skill 会区分 BC0-BC4 结构 advisory 与 Behavior Contract 的语义质量边界。
+
+input:
+  prompt: |
+    只根据 aqg-code-construction 技能说明回答，不要读仓库、不要调用工具；如果 Behavior Contract 写了实现细节式 THEN，例如“调用某个 service 方法”，checker 能证明它好吗？请用 8 行以内回答。
+    回答必须包含 BC0-BC4、advisory、semantic quality、implementation detail、observable 和 audit-before-commit gate。
+
+expect:
+  must_contain:
+    - "BC0-BC4"
+    - "advisory"
+    - "semantic quality"
+    - "implementation detail"
+    - "observable"
+    - "audit-before-commit gate"
+
+judge:
+  type: rule_based
+  success:
+    - output_contains:
+        all:
+          - "BC0-BC4"
+          - "advisory"
+          - "semantic quality"
+          - "implementation detail"
+          - "observable"
+          - "audit-before-commit gate"
+    - exit_code: 0

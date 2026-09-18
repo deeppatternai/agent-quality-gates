@@ -1,0 +1,36 @@
+id: read-only-output-boundary
+title: 应说明 read-only 和 signal-only 输出边界
+description: 验证 Skill 会说明它默认只输出 prompts、skeletons、validation verdicts，不写仓库文件也不调用外部 LLM。
+
+input:
+  prompt: |
+    只根据 aqg-multi-review 技能说明回答，不要读仓库、不要调用工具；这个 Skill 的输出和副作用边界是什么？它会不会写仓库文件、调用 /audit、audit-mcp 或外部 LLM？
+    回答必须包含 signal only、read-only by default、prompts、skeletons、validation verdicts、never calls /audit、audit-mcp、external LLMs 和 unless the caller redirects stdout。
+
+expect:
+  must_contain:
+    - "signal only"
+    - "read-only by default"
+    - "prompts"
+    - "skeletons"
+    - "validation verdicts"
+    - "never calls /audit"
+    - "audit-mcp"
+    - "external LLMs"
+    - "unless the caller redirects stdout"
+
+judge:
+  type: rule_based
+  success:
+    - output_contains:
+        all:
+          - "signal only"
+          - "read-only by default"
+          - "prompts"
+          - "skeletons"
+          - "validation verdicts"
+          - "never calls /audit"
+          - "audit-mcp"
+          - "external LLMs"
+          - "unless the caller redirects stdout"
+    - exit_code: 0

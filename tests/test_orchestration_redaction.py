@@ -60,7 +60,7 @@ class TestStepFields:
 
     def test_invalid_actor(self):
         s = _make_valid()
-        s["steps"][0]["actor"] = "jeff"
+        s["steps"][0]["actor"] = "a-username"
         assert not ore.check_orchestration_manifest(s).is_safe
 
     def test_intent_too_long(self):

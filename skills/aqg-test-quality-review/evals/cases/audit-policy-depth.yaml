@@ -1,0 +1,33 @@
+id: audit-policy-depth
+title: audit 深度应只由策略文件决定
+description: 验证 Skill 不会要求 per-concern audit 或使用 phase-transition 占位模式，而是让调用者按策略文件做一次 policy-depth audit。
+
+input:
+  prompt: |
+    只根据 aqg-test-quality-review 技能说明回答，不要读仓库、不要调用工具；如果发现多个测试质量候选项，调用者应该如何决定是否运行 /audit 以及用什么深度？请用 7 行以内回答。
+    回答必须包含 docs/policies/audit-trigger.md、/audit、one policy-depth audit、relevant focus prompt、candidate dispositions 和 findings；不得建议逐 concern 运行，也不得包含旧占位 mode=<phase-transition recommended>。
+
+expect:
+  must_contain:
+    - "docs/policies/audit-trigger.md"
+    - "/audit"
+    - "one policy-depth audit"
+    - "relevant focus prompt"
+    - "candidate dispositions"
+    - "findings"
+  must_not_contain:
+    - "mode=<phase-transition recommended>"
+    - "for each flagged concern"
+
+judge:
+  type: rule_based
+  success:
+    - output_contains:
+        all:
+          - "docs/policies/audit-trigger.md"
+          - "/audit"
+          - "one policy-depth audit"
+          - "relevant focus prompt"
+          - "candidate dispositions"
+          - "findings"
+    - exit_code: 0

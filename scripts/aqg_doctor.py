@@ -122,6 +122,7 @@ CRITICAL_SCRIPTS = (
     "scripts/install_aqg_codex_hooks.py",  # Codex lifecycle hook installer
     "scripts/run_aqg_codex_hook.py",  # Codex-to-AQG hook schema adapter
     "scripts/aqg_skill_install.py",  # Cross-platform Codex skill link/copy installer
+    "scripts/aqg_directory_links.py",  # Fail-closed symlink/junction primitives
 )
 
 # Verified to run on 3.9: every AQG script uses `from __future__ import annotations`

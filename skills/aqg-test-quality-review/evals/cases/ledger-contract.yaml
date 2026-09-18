@@ -1,0 +1,36 @@
+id: ledger-contract
+title: 应输出 closeout 可导入的 ledger 结构
+description: 验证 Skill 会指出 test_quality_review ledger 的关键字段，而不是只给非结构化建议。
+
+input:
+  prompt: |
+    只根据 aqg-test-quality-review 技能说明回答，不要读仓库、不要调用工具；这个 Skill 的输出 ledger 应该包含哪些关键字段？请用 8 行以内回答。
+    回答必须包含 test_quality_review、candidates、counts、shape_ratio、anti_horizontal、findings、decision、audit_id 和 needs_llm_judgement。
+
+expect:
+  must_contain:
+    - "test_quality_review"
+    - "candidates"
+    - "counts"
+    - "shape_ratio"
+    - "anti_horizontal"
+    - "findings"
+    - "decision"
+    - "audit_id"
+    - "needs_llm_judgement"
+
+judge:
+  type: rule_based
+  success:
+    - output_contains:
+        all:
+          - "test_quality_review"
+          - "candidates"
+          - "counts"
+          - "shape_ratio"
+          - "anti_horizontal"
+          - "findings"
+          - "decision"
+          - "audit_id"
+          - "needs_llm_judgement"
+    - exit_code: 0

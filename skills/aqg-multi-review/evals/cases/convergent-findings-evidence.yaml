@@ -1,0 +1,36 @@
+id: convergent-findings-evidence
+title: 应说明 convergent_findings 如何利用 file:line 证据
+description: 验证 Skill 会说明 file:line 和 file:start-end 证据如何支持跨维度冲突分组与 convergent_findings 置信信号。
+
+input:
+  prompt: |
+    只根据 aqg-multi-review 技能说明回答，不要读仓库、不要调用工具；validate 如何利用 file:line 或 file:start-end evidence 来发现跨维度重叠和 convergent_findings？这些信号该如何解释？
+    回答必须包含 file:line、file:start-end、cross-dimension、conflict grouping、convergent_findings、two dimensions、elevated confidence、three or more 和 high confidence。
+
+expect:
+  must_contain:
+    - "file:line"
+    - "file:start-end"
+    - "cross-dimension"
+    - "conflict grouping"
+    - "convergent_findings"
+    - "two dimensions"
+    - "elevated confidence"
+    - "three or more"
+    - "high confidence"
+
+judge:
+  type: rule_based
+  success:
+    - output_contains:
+        all:
+          - "file:line"
+          - "file:start-end"
+          - "cross-dimension"
+          - "conflict grouping"
+          - "convergent_findings"
+          - "two dimensions"
+          - "elevated confidence"
+          - "three or more"
+          - "high confidence"
+    - exit_code: 0

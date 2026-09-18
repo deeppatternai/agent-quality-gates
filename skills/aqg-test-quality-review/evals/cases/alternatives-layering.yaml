@@ -1,0 +1,34 @@
+id: alternatives-layering
+title: 应说明与其他 AQG 技能的分工
+description: 验证 Skill 会把自己定位为 already-written tests 的 review-side 深挖，并区分 construction、multi-review 与 audit-depth 入口。
+
+input:
+  prompt: |
+    只根据 aqg-test-quality-review 技能说明回答，不要读仓库、不要调用工具；什么时候用这个 Skill，什么时候改用 aqg-code-construction、aqg-multi-review 或 aqg-phase-transition？请用 8 行以内回答。
+    回答必须包含 already-written tests、review-side、aqg-code-construction、construction-side、aqg-multi-review、edge_cases、aqg-phase-transition 和 docs/policies/audit-trigger.md。
+
+expect:
+  must_contain:
+    - "already-written tests"
+    - "review-side"
+    - "aqg-code-construction"
+    - "construction-side"
+    - "aqg-multi-review"
+    - "edge_cases"
+    - "aqg-phase-transition"
+    - "docs/policies/audit-trigger.md"
+
+judge:
+  type: rule_based
+  success:
+    - output_contains:
+        all:
+          - "already-written tests"
+          - "review-side"
+          - "aqg-code-construction"
+          - "construction-side"
+          - "aqg-multi-review"
+          - "edge_cases"
+          - "aqg-phase-transition"
+          - "docs/policies/audit-trigger.md"
+    - exit_code: 0

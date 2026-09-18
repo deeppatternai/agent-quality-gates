@@ -9,13 +9,27 @@ a Windows junction and then to a copy; mode copy copies outright.
 from __future__ import annotations
 
 import argparse
-import ctypes
+from collections import Counter
 import os
 import shutil
-import subprocess
 import sys
-import tempfile
+from dataclasses import dataclass
 from pathlib import Path
+
+try:
+    from scripts.aqg_directory_links import (
+        DirectoryLinkError,
+        create_junction,
+        link_kind,
+        read_link_target,
+    )
+except ModuleNotFoundError:  # direct execution with scripts/ on sys.path
+    from aqg_directory_links import (  # type: ignore[no-redef]
+        DirectoryLinkError,
+        create_junction,
+        link_kind,
+        read_link_target,
+    )
 
 
 class InstallError(RuntimeError):
@@ -26,72 +40,18 @@ def _is_windows_host() -> bool:
     return os.name == "nt"
 
 
-def _is_windows_junction(path: Path) -> bool:
-    if not _is_windows_host() or path.is_symlink():
-        return False
-    isjunction = getattr(os.path, "isjunction", None)
-    if isjunction is not None:
-        return bool(isjunction(path))
-
-    # Python 3.9-3.11 do not expose os.path.isjunction(). Read the reparse tag
-    # without following the entry so broken junctions remain detectable.
-    class FileTime(ctypes.Structure):
-        _fields_ = (("low", ctypes.c_uint32), ("high", ctypes.c_uint32))
-
-    class FindData(ctypes.Structure):
-        _fields_ = (
-            ("attributes", ctypes.c_uint32),
-            ("creation_time", FileTime),
-            ("access_time", FileTime),
-            ("write_time", FileTime),
-            ("size_high", ctypes.c_uint32),
-            ("size_low", ctypes.c_uint32),
-            ("reparse_tag", ctypes.c_uint32),
-            ("reserved", ctypes.c_uint32),
-            ("file_name", ctypes.c_wchar * 260),
-            ("alternate_file_name", ctypes.c_wchar * 14),
-        )
-
-    # Tests and compatibility layers can report a Windows-like host while the
-    # interpreter does not expose Win32 APIs. Treat that as "not a junction" so
-    # installation safely falls back to a copy instead of crashing.
-    windll = getattr(ctypes, "windll", None)
-    if windll is None:
-        return False
-    kernel32 = windll.kernel32
-    find_first = kernel32.FindFirstFileW
-    find_first.argtypes = (ctypes.c_wchar_p, ctypes.POINTER(FindData))
-    find_first.restype = ctypes.c_void_p
-    find_close = kernel32.FindClose
-    find_close.argtypes = (ctypes.c_void_p,)
-    find_close.restype = ctypes.c_int
-    data = FindData()
-    handle = find_first(str(path), ctypes.byref(data))
-    invalid_handle = ctypes.c_void_p(-1).value
-    if handle == invalid_handle:
-        return False
-    find_close(handle)
-    file_attribute_directory = 0x0010
-    file_attribute_reparse_point = 0x0400
-    io_reparse_tag_mount_point = 0xA0000003
-    return bool(
-        data.attributes & file_attribute_directory
-        and data.attributes & file_attribute_reparse_point
-        and data.reparse_tag == io_reparse_tag_mount_point
-    )
-
-
 def classify_install(path: Path) -> str:
     """Return symlink, junction, copied, plain_directory, missing, or other."""
-    if path.is_symlink():
+    kind = link_kind(path)
+    if kind == "symlink":
         return "symlink"
-    if _is_windows_junction(path):
+    if kind == "junction":
         return "junction"
-    if path.is_dir():
+    if kind == "directory":
         return "copied" if (path / ".aqg-root").is_file() else "plain_directory"
-    if not path.exists():
+    if kind == "missing":
         return "missing"
-    return "other"
+    return kind
 
 
 def _remove_existing(path: Path) -> None:
@@ -108,12 +68,11 @@ def _remove_existing(path: Path) -> None:
     elif mode == "junction":
         os.rmdir(path)
     elif mode in {"copied", "plain_directory"}:
-        if _is_windows_junction(path):
-            os.rmdir(path)
-        else:
-            shutil.rmtree(path)
-    else:
+        shutil.rmtree(path)
+    elif mode == "other":
         path.unlink()
+    else:
+        raise InstallError(f"refusing to remove unsupported reparse point: {path}")
 
 
 def remove_install(path: Path) -> None:
@@ -128,33 +87,11 @@ def _create_symlink(source: Path, target: Path) -> None:
 def _create_windows_junction(source: Path, target: Path) -> bool:
     if not _is_windows_host():
         return False
-    powershell = shutil.which("powershell.exe") or shutil.which("powershell")
-    if powershell is None:
+    try:
+        create_junction(source, target)
+    except DirectoryLinkError:
         return False
-    env = os.environ.copy()
-    env["AQG_JUNCTION_SOURCE"] = str(source)
-    env["AQG_JUNCTION_TARGET"] = str(target)
-    with tempfile.TemporaryDirectory(prefix="aqg-junction-profile-") as profile:
-        env["HOME"] = profile
-        env["USERPROFILE"] = profile
-        env["APPDATA"] = str(Path(profile) / "AppData" / "Roaming")
-        env["LOCALAPPDATA"] = str(Path(profile) / "AppData" / "Local")
-        completed = subprocess.run(
-            [
-                powershell,
-                "-NoProfile",
-                "-NonInteractive",
-                "-Command",
-                "$ErrorActionPreference='Stop'; New-Item -ItemType Junction "
-                "-Path $env:AQG_JUNCTION_TARGET -Target $env:AQG_JUNCTION_SOURCE "
-                "| Out-Null",
-            ],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            env=env,
-            check=False,
-        )
-    return completed.returncode == 0
+    return True
 
 
 def create_windows_junction(source: Path, target: Path) -> bool:
@@ -302,6 +239,237 @@ def same_skill_source(recorded: Path, expected: Path) -> bool:
         return False
 
 
+@dataclass(frozen=True)
+class _InstallPlan:
+    source: Path
+    real: Path
+    link_text: Path
+    target: Path
+    root: Path
+    requested_mode: str
+    existing: str
+    existing_target: Path | None
+    unchanged: str | None
+
+
+def _existing_target_matches(plan: _InstallPlan) -> bool:
+    if plan.existing not in {"symlink", "junction"}:
+        return False
+    expected = plan.link_text if plan.existing == "symlink" else plan.real
+    return plan.existing_target is not None and _normal(plan.existing_target) == _normal(expected)
+
+
+def _prepare_install(
+    source: Path,
+    target: Path,
+    *,
+    requested_mode: str,
+    force: bool,
+    aqg_root: Path | None,
+) -> _InstallPlan:
+    try:
+        real = source.resolve(strict=True)
+    except OSError as exc:
+        raise InstallError(f"invalid skill source: {source}: {exc}") from exc
+    link_text = _link_text_for(source, real, aqg_root)
+    if not real.is_dir() or not (real / "SKILL.md").is_file():
+        raise InstallError(f"invalid skill source (SKILL.md required): {real}")
+    target = target.absolute()
+    target = target.parent.resolve(strict=False) / target.name
+    if real == target or real in target.parents or target in real.parents:
+        raise InstallError(f"source and target must not overlap: {real} / {target}")
+    existing = classify_install(target)
+    if existing == "other_reparse":
+        raise InstallError(f"unsupported reparse point at target: {target}")
+    existing_target = None
+    if existing in {"symlink", "junction"}:
+        try:
+            existing_target = read_link_target(target)
+        except DirectoryLinkError as exc:
+            raise InstallError(f"cannot verify existing {existing}: {target}: {exc}") from exc
+    root = Path(aqg_root or real.parent.parent).expanduser().resolve()
+    plan = _InstallPlan(
+        source=source,
+        real=real,
+        link_text=link_text,
+        target=target,
+        root=root,
+        requested_mode=requested_mode,
+        existing=existing,
+        existing_target=existing_target,
+        unchanged=None,
+    )
+    if not force and requested_mode == "link" and _existing_target_matches(plan):
+        mode = "linked" if existing == "symlink" else "junctioned"
+        return _InstallPlan(**{**plan.__dict__, "unchanged": mode})
+    if existing != "missing" and not force:
+        if requested_mode == "link" and existing in {"symlink", "junction"}:
+            expected = link_text if existing == "symlink" else real
+            assert existing_target is not None
+            if same_skill_source(existing_target, expected):
+                return plan
+            raise InstallError(
+                f"external {existing}: {target} -> {existing_target} (use --force to replace)"
+            )
+        display = {
+            "copied": "existing copied directory",
+            "plain_directory": "existing plain directory",
+            "symlink": "existing symlink",
+            "junction": "existing junction",
+        }.get(existing, "existing file")
+        raise InstallError(f"{display}: {target} (use --force to replace)")
+    return plan
+
+
+def _install_absent(plan: _InstallPlan) -> str:
+    target = plan.target
+    target.parent.mkdir(parents=True, exist_ok=True)
+    if plan.requested_mode == "copy":
+        try:
+            _copy_skill(plan.real, target, plan.root)
+        except FileExistsError as exc:
+            raise InstallError(f"batch target appeared during copy: {target}") from exc
+        # aqg: top-level boundary
+        except BaseException:
+            if classify_install(target) != "missing":
+                _remove_existing(target)
+            raise
+        return "copied"
+
+    try:
+        _create_symlink(plan.link_text, target)
+    except OSError as exc:
+        if classify_install(target) != "missing":
+            raise InstallError(f"batch target appeared during link creation: {target}") from exc
+        created = "missing"
+    else:
+        created = classify_install(target)
+    if created == "symlink":
+        return "linked"
+    if created == "junction":
+        return "junctioned"
+    if created != "missing":
+        _remove_existing(target)
+    if _is_windows_host() and _create_windows_junction(plan.real, target):
+        if classify_install(target) == "junction":
+            return "junctioned"
+        _remove_existing(target)
+
+    if classify_install(target) != "missing":
+        raise InstallError(f"batch target appeared during junction creation: {target}")
+
+    try:
+        _copy_skill(plan.real, target, plan.root)
+    except FileExistsError as exc:
+        raise InstallError(f"batch target appeared during copy fallback: {target}") from exc
+    # aqg: top-level boundary
+    except BaseException:
+        if classify_install(target) != "missing":
+            _remove_existing(target)
+        raise
+    if plan.requested_mode == "link":
+        print(
+            f"NOTE: {target.name} was copied, not linked - this host will not "
+            f"receive automatic skill updates for it. Directory-link creation failed.",
+            file=sys.stderr,
+        )
+    return "copied"
+
+
+def _backup_path(target: Path, index: int) -> Path:
+    candidate = target.with_name(f".{target.name}.aqg-batch-backup-{os.getpid()}-{index}")
+    if classify_install(candidate) != "missing":
+        raise InstallError(f"batch backup path already exists: {candidate}")
+    return candidate
+
+
+def install_skills(
+    items: list[tuple[Path, Path]],
+    *,
+    requested_mode: str,
+    force: bool,
+    aqg_root: Path | None = None,
+) -> list[str]:
+    """Install one host's routes as a preflighted, recoverable batch."""
+    if not items:
+        raise InstallError("batch must contain at least one skill")
+    plans = [
+        _prepare_install(
+            source,
+            target,
+            requested_mode=requested_mode,
+            force=force,
+            aqg_root=aqg_root,
+        )
+        for source, target in items
+    ]
+    targets = [plan.target for plan in plans]
+    if len(set(targets)) != len(targets):
+        raise InstallError("batch contains duplicate target entries")
+
+    backups: dict[Path, Path] = {}
+    touched: list[_InstallPlan] = []
+    results: list[str] = []
+    creation_complete = False
+    try:
+        for index, plan in enumerate(plans):
+            if plan.unchanged is not None or plan.existing == "missing":
+                continue
+            current = classify_install(plan.target)
+            if current != plan.existing:
+                raise InstallError(f"batch target changed after preflight: {plan.target}")
+            if plan.existing_target is not None:
+                if read_link_target(plan.target) != plan.existing_target:
+                    raise InstallError(f"batch link target changed after preflight: {plan.target}")
+            backup = _backup_path(plan.target, index)
+            os.replace(plan.target, backup)
+            backups[plan.target] = backup
+
+        for plan in plans:
+            if plan.unchanged is not None:
+                results.append(plan.unchanged)
+                continue
+            result = _install_absent(plan)
+            touched.append(plan)
+            results.append(result)
+
+        creation_complete = True
+        cleanup_errors: list[str] = []
+        for backup in backups.values():
+            try:
+                _remove_existing(backup)
+            except (InstallError, OSError) as exc:
+                cleanup_errors.append(f"{backup}: {exc}")
+        if cleanup_errors:
+            raise InstallError(
+                "batch installed successfully but old-entry cleanup failed: "
+                + "; ".join(cleanup_errors)
+            )
+        return results
+    # aqg: top-level boundary
+    except BaseException as exc:
+        if creation_complete:
+            raise
+        rollback_errors: list[str] = []
+        for plan in reversed(touched):
+            try:
+                if classify_install(plan.target) != "missing":
+                    _remove_existing(plan.target)
+            except (InstallError, OSError) as rollback_exc:
+                rollback_errors.append(f"remove {plan.target}: {rollback_exc}")
+        for target, backup in reversed(tuple(backups.items())):
+            try:
+                if classify_install(target) == "missing" and classify_install(backup) != "missing":
+                    os.replace(backup, target)
+            except (InstallError, OSError) as rollback_exc:
+                rollback_errors.append(f"restore {target}: {rollback_exc}")
+        if rollback_errors:
+            raise InstallError(
+                f"batch failed ({exc}); rollback incomplete: {'; '.join(rollback_errors)}"
+            ) from exc
+        raise
+
+
 def install_skill(
     source: Path,
     target: Path,
@@ -327,85 +495,19 @@ def install_skill(
     Deriving it here rather than trusting the caller's spelling is the point —
     the reader derives the same way, and the two must agree.
     """
-    real = source.resolve(strict=True)
-    link_text = _link_text_for(source, real, aqg_root)
-    if not real.is_dir() or not (real / "SKILL.md").is_file():
-        raise InstallError(f"invalid skill source (SKILL.md required): {real}")
-    target = target.absolute()
-    # Resolve the parent to catch symlinked-parent escapes without following an
-    # existing final symlink/junction that the installer may need to replace.
-    target = target.parent.resolve(strict=False) / target.name
-    # Overlap is asked of the PHYSICAL paths: two different spellings of the
-    # same directory must not slip past by looking unalike.
-    if real == target or real in target.parents or target in real.parents:
-        raise InstallError(f"source and target must not overlap: {real} / {target}")
-    existing = classify_install(target)
-    if existing != "missing":
-        refreshable_link = requested_mode == "link" and existing in {"symlink", "junction"}
-        if not force and not refreshable_link:
-            display = {
-                "symlink": "existing symlink",
-                "junction": "existing junction",
-                "copied": "existing copied directory",
-                "plain_directory": "existing plain directory",
-            }.get(existing, "existing file")
-            raise InstallError(f"{display}: {target} (use --force to replace)")
-        _remove_existing(target)
-
-    target.parent.mkdir(parents=True, exist_ok=True)
-    # `.aqg-root` is written into a copied skill so it can find its checkout
-    # again. With no `--aqg-root` there is nothing to derive it from: two levels
-    # up from a skill is the pack directory, not the root, for every layout this
-    # repo ships. Every caller that ships passes the flag; this fallback exists
-    # for a hand-run copy and is wrong for anything deeper than a flat layout.
-    root = Path(aqg_root or real.parent.parent).expanduser().resolve()
-    if requested_mode == "copy":
-        # Copies read from `real`, never from `link_text`. Copy mode leaves no
-        # link text, so it is outside what `skills_route` can recognise as
-        # owned — it is not part of the managed-update roster and is documented
-        # that way rather than half-supported.
-        _copy_skill(real, target, root)
-        return "copied"
-
-    try:
-        _create_symlink(link_text, target)
-    except OSError:
-        pass
-    created = classify_install(target)
-    if created == "symlink":
-        return "linked"
-    if created == "junction":
-        return "junctioned"
-
-    # Some MSYS ln implementations create a plain directory instead of an NTFS
-    # link. Remove only the target just created, then try the Windows-native path.
-    if created != "missing":
-        _remove_existing(target)
-    if _is_windows_host() and _create_windows_junction(real, target):
-        if classify_install(target) == "junction":
-            return "junctioned"
-        _remove_existing(target)
-
-    _copy_skill(real, target, root)
-    if requested_mode == "link":
-        # Not silent. A copy carries no link text, so `aqg_update.skills_route`
-        # cannot recognise it as ours: the update path will neither re-point nor
-        # prune it, and it is frozen at this version's content. The install is
-        # usable; automatic maintenance of it is not, and the user is the only
-        # one who can decide whether that matters.
-        print(
-            f"NOTE: {target.name} was copied, not linked — this host will not "
-            f"receive automatic skill updates for it. Symlink creation failed; "
-            f"on Windows this usually means Developer Mode is off.",
-            file=sys.stderr,
-        )
-    return "copied"
+    return install_skills(
+        [(source, target)],
+        requested_mode=requested_mode,
+        force=force,
+        aqg_root=aqg_root,
+    )[0]
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--source", required=True)
-    parser.add_argument("--target", required=True)
+    parser.add_argument("--source")
+    parser.add_argument("--target")
+    parser.add_argument("--item", nargs=2, action="append", metavar=("SOURCE", "TARGET"))
     parser.add_argument("--aqg-root", required=True)
     parser.add_argument("--mode", choices=("link", "copy"), default="link")
     parser.add_argument("--force", action="store_true")
@@ -414,12 +516,19 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
-    source = Path(args.source)
-    target = Path(args.target)
+    if args.item and (args.source or args.target):
+        print("ERROR: use either --item or --source/--target", file=sys.stderr)
+        return 2
+    if args.item:
+        items = [(Path(source), Path(target)) for source, target in args.item]
+    elif args.source and args.target:
+        items = [(Path(args.source), Path(args.target))]
+    else:
+        print("ERROR: provide --item or both --source and --target", file=sys.stderr)
+        return 2
     try:
-        actual = install_skill(
-            source,
-            target,
+        actuals = install_skills(
+            items,
             requested_mode=args.mode,
             force=args.force,
             aqg_root=Path(args.aqg_root),
@@ -427,7 +536,14 @@ def main(argv: list[str] | None = None) -> int:
     except (InstallError, OSError) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 1
-    print(f"{actual} {source.name} -> {target}")
+    if len(items) == 1:
+        actual = actuals[0]
+        source, target = items[0]
+        print(f"{actual} {source.name} -> {target}")
+    else:
+        counts = Counter(actuals)
+        detail = ", ".join(f"{mode}={counts[mode]}" for mode in sorted(counts))
+        print(f"batch installed {len(items)} skills ({detail})")
     return 0
 
 

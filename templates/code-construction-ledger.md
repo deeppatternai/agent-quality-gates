@@ -13,11 +13,15 @@ behavior_contract_exception: null
 > Per `aqg-code-construction` skill: fill this ledger as you implement.
 > Hard-blocks if structure incomplete; semantic accuracy is your job.
 > Header `created_at` MUST be set BEFORE first edit (checker validates).
+> Default `path: full` is conservative; change it before first edit when the
+> task is truly `mini` or must be `plan`.
+> Keep evidence in one working language unless quoting code, commands, output,
+> or existing identifiers.
 
 | step | required | evidence | file:line | command/result |
 |---|---|---|---|---|
 | 1. Pattern Mining | yes | <what neighbor patterns/contracts/helpers/error styles you read> | <e.g., scripts/foo.py:23-45> | <e.g., rg "..." matched N occurrences> |
-| 2. Behavior Lock | yes (full/plan) | <what focused test you wrote/extended FIRST> | <e.g., tests/test_foo.py:12> | <e.g., pytest -k test_X PASS> |
+| 2. Behavior Lock | yes (full/plan) | <focused test written FIRST, existing regression net for refactor, or N/A for docs-only with reason> | <e.g., tests/test_foo.py:12> | <e.g., RED pytest -k test_X failed, GREEN pytest -k test_X PASS> |
 | 3. Thin Slice | yes (full/plan) | <one behavior face description> | <e.g., scripts/bar.py:55-78> | <description of what NOT done> |
 | 4. Construction Rules | yes (full/plan) | <which: simple / fail-closed / no-spec / reuse-existing-API> | <e.g., scripts/bar.py:80> | <description of choice> |
 | 5. Local Verification | yes | <focused test + lint/type/compile/diff> | <e.g., tests/test_foo.py + ruff scripts/> | <e.g., pytest PASS 12/12 + ruff clean> |
@@ -25,7 +29,7 @@ behavior_contract_exception: null
 
 ## Behavior Contract
 
-(Expected at full/plan tier when production code changes — **warn-only in 0.14.0**
+(Expected at full/plan tier when production code changes — **warn-only in current 0.14.x**
 (BC advisories on stderr, never blocks), hard-required in a later minor. mini tier +
 non-prod changes may omit. Each requirement: a normative statement line using
 MUST / MUST NOT / SHALL / SHALL NOT, then ≥1 scenario with GIVEN / WHEN / THEN.
@@ -33,6 +37,12 @@ Row-2 Behavior Lock evidence must cite every requirement id here via a `covers: 
 token. To opt out with a concrete reason, set the header field
 `behavior_contract_exception` (a vague or `null` reason does NOT opt out).
 THEN must be observable and falsifiable; do not encode implementation detail in MUST.)
+
+Common exceptions: for pure docs/spec/config edits, write row 2 as
+`N/A — no executable behavior` and name the validation in row 5. For pure
+refactors, cite the existing regression net that stayed green. If this section
+does not apply, set `behavior_contract_exception` to a concrete reason; do not
+use vague values such as "not needed" or "later".
 
 ### R1: <short requirement title>
 The system MUST <observable, testable behavior>.

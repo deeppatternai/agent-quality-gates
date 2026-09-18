@@ -1,0 +1,30 @@
+id: repo-overrides-root
+title: repo_overrides 必须位于文档根级
+description: 验证 Skill 会说明 repo_overrides 是 caller-supplied 调优块，必须在 document root，嵌套进 multi_review 会被警告。
+
+input:
+  prompt: |
+    只根据 aqg-multi-review 技能说明回答，不要读仓库、不要调用工具；repo_overrides 应该放在 YAML ledger 的什么位置？如果缩进到 multi_review 下面会怎样？
+    回答必须包含 repo_overrides、document root、not nested under multi_review、validator does NOT gate、warning 和 silently ignored。
+
+expect:
+  must_contain:
+    - "repo_overrides"
+    - "document root"
+    - "not nested under multi_review"
+    - "validator does NOT gate"
+    - "warning"
+    - "silently ignored"
+
+judge:
+  type: rule_based
+  success:
+    - output_contains:
+        all:
+          - "repo_overrides"
+          - "document root"
+          - "not nested under multi_review"
+          - "validator does NOT gate"
+          - "warning"
+          - "silently ignored"
+    - exit_code: 0

@@ -3528,7 +3528,7 @@ def claude_binary_identity(version: str, *, path: str | None = None) -> dict[str
 
     MEASURED 2026-08-21, which is why this exists: the collection host's CLI
     moved 2.1.237 -> 2.1.238 overnight and the executable's digest changed with
-    it. The mover is a launchd agent, `com.jeff.ai-cli-updater`, that runs daily
+    it. The mover is a launchd agent, `ai-cli-updater`, that runs daily
     at 09:20 local — NOT the CLI's own auto-updater, whose last record is
     2.1.207 from 2026-07-12. So a `DISABLE_AUTOUPDATER`-style
     environment switch cannot hold the binary still, and neither can a check

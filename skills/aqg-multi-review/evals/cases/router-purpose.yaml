@@ -1,0 +1,36 @@
+id: router-purpose
+title: 应说明 multi-review 是五维路由器
+description: 验证 Skill 会把 aqg-multi-review 定位为 signal-only router，而不是实际审计器。
+
+input:
+  prompt: |
+    只根据 aqg-multi-review 技能说明回答，不要读仓库、不要调用工具；请用 8 行以内说明这个 Skill 是做什么的。
+    回答必须包含 signal-only、5-dimension、logic、edge_cases、security、performance、concurrency、focus prompts 和 YAML ledger skeleton。
+
+expect:
+  must_contain:
+    - "signal-only"
+    - "5-dimension"
+    - "logic"
+    - "edge_cases"
+    - "security"
+    - "performance"
+    - "concurrency"
+    - "focus prompts"
+    - "YAML ledger skeleton"
+
+judge:
+  type: rule_based
+  success:
+    - output_contains:
+        all:
+          - "signal-only"
+          - "5-dimension"
+          - "logic"
+          - "edge_cases"
+          - "security"
+          - "performance"
+          - "concurrency"
+          - "focus prompts"
+          - "YAML ledger skeleton"
+    - exit_code: 0

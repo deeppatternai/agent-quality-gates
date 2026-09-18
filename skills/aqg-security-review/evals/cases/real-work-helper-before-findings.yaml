@@ -1,0 +1,59 @@
+# 稳定用例 ID，需与文件名保持一致。
+id: real-work-helper-before-findings
+# 报告中显示的中文标题。
+title: 真实仓库评审应先运行 helper 并用文件行号证据填 findings
+description: |
+  验证真实仓库工作不是只复述 checklist：应先运行 `aqg_security_review.py`，
+  然后用实际 `file:line` 证据填写 OWASP/CWE/findings。
+
+input:
+  # 只要求说明流程，不在 eval 中真正读取仓库或运行命令。
+  prompt: |
+    如果这是一次真实仓库里的 auth/input 改动评审，而不是 dry-run 说明，
+    根据 aqg-security-review Skill，开始实际 review 的第一步是什么？
+    最终 OWASP/CWE findings 应该使用什么形式的证据？
+    请按 Skill 的 Agent Response Contract 回答，并明确写出 helper 名称 `aqg_security_review.py`。
+    请只根据 Skill 回答；不要实际运行命令、不要读取项目代码、不要联网。
+
+judge:
+  # 真实工作要先运行 helper，再填实际文件行号证据。
+  type: rule_based
+  success:
+    - output_contains:
+        all:
+          - "aqg_security_review.py"
+    - output_contains:
+        any:
+          - "先运行"
+          - "先调用"
+          - "实际 review 的起点"
+          - "实际 review 的第一步"
+          - "使用 helper"
+          - "调用 helper"
+          - "第一可执行动作"
+          - "第一步可执行动作"
+          - "第一项可执行动作"
+          - "第一个可执行动作"
+          - "第一 executable action"
+          - "first executable action"
+          - "run the helper first"
+          - "run helper first"
+    - output_contains:
+        any:
+          - "file:line"
+          - "文件:行"
+          - "文件行号"
+          - "actual file"
+          - "实际"
+    - output_contains:
+        any:
+          - "OWASP"
+          - "CWE"
+    - output_contains:
+        not:
+          - "自动导入"
+          - "可自动导入"
+          - "无需手动"
+          - "自动被 aqg-evidence-closeout 读取"
+          - "imports directly into `aqg-evidence-closeout`"
+          - "auto-imported"

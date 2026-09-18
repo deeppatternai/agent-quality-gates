@@ -1,0 +1,28 @@
+id: checker-boundary
+title: 应区分 deterministic 检查和语义正确性
+description: 验证 Skill 不会夸大 checker 能力，必须说明它只检查结构，语义正确性仍需本地验证和 audit gate。
+
+input:
+  prompt: |
+    只根据 aqg-code-construction 技能说明回答，不要读仓库、不要调用工具；请用 5 行以内解释 checker 强制什么、不能证明什么。
+    回答必须覆盖 deterministic structure、semantic correctness、secret-pattern scan 和 broad except boundary marker。
+
+expect:
+  must_contain:
+    - "deterministic"
+    - "semantic correctness"
+    - "secret"
+    - "broad"
+    - "except"
+
+judge:
+  type: rule_based
+  success:
+    - output_contains:
+        all:
+          - "deterministic"
+          - "semantic correctness"
+          - "secret"
+          - "broad"
+          - "except"
+    - exit_code: 0

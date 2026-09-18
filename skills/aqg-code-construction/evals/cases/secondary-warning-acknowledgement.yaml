@@ -1,0 +1,32 @@
+id: secondary-warning-acknowledgement
+title: 二次评测：warning acknowledgements 需要具体确认
+description: 验证 Skill 会要求 W5/W6/W7/W8 写入 Warning Acknowledgements，且 reason 不能空泛。
+
+input:
+  prompt: |
+    只根据 aqg-code-construction 技能说明回答，不要读仓库、不要调用工具；如果 checker 报 W5 new TODO 和 W6 new dep，ledger 应该怎么处理？请用 8 行以内回答。
+    回答必须包含 Warning Acknowledgements、W5、W6、ack、yes、concrete reason 和 hard block。
+
+expect:
+  must_contain:
+    - "Warning Acknowledgements"
+    - "W5"
+    - "W6"
+    - "ack"
+    - "yes"
+    - "concrete reason"
+    - "hard block"
+
+judge:
+  type: rule_based
+  success:
+    - output_contains:
+        all:
+          - "Warning Acknowledgements"
+          - "W5"
+          - "W6"
+          - "ack"
+          - "yes"
+          - "concrete reason"
+          - "hard block"
+    - exit_code: 0

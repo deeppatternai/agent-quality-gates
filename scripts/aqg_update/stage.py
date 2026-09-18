@@ -39,6 +39,7 @@ version needs state that lives above here).
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import shutil
@@ -50,9 +51,172 @@ import uuid
 from pathlib import Path
 from typing import Callable, Iterable, Optional, Tuple
 
+try:  # package import from the repository root
+    from scripts import aqg_directory_links as directory_links
+except ImportError:  # installed scripts/ on sys.path
+    import aqg_directory_links as directory_links  # type: ignore[no-redef]
+
 #: A materialized version is recognizable by the sentinel every AQG checkout has.
 #: Used to refuse pointing the root at a directory that is not one.
 VERSION_SENTINEL = "VERSION"
+JUNCTION_UPDATER_CAPABILITIES = (
+    Path("scripts") / "aqg_update" / "updater-capabilities-v1.json"
+)
+JUNCTION_ROOT_CAPABILITY = {
+    "schema": 1,
+    "capabilities": {"windows_directory_junction_root": 1},
+}
+MAX_UPDATER_CAPABILITIES_BYTES = 4096
+DIRECTORY_LINK_KINDS = frozenset({"symlink", "junction"})
+
+
+def _is_windows() -> bool:
+    return os.name == "nt"
+
+
+def directory_entry_kind(path: Path) -> str:
+    """Classify one entry without following a directory reparse point."""
+    try:
+        return directory_links.link_kind(Path(path))
+    except OSError as exc:
+        raise StageError(f"cannot inspect directory entry at {path}: {exc}") from exc
+
+
+def current_link_kind(path: Path) -> Optional[str]:
+    """Return a supported root-link kind, ``None`` for a missing/non-link entry."""
+    kind = directory_entry_kind(Path(path))
+    if kind in DIRECTORY_LINK_KINDS:
+        return kind
+    if kind == "other_reparse":
+        raise StageError(
+            f"{path} is an unknown or unsupported reparse point "
+            f"(kind={kind}); refusing to treat it as a managed root"
+        )
+    return None
+
+
+def directory_link_state(path: Path) -> tuple[str, Optional[Path]]:
+    """Read and revalidate one directory-link entry and its lexical target."""
+    path = Path(path)
+    first_kind = directory_entry_kind(path)
+    if first_kind == "other_reparse":
+        raise StageError(
+            f"{path} is an unknown or unsupported reparse point "
+            f"(kind={first_kind}); refusing mutation"
+        )
+    if first_kind not in DIRECTORY_LINK_KINDS:
+        return first_kind, None
+    try:
+        first_target = directory_links.read_link_target(path)
+        second_kind = directory_entry_kind(path)
+        second_target = (
+            directory_links.read_link_target(path)
+            if second_kind in DIRECTORY_LINK_KINDS else None
+        )
+    except OSError as exc:
+        raise StageError(f"cannot read directory link at {path}: {exc}") from exc
+    if (second_kind, second_target) != (first_kind, first_target):
+        raise StageError(
+            f"directory link changed while it was inspected at {path}: "
+            f"{first_kind} -> {second_kind}, {first_target} -> {second_target}"
+        )
+    return first_kind, first_target
+
+
+def planned_link_kind(root: Path) -> str:
+    """The type a swap will create, preserving an existing supported type."""
+    return current_link_kind(root) or ("junction" if _is_windows() else "symlink")
+
+
+def _entry_exists(path: Path) -> bool:
+    return directory_entry_kind(path) != "missing"
+
+
+def _read_regular_file_entry(path: Path, *, limit: int) -> Optional[bytes]:
+    """Read a bounded regular file while rejecting links and identity changes."""
+    path = Path(path)
+    fd: Optional[int] = None
+    try:
+        if directory_entry_kind(path) != "other":
+            return None
+        before = os.lstat(path)
+        if not stat.S_ISREG(before.st_mode) or before.st_size > limit:
+            return None
+        flags = os.O_RDONLY | getattr(os, "O_BINARY", 0) | getattr(os, "O_NOFOLLOW", 0)
+        fd = os.open(path, flags)
+        opened = os.fstat(fd)
+
+        def identity(value):
+            return value.st_dev, value.st_ino
+
+        if (
+            not stat.S_ISREG(opened.st_mode)
+            or opened.st_size > limit
+            or identity(opened) != identity(before)
+        ):
+            return None
+        raw = os.read(fd, limit + 1)
+        after = os.lstat(path)
+        if (
+            len(raw) != opened.st_size
+            or identity(after) != identity(opened)
+            or directory_entry_kind(path) != "other"
+        ):
+            return None
+        return raw
+    except (OSError, StageError):
+        return None
+    finally:
+        if fd is not None:
+            os.close(fd)
+
+
+def _declares_junction_root_capability(target: Path) -> bool:
+    raw = _read_regular_file_entry(
+        Path(target) / JUNCTION_UPDATER_CAPABILITIES,
+        limit=MAX_UPDATER_CAPABILITIES_BYTES,
+    )
+    if raw is None:
+        return False
+
+    def object_without_duplicates(pairs):
+        value = {}
+        for key, item in pairs:
+            if key in value:
+                raise ValueError(f"duplicate capability key {key!r}")
+            value[key] = item
+        return value
+
+    try:
+        payload = json.loads(
+            raw.decode("utf-8"), object_pairs_hook=object_without_duplicates
+        )
+    except (UnicodeError, ValueError):
+        return False
+    return payload == JUNCTION_ROOT_CAPABILITY
+
+
+def _create_directory_link(source: Path, target: Path, *, kind: str) -> None:
+    try:
+        if kind == "junction":
+            directory_links.create_junction(Path(source), Path(target))
+        elif kind == "symlink":
+            os.symlink(str(source), str(target), target_is_directory=True)
+        else:
+            raise StageError(f"unsupported managed root link kind {kind!r}")
+    except StageError:
+        raise
+    except OSError as exc:
+        raise StageError(f"cannot create {kind} at {target}: {exc}") from exc
+
+
+def _remove_directory_link(path: Path, *, kind: str, target: Path) -> None:
+    try:
+        directory_links.remove_directory_link(
+            Path(path), expected_kind=kind, expected_target=Path(target)
+        )
+    except OSError as exc:
+        raise StageError(f"cannot remove temporary {kind} at {path}: {exc}") from exc
 
 
 def is_release_name(name: str) -> bool:
@@ -71,6 +235,13 @@ def version_name(version: str, commit: str, versions_dir: Path) -> str:
     or locally modified. Give retries a fresh bounded name, leaving occupied
     paths (including dangling links) intact. stage_version still refuses races.
     """
+    versions_dir = Path(versions_dir)
+    versions_kind = directory_entry_kind(versions_dir)
+    if versions_kind not in {"missing", "directory"}:
+        raise StageError(
+            f"refusing to select a version name through {versions_kind}: "
+            f"{versions_dir}"
+        )
     name = version if is_release_name(version) else commit
     occupied = Path(versions_dir) / name
     if _is_version_tree(occupied):
@@ -81,7 +252,7 @@ def version_name(version: str, commit: str, versions_dir: Path) -> str:
         except StageError:
             pass  # Choose fresh content instead of trusting an unreadable tree.
     occupied = Path(versions_dir) / name
-    if occupied.exists() or occupied.is_symlink():
+    if _entry_exists(occupied):
         # Never trade a permanent name collision for unbounded disk growth
         # when Windows/permissions prevent cleanup. No persistent disable flag:
         # freeing a retained attempt makes the next invocation eligible again.
@@ -158,8 +329,7 @@ def _is_version_tree(path: Path) -> bool:
     would have made the first rollback impossible.
     """
     return (
-        path.is_dir()
-        and not path.is_symlink()
+        directory_entry_kind(path) == "directory"
         and (path / VERSION_SENTINEL).is_file()
     )
 
@@ -238,7 +408,13 @@ def stage_version(
     versions_dir = Path(versions_dir)
     _require_safe_name(name)
     target = versions_dir / name
-    if target.exists() or target.is_symlink():
+    versions_kind = directory_entry_kind(versions_dir)
+    if versions_kind not in {"missing", "directory"}:
+        raise StageError(
+            f"refusing to stage through {versions_kind} versions directory: "
+            f"{versions_dir}"
+        )
+    if _entry_exists(target):
         raise StageError(f"a staged version already exists at {target}")
     try:
         versions_dir.mkdir(parents=True, exist_ok=True)
@@ -253,7 +429,7 @@ def stage_version(
         # "already exists" for a version that was never materialized, and the
         # name is wedged with no indication why.
         _remove_worktree(Path(repo), target)
-        if target.exists() or target.is_symlink():
+        if _entry_exists(target):
             raise StageError(
                 f"{exc}. Cleanup also failed: {target} survives and needs manual "
                 f"removal before this version name can be staged again"
@@ -279,7 +455,7 @@ def discard_version(*, repo: Path, target: Path) -> None:
     is named after it.
     """
     target = Path(target)
-    if not target.exists() and not target.is_symlink():
+    if not _entry_exists(target):
         return
     _remove_worktree(Path(repo), target)
 
@@ -287,11 +463,21 @@ def discard_version(*, repo: Path, target: Path) -> None:
 def _remove_worktree(repo: Path, target: Path) -> None:
     """Best-effort removal of a worktree and its registry entry."""
     try:
+        kind = directory_entry_kind(target)
+    except StageError:
+        return
+    if kind == "missing":
+        return
+    if kind != "directory":
+        # Never hand a reparse entry to git or rmtree: either can traverse its
+        # referent, while a failed cleanup is only retained evidence.
+        return
+    try:
         _git("worktree", "remove", "--force", str(target), cwd=repo)
         return
     except StageError:
         pass
-    if target.is_dir() and not target.is_symlink():
+    if directory_entry_kind(target) == "directory":
         shutil.rmtree(target, ignore_errors=True)
     try:
         _git("worktree", "prune", cwd=repo)
@@ -300,23 +486,8 @@ def _remove_worktree(repo: Path, target: Path) -> None:
 
 
 def current_target(root: Path) -> Optional[Path]:
-    """Where the root symlink points, or ``None`` if it is not a symlink."""
-    root = Path(root)
-    if not root.is_symlink():
-        return None
-    try:
-        raw = Path(os.readlink(root))
-    except OSError as exc:
-        raise StageError(f"cannot read the root link at {root}: {exc}") from exc
-    # Absolutized against the LINK's directory, not the caller's cwd: a relative
-    # link reported verbatim would be resolved against whatever directory the
-    # caller happens to be in.
-    target = raw if raw.is_absolute() else (root.parent / raw).resolve()
-    # Windows readlink returns a \\?\ prefix even for an ordinary drive path.
-    # Resolve from the original spelling so ownership comparisons agree, but
-    # preserve a directly linked symlink for the version-tree refusal below.
-    if os.name == "nt" and not target.is_symlink():
-        return Path(os.path.realpath(root))
+    """Where a supported root link points, or ``None`` for a non-link entry."""
+    _kind, target = directory_link_state(Path(root))
     return target
 
 
@@ -329,7 +500,7 @@ def _replace_root_link(source: str, root: Path) -> None:
     intact; there is deliberately no unlink-then-rename fallback.
     https://learn.microsoft.com/windows/win32/api/winbase/ns-winbase-file_rename_info
     """
-    if os.name != "nt":
+    if not _is_windows():
         os.replace(source, root)
         return
 
@@ -370,7 +541,9 @@ def _replace_root_link(source: str, root: Path) -> None:
         close(handle)
 
 
-def swap_root(*, root: Path, target: Path) -> Optional[Path]:
+def swap_root(
+    *, root: Path, target: Path, link_kind: Optional[str] = None
+) -> Optional[Path]:
     """Point *root* at *target* atomically. Returns the version it replaced.
 
     The previous target is returned rather than left to be looked up afterwards,
@@ -395,29 +568,46 @@ def swap_root(*, root: Path, target: Path) -> Optional[Path]:
             f"{VERSION_SENTINEL} sentinel); refusing to point the root at it"
         )
 
-    previous: Optional[Path] = None
-    if root.is_symlink():
-        previous = current_target(root)
+    root_kind, previous = directory_link_state(root)
+    if root_kind in DIRECTORY_LINK_KINDS:
         # "Is a symlink" was standing in for "was created by this layer". A user
         # symlink to a relocated real checkout carries a VERSION file too, so the
         # sentinel alone does not distinguish them — the test is whether it lives
         # in the same versions directory the new target does.
-        versions_dir = target.parent.resolve()
+        versions_dir = _canonical_or_none(target.parent)
+        previous_parent = _canonical_or_none(previous.parent) if previous else None
         if (
             previous is None
             or not _is_version_tree(previous)
-            or previous.resolve().parent != versions_dir
+            or versions_dir is None
+            or previous_parent != versions_dir
         ):
             raise StageError(
                 f"{root} points at {previous}, which is not a version tree under "
                 f"{versions_dir}; refusing to re-point an install this layer does "
                 f"not own"
             )
-    elif root.exists():
+    elif root_kind != "missing":
         raise StageError(
-            f"{root} exists and is not a symlink — refusing to replace it. An "
+            f"{root} exists as {root_kind}, not a symlink or junction managed "
+            f"directory link — "
+            f"refusing to replace it. An "
             f"install created before the version-tree layout is a real checkout "
             f"there, and replacing it would destroy it; migrate deliberately"
+        )
+
+    desired_kind = link_kind or (
+        root_kind if root_kind in DIRECTORY_LINK_KINDS
+        else ("junction" if _is_windows() else "symlink")
+    )
+    if desired_kind not in DIRECTORY_LINK_KINDS:
+        raise StageError(f"unsupported managed root link kind {desired_kind!r}")
+    if desired_kind == "junction" and not _declares_junction_root_capability(target):
+        raise StageError(
+            f"{target} does not carry the valid junction-aware updater "
+            f"capability declaration at {JUNCTION_UPDATER_CAPABILITIES}; "
+            f"refusing to activate or roll back a junction root to an updater "
+            f"that cannot manage its own layout"
         )
 
     # A symlink cannot be re-pointed in place, so create it under a temporary
@@ -427,28 +617,33 @@ def swap_root(*, root: Path, target: Path) -> Optional[Path]:
     fd, tmp_name = tempfile.mkstemp(prefix=".aqg-root-", dir=str(root.parent))
     os.close(fd)
     os.unlink(tmp_name)
+    tmp_path = Path(tmp_name)
     try:
-        os.symlink(target, tmp_name, target_is_directory=True)
+        _create_directory_link(target, tmp_path, kind=desired_kind)
         # Re-validated immediately before the rename. `os.replace` onto a
         # directory fails, but onto a REGULAR FILE it succeeds and destroys it,
         # so the kernel does not enforce the refusal above on its own. This
         # narrows the window; the update lock closes it in PR4.
-        if root.exists() and not root.is_symlink():
+        rechecked_kind, rechecked_target = directory_link_state(root)
+        if rechecked_kind != root_kind or rechecked_target != previous:
             raise StageError(
-                f"{root} became a non-symlink while the swap was in flight; "
-                f"refusing to replace it"
+                f"{root} changed while the swap was in flight "
+                f"({root_kind} -> {rechecked_kind}, {previous} -> "
+                f"{rechecked_target}); refusing to replace it"
             )
         _replace_root_link(tmp_name, root)
     except StageError:
         try:
-            os.unlink(tmp_name)
-        except OSError:
+            if directory_entry_kind(tmp_path) == desired_kind:
+                _remove_directory_link(tmp_path, kind=desired_kind, target=target)
+        except (OSError, StageError):
             pass
         raise
     except OSError as exc:
         try:
-            os.unlink(tmp_name)
-        except OSError:
+            if directory_entry_kind(tmp_path) == desired_kind:
+                _remove_directory_link(tmp_path, kind=desired_kind, target=target)
+        except (OSError, StageError):
             pass
         raise StageError(f"cannot point {root} at {target}: {exc}") from exc
     return previous
@@ -522,15 +717,16 @@ def prune_versions(
     30-second timeout, never the shrinking remainder of the inspection budget.
     """
     versions_dir = Path(versions_dir)
-    if _is_indirection(versions_dir):
-        # `iterdir()` on a link lists the TARGET's children, so pruning would
-        # delete outside the directory this function claims to confine itself to.
+    versions_kind = directory_entry_kind(versions_dir)
+    if versions_kind != "directory":
+        if versions_kind == "missing":
+            return ()
+        # `iterdir()` on a directory link lists the TARGET's children, so
+        # pruning would delete outside the directory this function confines.
         raise StageError(
-            f"refusing to prune through a symlinked versions directory: "
+            f"refusing to prune through {versions_kind} versions directory: "
             f"{versions_dir}"
         )
-    if not versions_dir.is_dir():
-        return ()
     versions_dir = versions_dir.resolve()
     progress = progress if progress is not None else {}
     progress.setdefault("removed", [])

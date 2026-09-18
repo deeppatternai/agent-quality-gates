@@ -1,0 +1,44 @@
+# 稳定用例 ID，需与文件名保持一致。
+id: manual-closeout-not-auto-import
+# 报告中显示的中文标题。
+title: security_review 证据块是手动交接而非自动导入
+description: |
+  验证 Skill 不会声称 `aqg-evidence-closeout` 已经能自动导入安全评审块。
+
+input:
+  # 用户询问 closeout 集成能力，Skill 应说明当前只能手动粘贴。
+  prompt: |
+    aqg-security-review 输出的 `security_review` YAML block 会被 aqg-evidence-closeout 自动导入吗？
+    请根据 Skill 的当前边界回答；可以读取 Skill 指令本身，但不要读取项目代码、不要联网。
+
+judge:
+  # 当前契约是 closeout-ready/manual paste。
+  type: rule_based
+  success:
+    - output_contains:
+        all:
+          - "security_review"
+        any:
+          - "手动"
+          - "manual"
+          - "paste"
+          - "粘贴"
+    - output_contains:
+        any:
+          - "aqg-evidence-closeout"
+          - "current_ledger.md"
+          - "evidence ledger"
+    - output_contains:
+        not:
+          - "已经实现 --security-review-file"
+          - "无需手动"
+          - "会自动导入"
+          - "会被自动导入"
+          - "已经自动导入"
+          - "可自动导入"
+          - "closeout-importable"
+          - "可导入 closeout"
+          - "可导入 `aqg-evidence-closeout`"
+          - "可导入 aqg-evidence-closeout"
+          - "imports directly into `aqg-evidence-closeout`"
+          - "is auto-imported"

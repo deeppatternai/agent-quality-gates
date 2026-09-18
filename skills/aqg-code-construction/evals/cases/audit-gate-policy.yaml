@@ -1,0 +1,32 @@
+id: audit-gate-policy
+title: audit-before-commit gate 应按策略路由
+description: 验证 Skill 不会把 audit 当成默认动作，并能指出敏感面需要 deep、文档规格改动可跳过。
+
+input:
+  prompt: |
+    只根据 aqg-code-construction 技能说明回答，不要读仓库、不要调用工具；准备 commit 前如何决定是否运行 aqg-code-construction 的 audit-before-commit gate？请用 8 行以内说明判断规则，不要调用 audit。
+    回答必须包含 docs/policies/audit-trigger.md、audit is the exception、trivial、deep、auth、CI/deploy 和 before git commit。
+
+expect:
+  must_contain:
+    - "docs/policies/audit-trigger.md"
+    - "audit is the exception"
+    - "trivial"
+    - "deep"
+    - "auth"
+    - "CI/deploy"
+    - "before git commit"
+
+judge:
+  type: rule_based
+  success:
+    - output_contains:
+        all:
+          - "docs/policies/audit-trigger.md"
+          - "audit is the exception"
+          - "trivial"
+          - "deep"
+          - "auth"
+          - "CI/deploy"
+          - "before git commit"
+    - exit_code: 0

@@ -1,0 +1,30 @@
+id: secondary-secret-pattern
+title: 二次评测：ledger secret-pattern 应 fail closed
+description: 验证 Skill 会把 ledger 中疑似密钥模式作为硬阻断处理，并提示移除或脱敏。
+
+input:
+  prompt: |
+    只根据 aqg-code-construction 技能说明回答，不要读仓库、不要调用工具；如果 ledger 里出现疑似 API token 或 PEM secret pattern，应该如何处理？请用 6 行以内回答，不要生成任何真实密钥示例。
+    回答必须包含 secret-pattern scan、exit code 2、remove、redact、do not paste secret 和 fail closed。
+
+expect:
+  must_contain:
+    - "secret-pattern scan"
+    - "exit code 2"
+    - "remove"
+    - "redact"
+    - "do not paste secret"
+    - "fail closed"
+
+judge:
+  type: rule_based
+  success:
+    - output_contains:
+        all:
+          - "secret-pattern scan"
+          - "exit code 2"
+          - "remove"
+          - "redact"
+          - "do not paste secret"
+          - "fail closed"
+    - exit_code: 0

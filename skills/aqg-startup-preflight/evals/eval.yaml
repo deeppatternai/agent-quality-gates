@@ -1,0 +1,49 @@
+# skill-up 评测配置版本；保持为 v1alpha1。
+schema_version: v1alpha1
+
+environment:
+  # 每个用例的运行环境；none 表示不额外启动沙箱。
+  type: none
+
+skills:
+  # 安装被测 Skill；路径相对当前 Skill 根目录。
+  - source: local_path
+    path: .
+    include:
+      - SKILL.md
+      - agents/**
+      - scripts/**
+      - skill.template.json
+
+engine:
+  # 使用本机 Codex 引擎配置运行评测。
+  name: codex
+
+cases:
+  # 用例路径相对当前 Skill 根目录。
+  files:
+    - evals/cases/session_start_preflight.yaml
+    - evals/cases/offline_no_github.yaml
+    - evals/cases/blocker_advisory_split.yaml
+    - evals/cases/session_dedup_force.yaml
+    - evals/cases/required_file_boundaries.yaml
+    - evals/cases/stack_codemap_advisory.yaml
+    - evals/cases/github_fail_closed.yaml
+    - evals/cases/upstream_state_blockers.yaml
+    - evals/cases/multi_repo_preflight.yaml
+    - evals/cases/concurrent_worktrees_boundary.yaml
+    - evals/cases/production_authorization_boundary.yaml
+  defaults:
+    timeout_seconds: 600
+    max_turns: 8
+    expect:
+      exit_code: 0
+      must_not_contain:
+        - "TODO"
+        - "我无法完成"
+        - "不能完成这个请求"
+  parallelism: 1
+
+report:
+  # 输出 JSON 报告，便于后续诊断 result.json / grading.json。
+  formats: [json]

@@ -1,7 +1,7 @@
 {
   "skill_template_schema": 1,
   "name": "aqg-code-construction",
-  "description": "Invoke this before writing, modifying, refactoring, or implementing code in any repository \u2014 the entry point for a coding task, not a review after one. Runs the 6-step code construction workflow (Pattern Mining, Behavior Lock, Thin Slice, Construction Rules, Local Verification, Self Review) with anti-pattern blockers, reviewer-objection prediction, and an evidence ledger; Behavior Lock is a RED/GREEN/REFACTOR TDD cycle, and the audit-before-commit gate sits at the end.",
+  "description": "Run this before writing, modifying, refactoring, or implementing code: it is the code construction entry point, not a post-hoc review. Guides the 6-step workflow (Pattern Mining, Behavior Lock, Thin Slice, Construction Rules, Local Verification, Self Review), maintains the evidence ledger, predicts reviewer objections, and runs deterministic anti-pattern checks plus the audit-before-commit gate.",
   "version": "0.1.0",
   "wrapper_generated": true,
   "primary_trigger_keywords": ["code construction", "ledger", "anti-pattern", "thin slice", "behavior lock", "self review"],

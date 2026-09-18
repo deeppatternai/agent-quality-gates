@@ -1,0 +1,49 @@
+# 稳定用例 ID，需与文件名保持一致。
+id: surface-flag-label-not-table-filter
+# 报告中显示的中文标题。
+title: surface 参数记录审计面但不裁剪参考表
+description: |
+  验证 `--surface` 的文档契约与 helper 行为一致：它记录
+  `surfaces_audited`，参考表仍是完整 baseline。
+
+input:
+  # 用户询问 CLI 行为，Skill 应避免把 surface 说成逐表过滤器。
+  prompt: |
+    运行 `aqg_security_review.py --surface auth` 时，是不是只输出 auth 相关检查表？
+    请按 Skill 的 Agent Response Contract 回答，必须写出 `surfaces_audited`，
+    并说明它不是过滤、聚焦或裁剪 OWASP/CWE/secure-defaults 参考表。
+    可以读取 Skill 指令本身，但不要实际运行命令、不要读取项目代码、不要联网。
+
+expect:
+  must_contain:
+    - "surfaces_audited"
+
+judge:
+  # 该参数用于记录审计面；表格保持完整基线。
+  type: rule_based
+  success:
+    - output_contains:
+        all:
+          - "surfaces_audited"
+        any:
+          - "完整"
+          - "full"
+          - "全量"
+          - "baseline"
+          - "参考表"
+          - "reference table"
+    - output_contains:
+        any:
+          - "不是"
+          - "不会只输出"
+          - "not a per-surface"
+          - "不裁剪"
+          - "不聚焦"
+          - "不按 surface 过滤"
+    - output_contains:
+        not:
+          - "过滤到"
+          - "按安全 surface 过滤"
+          - "聚焦到 `auth` surface"
+          - "filter to auth"
+          - "filtered to auth"

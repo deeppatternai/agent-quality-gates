@@ -1,0 +1,30 @@
+id: how-to-run-contract
+title: 应说明本地脚本的 new 和 validate 命令契约
+description: 验证 Skill 会指导 caller 使用仓库内本地脚本，并说明 new、selected dimensions、validate 和 PyYAML 依赖。
+
+input:
+  prompt: |
+    只根据 aqg-multi-review 技能说明回答，不要读仓库、不要调用工具；请说明如何运行这个 Skill 的本地脚本来生成 skeleton、生成部分维度、验证 ledger，并说明 validate 依赖。
+    回答必须包含 local script、python3 "$script" new、new --dimensions security performance、validate --file、--json 和 PyYAML>=6.0。
+
+expect:
+  must_contain:
+    - "local script"
+    - "python3 \"$script\" new"
+    - "new --dimensions security performance"
+    - "validate --file"
+    - "--json"
+    - "PyYAML>=6.0"
+
+judge:
+  type: rule_based
+  success:
+    - output_contains:
+        all:
+          - "local script"
+          - "python3 \"$script\" new"
+          - "new --dimensions security performance"
+          - "validate --file"
+          - "--json"
+          - "PyYAML>=6.0"
+    - exit_code: 0

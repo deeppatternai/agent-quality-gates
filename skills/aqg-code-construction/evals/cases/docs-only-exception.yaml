@@ -1,0 +1,28 @@
+id: docs-only-exception
+title: 文档改动应记录 Behavior Lock 例外
+description: 验证 docs-only 或模板文案改动不会被误要求写新的 failing test，但必须记录 row 2 与 row 5 的证据。
+
+input:
+  prompt: |
+    这次只改 SKILL.md 和模板文案，没有可执行代码。请说明 aqg-code-construction ledger 里 Behavior Lock、Local Verification 和 Behavior Contract exception 应该怎么写。
+    回答必须包含 N/A、no executable behavior、row 5、behavior_contract_exception 和 concrete reason。
+
+expect:
+  must_contain:
+    - "N/A"
+    - "no executable behavior"
+    - "row 5"
+    - "behavior_contract_exception"
+    - "concrete reason"
+
+judge:
+  type: rule_based
+  success:
+    - output_contains:
+        all:
+          - "N/A"
+          - "no executable behavior"
+          - "row 5"
+          - "behavior_contract_exception"
+          - "concrete reason"
+    - exit_code: 0

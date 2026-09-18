@@ -1,0 +1,30 @@
+id: language-hygiene
+title: ledger 应避免无意义中英文混杂
+description: 验证 Skill 会要求填充后的 ledger 保持单一工作语言，只在引用代码、命令输出、标识符或 audit ID 时保留原文。
+
+input:
+  prompt: |
+    只根据 aqg-test-quality-review 技能说明回答，不要读仓库、不要调用工具；填写 test_quality_review ledger 时，语言风格应该怎么处理？请用 5 行以内回答。
+    回答必须包含 one working language、quoting、code、command output、existing identifiers 和 audit IDs。
+
+expect:
+  must_contain:
+    - "one working language"
+    - "quoting"
+    - "code"
+    - "command output"
+    - "existing identifiers"
+    - "audit IDs"
+
+judge:
+  type: rule_based
+  success:
+    - output_contains:
+        all:
+          - "one working language"
+          - "quoting"
+          - "code"
+          - "command output"
+          - "existing identifiers"
+          - "audit IDs"
+    - exit_code: 0

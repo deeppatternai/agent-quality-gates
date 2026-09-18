@@ -12,7 +12,7 @@ from dataclasses import replace
 from pathlib import Path
 
 from .base import AdapterError, HostAdapter
-from .. import migrate
+from .. import migrate, stage
 
 
 FAMILIES = {
@@ -237,7 +237,7 @@ class ManagedAdapter(HostAdapter):
         self.client_id = client_id
         self.home = Path(home) if home is not None else Path.home()
         self.root = Path(aqg_root or os.environ.get('AQG_ROOT') or Path(__file__).absolute().parents[3]).expanduser().absolute()
-        if not self.root.is_symlink():
+        if stage.current_link_kind(self.root) is None:
             self.root = migrate.logical_root(self.root)
         prefix = 'scripts.' if __package__.startswith('scripts.') else ''
         self.installer = importlib.import_module(prefix + FAMILIES[client_id])

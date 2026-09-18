@@ -1,0 +1,38 @@
+id: upstream_state_blockers
+title: upstream 落后或不可计算必须阻塞
+description: |
+  验证 Skill 会把 fetch 失败、gone upstream、ahead/behind 不可计算、behind tracked upstream 归为 blocker，并提醒非主分支相对 `origin/main` 需要额外检查。
+
+context:
+  git:
+    init: true
+    checkout: feature/preflight-upstream
+  files:
+    README.md: |
+      # Upstream Fixture
+
+input:
+  prompt: |
+    不要运行命令，也不要检查当前仓库或测试。请仅基于 aqg-startup-preflight 的规则，用简短分类表解释 upstream 状态的 blocker 规则：`git fetch origin` 失败、tracked upstream gone、ahead/behind 无法计算、以及当前分支 behind upstream。也请说明非 main 分支相对 `origin/main` 的漂移是不是 helper 自动计算。
+
+judge:
+  type: rule_based
+  success:
+    - output_matches:
+        all:
+          - "(?i)git fetch|fetch"
+          - "(?i)gone upstream|upstream gone|tracked upstream[^\\n]{0,40}已消失|上游[^\\n]{0,40}不存在|上游分支不存在|被删除|上游[^\\n]{0,20}gone"
+          - "(?i)ahead/behind|ahead[^\\n]{0,20}behind|无法计算|不可计算"
+          - "(?i)behind upstream|behind[^\\n]{0,30}upstream|落后"
+          - "(?i)blocker|硬阻塞|阻塞"
+          - "origin/main"
+          - "(?i)manual|explicit|extra|手动|人工|另行|单独|显式|额外|不能假设|不要假设"
+    - exit_code: 0
+  failure:
+    - output_contains:
+        any:
+          - "behind upstream 是 advisory"
+          - "gone upstream 是 advisory"
+          - "自动检查 origin/main 漂移"
+          - "规则未把 fetch 失败单独列为 blocker"
+          - "不是规则明列的 hard blocker"

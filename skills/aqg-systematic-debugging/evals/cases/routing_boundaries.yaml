@@ -1,0 +1,32 @@
+id: routing_boundaries
+title: 应区分 unresolved failure 与普通实现请求
+description: |
+  验证 Skill 能说明自己的触发边界：只在未解决失败或证据冲突阻塞安全修复时使用，不应覆盖普通实现、review、已确认小修、外审/产品/架构决策或生产写入边界。
+
+input:
+  prompt: |
+    只根据 aqg-systematic-debugging 的说明回答，不要调用工具。
+    请判断下列请求是否应该使用这个 Skill：用户只是要做普通功能实现，没有失败症状；另一个请求是 CI 和本地测试输出互相矛盾，原因未知。
+    回答必须包含 unresolved failure、evidence conflict、ordinary implementation、review、product/architecture decisions 和 production-write boundaries。
+
+expect:
+  must_contain:
+    - "unresolved failure"
+    - "evidence conflict"
+    - "ordinary implementation"
+    - "review"
+    - "product/architecture decisions"
+    - "production-write boundaries"
+
+judge:
+  type: rule_based
+  success:
+    - output_contains:
+        all:
+          - "unresolved failure"
+          - "evidence conflict"
+          - "ordinary implementation"
+          - "review"
+          - "product/architecture decisions"
+          - "production-write boundaries"
+    - exit_code: 0

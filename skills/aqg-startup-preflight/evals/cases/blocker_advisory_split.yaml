@@ -1,0 +1,41 @@
+id: blocker_advisory_split
+title: 明确 blocker 与 advisory 的边界
+description: |
+  验证 Skill 会把 dirty worktree、behind upstream、required file 缺失、GitHub unknown 等列为 blocker，同时把 optional context、STACK_STATUS、CODE_MAP 和 concurrent worktrees 作为 advisory。
+
+context:
+  git:
+    init: true
+    checkout: feature/preflight-review
+  files:
+    README.md: |
+      # Split Fixture
+
+input:
+  prompt: |
+    请解释 aqg-startup-preflight 的 blocker 和 advisory 分界。回答里要覆盖 dirty worktree、behind upstream、required file 缺失、GitHub unknown、optional context、STACK_STATUS、CODE_MAP、concurrent worktrees。
+
+judge:
+  type: rule_based
+  success:
+    - output_matches:
+        all:
+          - "(?i)dirty worktree"
+          - "(?i)behind upstream"
+          - "(?i)required file"
+          - "(?i)github[^\n]{0,40}unknown"
+          - "(?i)optional context"
+          - "STACK_STATUS"
+          - "CODE_MAP"
+          - "(?i)concurrent worktrees"
+        any:
+          - "(?i)blocker"
+          - "(?i)hard blocker"
+          - "(?i)advisory"
+    - exit_code: 0
+  failure:
+    - output_contains:
+        any:
+          - "optional context 是 blocker"
+          - "CODE_MAP 是 blocker"
+          - "STACK_STATUS 必然阻塞"

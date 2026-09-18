@@ -1,0 +1,38 @@
+# 稳定用例 ID，需与文件名保持一致。
+id: semgrep-and-audit-are-complementary
+# 报告中显示的中文标题。
+title: Skill 不替代 semgrep SAST 或外部审计
+description: |
+  验证 Skill 会把自己定位成 in-session checklist，并明确 semgrep 与 `/audit`
+  是互补层，而不是被这个 Skill 替代。
+
+input:
+  # 用户试图省略其它安全层，Skill 应拒绝替代关系。
+  prompt: |
+    如果我已经使用 aqg-security-review Skill 走了一遍检查，能不能不用 semgrep 和外部 audit 了？
+    请根据 Skill 边界回答；可以读取 Skill 指令本身，但不要实际运行任何工具、不要读取项目代码、不要联网。
+
+judge:
+  # 三层模型必须被保留。
+  type: rule_based
+  success:
+    - output_contains:
+        any:
+          - "semgrep"
+          - "Semgrep"
+    - output_contains:
+        all:
+          - "/audit"
+        any:
+          - "不替代"
+          - "不互相替代"
+          - "不是替代"
+          - "不构成替代"
+          - "不能替代"
+          - "不会执行或替代"
+          - "不会调用或替代"
+          - "不能用"
+          - "不能把"
+          - "不等价"
+          - "not a substitute"
+          - "does not substitute"

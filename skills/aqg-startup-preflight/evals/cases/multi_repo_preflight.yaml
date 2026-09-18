@@ -1,0 +1,37 @@
+id: multi_repo_preflight
+title: 多 repo 预检要逐仓报告
+description: |
+  验证 Skill 在多仓任务中会使用多个 `--repo` 输入逐仓检查，并把每个仓库的 blocker/advisory 与 next safe step 单独报告。
+
+context:
+  git:
+    init: true
+    checkout: main
+  files:
+    README.md: |
+      # Multi Repo Fixture
+
+input:
+  prompt: |
+    我这次要同时处理两个仓库：`/tmp/service-a` 和 `/tmp/service-b`。请说明 aqg-startup-preflight 应如何用多个 `--repo` 做多 repo 预检，报告每个 repo 的 blocker/advisory。如果其中一个 repo 是 dirty worktree，应该怎么给 next safe step？
+
+judge:
+  type: rule_based
+  success:
+    - output_matches:
+        all:
+          - "--repo"
+          - "/tmp/service-a"
+          - "/tmp/service-b"
+          - "(?i)per[- ]?repo|逐仓|每个 repo|每个仓库|各 repo|按 repo 分开|单独报告"
+          - "(?i)blocker"
+          - "(?i)advisory|advisories"
+          - "(?i)dirty worktree|脏"
+          - "(?i)next safe step|下一步"
+    - exit_code: 0
+  failure:
+    - output_contains:
+        any:
+          - "只检查当前 repo"
+          - "忽略第二个 repo"
+          - "dirty repo 可以继续 patch"

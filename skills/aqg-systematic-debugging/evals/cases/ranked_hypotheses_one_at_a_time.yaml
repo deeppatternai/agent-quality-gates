@@ -1,0 +1,40 @@
+id: ranked_hypotheses_one_at_a_time
+title: 应先列 ranked hypotheses 且每轮只测试一个
+description: |
+  验证 Skill 在原因仍含糊时，会先列 3-5 个可证伪候选，并强调每次 loop 只测试一个 hypothesis，不堆叠 speculative fixes。
+
+input:
+  prompt: |
+    只根据 aqg-systematic-debugging 的说明回答，不要调用工具。
+    场景：本地测试和 CI 日志指向三个可能边界，原因仍然 ambiguous。请说明进入修复前应该怎样处理 hypotheses。
+    回答必须包含 H1、H2、H3、排名、可证伪、最小检查、loop iteration、只处理一个 hypothesis、Do not stack speculative fixes 和 root-cause evidence。
+
+expect:
+  must_contain:
+    - "H1"
+    - "H2"
+    - "H3"
+    - "排名"
+    - "可证伪"
+    - "最小检查"
+    - "loop iteration"
+    - "只处理一个 hypothesis"
+    - "Do not stack speculative fixes"
+    - "root-cause evidence"
+
+judge:
+  type: rule_based
+  success:
+    - output_contains:
+        all:
+          - "H1"
+          - "H2"
+          - "H3"
+          - "排名"
+          - "可证伪"
+          - "最小检查"
+          - "loop iteration"
+          - "只处理一个 hypothesis"
+          - "Do not stack speculative fixes"
+          - "root-cause evidence"
+    - exit_code: 0

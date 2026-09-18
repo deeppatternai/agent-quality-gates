@@ -95,7 +95,7 @@ def test_routing_a_skill_creates_the_route(world):
     assert [o.status for o in outcomes] == ["applied"]
     link = world.skills_dest["claude-code"] / "aqg-brand-new"
     assert link.is_symlink()
-    assert _absolute_link_target(link) == world.target / "skills" / "aqg-brand-new"
+    assert _absolute_link_target(link) == world.root / "skills" / "aqg-brand-new"
 
 
 def test_routing_something_already_routed_reports_no_change(world):

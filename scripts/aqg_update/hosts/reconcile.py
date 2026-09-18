@@ -18,6 +18,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from scripts._aqg_backup import _atomic_write_bytes
+from scripts import aqg_directory_links as directory_links
 from .base import AdapterError
 
 MAX_CONFIG_BYTES = 8 * 1024 * 1024
@@ -107,8 +108,14 @@ class HookEdit:
         self.validate()
         directory = Path(directory) / 'hook-backups'
         directory.mkdir(mode=0o700, exist_ok=True)
-        if directory.is_symlink():
-            raise AdapterError('hook backup directory is a symlink')
+        try:
+            directory_kind = directory_links.link_kind(directory)
+        except OSError as exc:
+            raise AdapterError(f'cannot inspect hook backup directory: {exc}') from exc
+        if directory_kind != 'directory':
+            raise AdapterError(
+                f'hook backup directory is {directory_kind}, not a real directory'
+            )
         digest = hashlib.sha256(self.before).hexdigest()
         backup = directory / (digest + '.bak')
         if backup.exists() or backup.is_symlink():

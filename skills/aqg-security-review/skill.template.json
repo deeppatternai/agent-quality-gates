@@ -1,7 +1,7 @@
 {
   "skill_template_schema": 1,
   "name": "aqg-security-review",
-  "description": "Review code for OWASP Top 10, CWE Top 25, and secure-by-default library usage in any repository. Use PROACTIVELY when writing authentication or authorization, handling user input or file uploads, working with secrets / credentials / API keys, creating new API endpoints, implementing payment / PII / sensitive-data handling, calling external APIs, modifying cryptography, or adding/modifying dependency manifests (package.json / requirements.txt / Cargo.toml / go.mod / Gemfile / pyproject.toml). Complementary to semgrep SAST and audit-mcp `/audit`; not a substitute. Defaults to the current git root and supports `--repo` override. Does not replace the host built-in /review slash command.",
+  "description": "Review security-sensitive code with an in-session OWASP Top 10 / CWE Top 25 / secure-defaults checklist. Invoke when work touches authentication, authorization, trust-boundary input, file uploads, secrets or credentials, new API endpoints, payment or PII flows, external calls, cryptography, dependency manifests, CI/deploy, install integrity, or other Gate A surfaces. Complements semgrep SAST and `/audit`; it does not run automated SAST or secret scanning, call external models, modify files, or replace `/review`.",
   "version": "0.1.0",
   "wrapper_generated": true,
   "host_overrides": {
@@ -12,22 +12,21 @@
       }
     ]
   },
-  "primary_trigger_keywords": ["security review", "OWASP", "CWE", "secure default", "vulnerability", "auth check", "input validation", "secret", "PII", "payment", "dependency"],
+  "primary_trigger_keywords": ["security-sensitive", "OWASP Top 10", "CWE Top 25", "authentication", "authorization", "trust-boundary input", "file upload", "credential", "API endpoint", "payment", "PII", "external call", "cryptography", "dependency manifest", "CI/deploy", "install integrity"],
   "boundary_class": "read-only",
-  "audit_mode_required": "standard",
   "trigger_grammar": {
-    "keywords": ["security review", "OWASP", "CWE", "secure-by-default", "认证", "授权", "用户输入", "secret", "API endpoint", "payment", "PII", "dependency", "新增依赖", "vulnerability"],
+    "keywords": ["security review", "OWASP", "CWE", "secure-by-default", "authentication", "authorization", "user input", "secret", "credential", "API endpoint", "payment", "PII", "dependency", "install integrity", "vulnerability"],
     "sentence_patterns": [
       "Run a security review on the auth changes",
       "OWASP / CWE checklist before I open this PR",
-      "新加了 API endpoint, 走一遍 security review",
-      "改了 secret 处理, 帮我跑 security check",
-      "package.json 加了新 dep, 检查是不是用了 secure-default 库"
+      "I added a new API endpoint; run the security review",
+      "Secret handling changed; run a security check",
+      "package.json added a new dependency; check whether it uses a secure-default library"
     ]
   },
   "entry_script": "skills/aqg-security-review/scripts/aqg_security_review.py",
   "cli_contract": {
-    "0": "success — checklist printed; closeout-importable skeleton emitted",
+    "0": "success — checklist printed; closeout-ready skeleton emitted",
     "1": "reserved — skill surfaces missing surfaces in output, does not raise",
     "2": "usage error — argparse propagates exit 2 on bad args / unknown --list",
     "3": "reserved — config or schema error",

@@ -1,19 +1,19 @@
 {
   "skill_template_schema": 1,
   "name": "aqg-multi-review",
-  "description": "Use PROACTIVELY for a non-trivial change — a multi-file feature or larger — that needs balanced coverage across all five review dimensions, not a security pass alone; also use it to validate a filled dimension ledger. 5-dimension code review router (logic / edge_cases / security / performance / concurrency) — a cross-LLM panel where each dimension is judged by independent LLMs, not a single vendor's PR review. Two modes — `new` returns dimension-specific focus prompts plus a closeout-importable YAML skeleton; `validate` parses a filled ledger and emits `needs_llm_judgement` for cross-dimension conflicts, unfilled declared dimensions, or 3+ dimensions with findings plus an accept decision when at least one finding is non-LOW or an audit_id is missing. For test quality specifically, see aqg-test-quality-review. The skill does not call audit-mcp; the caller runs `/audit focus=<dim>` per dimension at the depth `docs/policies/audit-trigger.md` selects. Does not replace the host built-in /review slash command.",
+  "description": "Route non-trivial multi-file code changes through a 5-dimension review plan (logic / edge_cases / security / performance / concurrency) or validate a filled multi-review YAML ledger. Use when a change needs balanced cross-LLM review coverage across several dimensions, not only security; not for security-only review, test-quality deep dives, inline PR comments, or running `/audit` itself.",
   "version": "0.1.0",
   "wrapper_generated": true,
-  "primary_trigger_keywords": ["multi-review", "ultrareview", "5-dimension", "5 维", "cross-LLM panel", "logic edge security performance concurrency"],
+  "primary_trigger_keywords": ["multi-review", "ultrareview", "5-dimension", "five dimensions", "cross-LLM panel", "logic edge security performance concurrency"],
   "boundary_class": "read-only",
   "audit_mode_required": "standard",
   "trigger_grammar": {
-    "keywords": ["multi-review", "ultrareview", "5-dimension", "5 维", "cross-LLM", "panel review", "logic", "edge_cases", "performance", "concurrency", "multi-file feature", "needs_llm_judgement"],
+    "keywords": ["multi-review", "ultrareview", "5-dimension", "five dimensions", "cross-LLM", "panel review", "logic", "edge_cases", "performance", "concurrency", "multi-file feature", "needs_llm_judgement"],
     "sentence_patterns": [
-      "这次改了 5 个文件, 想从 logic / edge / security / perf / concurrency 5 维度审",
-      "/ultrareview 跨 LLM 版本, 给我 5 维 audit 路由 prompt",
-      "多文件改动想拿 cross-LLM panel 各维度独立判断",
-      "审一下 logic / performance / concurrency 3 维就行, 不要全 5 维",
+      "This change touched five files; review it across logic / edge / security / performance / concurrency.",
+      "Give me five-dimension audit routing prompts for a cross-LLM panel.",
+      "This multi-file change needs independent cross-LLM judgement for each dimension.",
+      "Review only the logic / performance / concurrency dimensions, not all five.",
       "Run aqg-multi-review new to emit 5-dim ledger skeleton"
     ]
   },

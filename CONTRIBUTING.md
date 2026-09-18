@@ -22,6 +22,16 @@ accepted** — a release-time re-carve would overwrite them. Instead, please ope
 get triaged into the private upstream. Everything below is for maintainers working in the private
 upstream.
 
+## Where to send what
+
+- **Bug reports** — open a public issue with the bug template. Include a clean-checkout repro,
+  expected behavior, environment, and redacted logs.
+- **Feature ideas / questions** — use a discussion for open-ended exploration, or the feature-request
+  issue template for a concrete proposal.
+- **Security reports** — do **not** open a public issue; follow [`SECURITY.md`](SECURITY.md).
+- **Pull requests** — public PRs are not accepted on the mirror. If an issue is accepted, maintainers
+  implement it in the private upstream and it lands in the next public release carve.
+
 ## Parallel AI sessions: each uses its own isolated git worktree (important)
 
 **Do not let multiple sessions share the same worktree.** They will contend over the same `HEAD`:

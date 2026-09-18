@@ -1,0 +1,34 @@
+id: close_loop_verification
+title: 修复后应按 blast radius 验证并完成清理
+description: |
+  验证 Skill 不把修复通过当成终点，而是要求原始症状验证、按风险选择回归面、清理临时 instrumentation，并记录 prevention follow-up。
+
+input:
+  prompt: |
+    只根据 aqg-systematic-debugging 的说明回答，不要调用工具。
+    场景：root cause 已确认，最小修复也完成了。请说明关闭 debug case 前怎么验证和收尾。
+    回答必须包含 original symptom、regression check、blast radius、not the full suite、remove temporary instrumentation、prevention 和 aqg-evidence-closeout。
+
+expect:
+  must_contain:
+    - "original symptom"
+    - "regression check"
+    - "blast radius"
+    - "not the full suite"
+    - "remove temporary instrumentation"
+    - "prevention"
+    - "aqg-evidence-closeout"
+
+judge:
+  type: rule_based
+  success:
+    - output_contains:
+        all:
+          - "original symptom"
+          - "regression check"
+          - "blast radius"
+          - "not the full suite"
+          - "remove temporary instrumentation"
+          - "prevention"
+          - "aqg-evidence-closeout"
+    - exit_code: 0

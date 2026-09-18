@@ -18,6 +18,13 @@ AQG 采用**双仓治理模型**：
 carve 会覆盖它们。请改为在公开仓开 **issue** 或 **discussion**；bug 反馈、功能想法、
 提问都欢迎，会被 triage 进私有上游。下方所有内容都是给在私有上游开发的维护者看的。
 
+## 去哪里提交什么
+
+- **Bug 反馈** —— 用 bug 模板开公开 issue。请包含干净 checkout 复现、期望行为、环境信息和已脱敏日志。
+- **功能想法 / 问题** —— 开放式讨论走 discussion；已经比较具体的提案走 feature-request issue 模板。
+- **安全报告** —— **不要**开公开 issue；按 [`SECURITY.md`](SECURITY.md) 走私密报告路径。
+- **Pull request** —— 公开镜像不接受 PR。被采纳的 issue 会由维护者在私有上游实现，并在下一次公开 release carve 落地。
+
 ## 并行 AI session：各用独立 git worktree（重要）
 
 **不要让多个 session 共享同一个工作树。** 它们会抢同一个 `HEAD`：一个 session

@@ -1,0 +1,33 @@
+id: offline_no_github
+title: 离线模式跳过 fetch 和 GitHub 查询
+description: |
+  验证用户明确要求离线时，Skill 会使用或明确建议 `--no-fetch` 与 `--no-github`，并区分这是有意跳过而不是误报 GitHub unknown。
+
+context:
+  git:
+    init: true
+    checkout: main
+  files:
+    README.md: |
+      # Offline Fixture
+
+input:
+  prompt: |
+    这次不要联网，也不要查 GitHub。请用 aqg-startup-preflight 做离线启动预检，说明应该如何跳过 fetch 和 GitHub 查询，并报告 blocker / advisory 的区别。
+
+judge:
+  type: rule_based
+  success:
+    - output_matches:
+        all:
+          - "--no-fetch"
+          - "--no-github"
+          - "(?i)blocker"
+          - "(?i)advisory|advisories"
+    - exit_code: 0
+  failure:
+    - output_contains:
+        any:
+          - "必须联网"
+          - "必须查询 GitHub"
+          - "GitHub unknown 是 blocker"

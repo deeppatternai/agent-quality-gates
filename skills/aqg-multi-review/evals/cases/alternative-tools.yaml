@@ -1,0 +1,34 @@
+id: alternative-tools
+title: 窄范围请求应路由到替代工具
+description: 验证 Skill 会把 security-only、test-quality、final closeout 等窄请求交给更合适的 AQG skill。
+
+input:
+  prompt: |
+    只根据 aqg-multi-review 技能说明回答，不要读仓库、不要调用工具；哪些请求不应该用 aqg-multi-review，而应该换其他工具？
+    回答必须包含 security-only、aqg-security-review、test behavior、aqg-test-quality-review、audit depth、aqg-phase-transition、final completion evidence 和 aqg-evidence-closeout。
+
+expect:
+  must_contain:
+    - "security-only"
+    - "aqg-security-review"
+    - "test behavior"
+    - "aqg-test-quality-review"
+    - "audit depth"
+    - "aqg-phase-transition"
+    - "final completion evidence"
+    - "aqg-evidence-closeout"
+
+judge:
+  type: rule_based
+  success:
+    - output_contains:
+        all:
+          - "security-only"
+          - "aqg-security-review"
+          - "test behavior"
+          - "aqg-test-quality-review"
+          - "audit depth"
+          - "aqg-phase-transition"
+          - "final completion evidence"
+          - "aqg-evidence-closeout"
+    - exit_code: 0

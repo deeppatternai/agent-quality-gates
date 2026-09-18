@@ -181,6 +181,7 @@ def _atomic_write_bytes(dest: Path, data: bytes, *, mode: int = 0o600) -> None:
             except (AttributeError, OSError):  # Windows has no fchmod
                 pass
         os.replace(tmp, dest)
+    # aqg: top-level boundary
     except BaseException:
         try:
             os.unlink(tmp)

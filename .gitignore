@@ -6,6 +6,9 @@ __pycache__/
 venv/
 tmp/
 
+# skill-up local evaluation reports; source evals live under skills/*/evals/.
+skills/*-workspace/
+
 # WS-7 benchmark evidence is local-only; the result PR rule permits only a
 # redaction-safe analyzer summary, never ledgers, markers, raw streams, or solutions.
 benchmarks/aqg-workflow/results/
@@ -18,7 +21,29 @@ benchmarks/aqg-workflow/.ws-7-*-denial-smoke-attempt.json
 # — durable record lives in PR/commit messages.
 .aqg/
 
+# skill-up evaluation workspaces are generated local artifacts; keep eval
+# definitions and source skills versioned, but not raw run reports/outputs.
+skills/*-workspace/
+
 # Claude Code local agent state: per-session worktrees (.claude/worktrees/),
 # local-only settings (settings.local.json), scheduled-task lockfile, etc.
 # Entirely local — 0 tracked files here, never shared/durable.
 .claude/
+
+# skill-up generated evaluation workspaces and transient run artifacts.
+# Durable eval assets live under skills/*/evals/; raw workspaces stay local.
+aqg_*_benchmark/
+skills/*/*-workspace/
+skills/*/*-workspace-*/
+skills/*/*-baseline-workspace/
+skills/*/*-boundary-workspace/
+skills/*/*-regression-workspace/
+skills/*/*-regression-workspace-*/
+skills/*/*-regression-rerun/
+skills/*/*-benchmark-workspace/
+skills/*/*-benchmark-workspace-*/
+skills/*/*-benchmark-hardened-*/
+skills/*/*-benchmark-step*/
+skills/*/*-benchmark-rerun/
+skills/*/*-benchmark-final-check/
+skills/*/*-benchmark-step10-final-check/

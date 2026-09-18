@@ -1,19 +1,25 @@
 ---
 name: aqg-code-construction
-description: Invoke this before writing, modifying, refactoring, or implementing code in any repository — the entry point for a coding task, not a review after one. Runs the 6-step code construction workflow (Pattern Mining, Behavior Lock, Thin Slice, Construction Rules, Local Verification, Self Review) with anti-pattern blockers, reviewer-objection prediction, and an evidence ledger; Behavior Lock is a RED/GREEN/REFACTOR TDD cycle, and the audit-before-commit gate sits at the end.
+description: "Run this before writing, modifying, refactoring, or implementing code: it is the code construction entry point, not a post-hoc review. Guides the 6-step workflow (Pattern Mining, Behavior Lock, Thin Slice, Construction Rules, Local Verification, Self Review), maintains the evidence ledger, predicts reviewer objections, and runs deterministic anti-pattern checks plus the audit-before-commit gate."
 ---
 
 # AQG Code Construction
 
-Use this skill before and during writing code in any repo where reactive audit failures are costly. Its job is to make the agent follow a deterministic 6-step construction workflow with a structured evidence ledger, instead of freestyling and getting caught in audits later.
+Use this skill before and during code edits in any repo where reactive audit failures are costly. It makes construction visible while the work is happening: read the local pattern, lock behavior where applicable, keep the slice small, verify locally, self-review, and leave a structured ledger.
+
+## Quick Contract
+
+- **When**: before writing, modifying, refactoring, or implementing code.
+- **What it produces**: a `.aqg/code-construction/<task>.md` evidence ledger plus a pre-commit checker result.
+- **What it enforces**: deterministic structure only — ledger presence, tier sizing, warning acknowledgements, objection shape, selected hard blockers, and secret/broad-except guards.
+- **What it does not prove**: semantic correctness, test quality, or product fitness. Those remain the agent's job plus the audit-before-commit gate when policy routes to audit.
+- **Language hygiene**: keep the ledger in one working language unless quoting code, command output, or existing identifiers.
 
 ## Setup (one-time per repo)
 
-> These are one-time **manual provisioning** steps a human runs per repo. Per
-> GUIDE §6.1 they are NOT part of the `entry_script` (`aqg_construction_check.py`)
-> boundary — the checker does not write project files; the separate background
-> AQG updater is described under Boundary Rules. These steps
-> install a hook and create local `.aqg/` workspace state by hand.
+> One-time **manual provisioning** per repo. Per GUIDE §6.1 these are outside
+> the `entry_script` (`aqg_construction_check.py`) boundary: the checker does
+> not write project files. The detached AQG updater is covered in Boundary Rules.
 
 ```bash
 # Install pre-commit hook (managed via core.hooksPath, opt-in)
@@ -85,12 +91,12 @@ For each anti-pattern warning the checker emits (new TODO/FIXME = W5, new dep en
 
 Empty / vague reason fails the checker (silent skip not allowed).
 
-### 4b. Behavior Contract (warn-only in 0.14.0)
+### 4b. Behavior Contract (warn-only in current 0.14.x)
 
-Absorbs OpenSpec's requirement/scenario idea: the behavior you lock in step 2 becomes a
-structured, referenceable contract (RFC-2119 `MUST`/`SHALL` + `GIVEN`/`WHEN`/`THEN`) that
-tests cite (`covers:`), the audit gate reuses as acceptance criteria, and closeout renders
-into durable evidence. Expected at **full/plan** tier when production code changes.
+For full/plan production-code changes, make the row-2 Behavior Lock into a structured,
+referenceable contract: RFC-2119 requirement (`MUST`/`SHALL`) plus observable
+`GIVEN`/`WHEN`/`THEN` scenarios. Tests cite it with `covers: R1, R2`; the audit
+gate and closeout reuse it as acceptance criteria.
 
 ```markdown
 ## Behavior Contract
@@ -104,24 +110,18 @@ The system MUST present an OTP challenge when a 2FA user submits valid credentia
   - THEN an OTP challenge is presented
 ```
 
-Then row 2 evidence cites it: `R1 locked by tests/test_auth.py::test_otp; covers: R1`.
-
-The checker emits **advisories only** (`WARNING: BC<n>: …` on stderr, never blocks, never
-changes the exit code in 0.14.0 — a later minor promotes to a hard block under exit 7):
+The checker emits **advisories only** in current 0.14.x (`WARNING: BC<n>: …`; exit
+code unchanged; later minor promotes to exit 7):
 - **BC1**: every `### R<n>` statement line has a normative keyword (`MUST`/`MUST NOT`/`SHALL`/`SHALL NOT`, upper-case).
 - **BC2**: every requirement has ≥1 scenario, and every scenario has all of `GIVEN`/`WHEN`/`THEN` (case-insensitive).
 - **BC3**: row-2 evidence's `covers: R…` list cites every declared requirement (coverage) and no undeclared one (dangling).
 - **BC4**: no duplicate requirement id.
 - **BC0**: any parse error is surfaced as an advisory (the parser is total — never crashes the checker).
 
-Good vs bad: **good** `THEN an OTP challenge is presented` (observable, falsifiable);
-**bad** `THEN the OtpService.challenge() method is called` (implementation detail — the
-checker cannot catch this; the human + audit-before-commit gate must). Semantic quality is
-NOT checked — the checker only validates structure.
-
-**Opt out** with header `behavior_contract_exception: <concrete reason>` (a `null`/vague
-reason does NOT opt out). The opt-out suppresses BC0–BC4 only; it never waives the row-2
-Behavior Lock HB1 hard block on prod changes.
+Semantic quality is NOT checked: `THEN an OTP challenge is presented` is observable;
+`THEN OtpService.challenge() is called` is implementation detail. Opt out with
+`behavior_contract_exception: <concrete reason>`; it suppresses BC advisories only,
+never the row-2 Behavior Lock hard block on prod changes.
 
 ### 5. Audit-before-commit gate (the chokepoint — not a mandate)
 
@@ -170,6 +170,13 @@ Not every change needs a fresh failing test (per Owner honest caveat):
 
 Test code is code — review it on the same 5 axes (assert the contract not an impl detail; cover edge cases; synthetic fixtures only; fast; isolated).
 
+Record the exception, don't hide it:
+
+- Pure docs/spec/config edits: row 2 may say `N/A — no executable behavior`; row 5 still names the validation actually run.
+- Pure refactors: row 2 cites the existing regression net that stayed green; add coverage first if that net is thin.
+- Unable to run a required local check: put the skipped check in `skipped_checks` as `{"check": "...", "reason": "..."}` with a concrete reason; vague reasons hard-block.
+- Behavior Contract not applicable: set `behavior_contract_exception` only for a concrete non-prod/non-behavior reason. It suppresses BC advisories, not the row-2 prod-path hard block.
+
 ## What the checker actually enforces (deterministic, not semantic)
 
 The checker validates field PRESENCE and structure, never code-quality semantics. Hard blockers (exit code in parens):
@@ -179,7 +186,7 @@ The checker validates field PRESENCE and structure, never code-quality semantics
 - **Objections** (count + `file:line` that must exist + non-vague mitigation per tier) and **warning acknowledgements** present (6 / 5).
 - **6-step table** parses (5 columns) when a row-based blocker applies; **Behavior-Lock evidence (row 2)** when prod code changes (any tier); **Local-Verification regression keyword (row 5)** when a schema/contract path changes (5).
 - **New broad `except Exception/BaseException`** handlers need the `# aqg: top-level boundary` marker within 5 lines; **`skipped_checks`** entries must be `{check, reason}` dicts with a concrete reason (5).
-- **Behavior Contract (BC0–BC4)** — **advisory / warn-only in 0.14.0** (stderr `WARNING: BC<n>: …`, exit code unchanged). Structural only: normative keyword per requirement, GIVEN/WHEN/THEN per scenario, `covers:` coverage/dangling, duplicate id, parse-error surfacing. See §4b. A later minor promotes these to a hard block under a new exit code 7.
+- **Behavior Contract (BC0–BC4)** — **advisory / warn-only in current 0.14.x** (stderr `WARNING: BC<n>: …`, exit code unchanged). Structural only: normative keyword per requirement, GIVEN/WHEN/THEN per scenario, `covers:` coverage/dangling, duplicate id, parse-error surfacing. See §4b. A later minor promotes these to a hard block under a new exit code 7.
 
 It does NOT verify presence of steps 1/3/4/6 or require row 5 for ordinary code, and does NOT (yet) block on Behavior Contract issues — those are process guidance / advisory, not enforced.
 
@@ -187,9 +194,8 @@ It does NOT verify presence of steps 1/3/4/6 or require row 5 for ordinary code,
 
 ## Boundary Rules
 
-- The Python CLI also nudges AQG's signed updater in a detached background process on managed installs (Windows/macOS/Linux). It may update AQG's own installation and state, never the target project's source. It does not wait for updating; import/launch failures do not affect the check. Set `AQG_NO_UPDATE_CHECK=1` for strictly update-free invocation. Merely reading this skill does not trigger it.
-
-- Enforces the STRUCTURE of construction (deterministic field presence); does NOT make code-quality semantic judgments (those stay in the audit-before-commit gate / audit-mcp).
+- The Python CLI nudges AQG's signed updater in a detached background process on managed installs. It may update AQG's own installation/state, never the target project's source. Set `AQG_NO_UPDATE_CHECK=1` for strictly update-free invocation. Merely reading this skill does not trigger it.
+- Enforces STRUCTURE only (deterministic field presence); code-quality semantics stay in the audit-before-commit gate / audit-mcp.
 - Performance timeouts (3s/15s/60s for mini/full/plan) are warn-only.
 - The sidecar conservatively declares `writes-code` for replacement of AQG's installed code and refresh of AQG-owned routes/hooks by the detached updater; checking the target project still does not edit its source.
 - Pre-commit enforcement is gated by `AQG_AGENT`; humans not setting it are transparent. Enforcement is commit-time output discipline, not real-time process; `created_at <= first edit mtime` partially mitigates backfill. The Claude Code path additionally registers a PostToolUse hook for real-time feedback.

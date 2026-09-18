@@ -40,7 +40,12 @@ def test_classify_distinguishes_symlink_junction_copy_and_plain(monkeypatch, tmp
     plain = tmp_path / "plain"
     plain.mkdir()
 
-    monkeypatch.setattr(skill_install, "_is_windows_junction", lambda path: path == junction)
+    real_link_kind = skill_install.link_kind
+    monkeypatch.setattr(
+        skill_install,
+        "link_kind",
+        lambda path: "junction" if path == junction else real_link_kind(path),
+    )
     if link is not None:
         assert skill_install.classify_install(link) == "symlink"
     assert skill_install.classify_install(junction) == "junction"
@@ -48,29 +53,18 @@ def test_classify_distinguishes_symlink_junction_copy_and_plain(monkeypatch, tmp
     assert skill_install.classify_install(plain) == "plain_directory"
 
 
-def test_junction_creation_passes_paths_via_environment(monkeypatch, tmp_path):
+def test_junction_creation_delegates_paths_to_native_api(monkeypatch, tmp_path):
     source = tmp_path / "source & literal"
     target = tmp_path / "target & literal"
-    captured = {}
+    captured = []
 
     monkeypatch.setattr(skill_install, "_is_windows_host", lambda: True)
-    monkeypatch.setattr(skill_install.shutil, "which", lambda _name: "powershell.exe")
-
-    def fake_run(command, **kwargs):
-        captured["command"] = command
-        captured["env"] = kwargs["env"]
-        return type("Completed", (), {"returncode": 0})()
-
-    monkeypatch.setattr(skill_install.subprocess, "run", fake_run)
+    monkeypatch.setattr(
+        skill_install, "create_junction", lambda actual_source, actual_target: captured.append((actual_source, actual_target))
+    )
 
     assert skill_install._create_windows_junction(source, target) is True
-    assert "cmd.exe" not in captured["command"]
-    assert str(source) not in " ".join(captured["command"])
-    assert str(target) not in " ".join(captured["command"])
-    assert captured["env"]["AQG_JUNCTION_SOURCE"] == str(source)
-    assert captured["env"]["AQG_JUNCTION_TARGET"] == str(target)
-    assert captured["env"]["USERPROFILE"] != os.environ.get("USERPROFILE")
-    assert captured["env"]["LOCALAPPDATA"] != os.environ.get("LOCALAPPDATA")
+    assert captured == [(source, target)]
 
 
 def test_plain_directory_created_by_link_attempt_falls_back_to_copy(monkeypatch, tmp_path):
@@ -274,7 +268,7 @@ def test_broken_junction_is_replaced_without_touching_its_referent(tmp_path):
     assert (target / "SKILL.md").read_text(encoding="utf-8") == "# second\n"
 
 
-def test_existing_link_mode_is_refreshable_without_force(monkeypatch, tmp_path):
+def test_existing_matching_link_is_reused_without_force(monkeypatch, tmp_path):
     source = _source(tmp_path)
     target = tmp_path / "target"
     target.mkdir()
@@ -291,6 +285,7 @@ def test_existing_link_mode_is_refreshable_without_force(monkeypatch, tmp_path):
         destination.mkdir()
 
     monkeypatch.setattr(skill_install, "classify_install", classify)
+    monkeypatch.setattr(skill_install, "read_link_target", lambda _path: source)
     monkeypatch.setattr(skill_install, "_remove_existing", remove)
     monkeypatch.setattr(skill_install, "_create_symlink", create)
 
@@ -301,7 +296,7 @@ def test_existing_link_mode_is_refreshable_without_force(monkeypatch, tmp_path):
         force=False,
         aqg_root=tmp_path,
     ) == "linked"
-    assert removed == [target]
+    assert removed == []
 
 
 def test_windows_directory_symlink_removal_falls_back_to_rmdir(monkeypatch, tmp_path):
@@ -319,3 +314,109 @@ def test_windows_directory_symlink_removal_falls_back_to_rmdir(monkeypatch, tmp_
 
     skill_install._remove_existing(target)
     assert removed == [target]
+
+
+def test_batch_preflights_every_item_before_mutating(tmp_path):
+    first_source = _source(tmp_path)
+    missing_source = tmp_path / "missing source"
+    first_target = tmp_path / "first target"
+    second_target = tmp_path / "second target"
+
+    with pytest.raises(skill_install.InstallError, match="invalid skill source"):
+        skill_install.install_skills(
+            [(first_source, first_target), (missing_source, second_target)],
+            requested_mode="link",
+            force=False,
+            aqg_root=tmp_path,
+        )
+
+    assert skill_install.classify_install(first_target) == "missing"
+    assert skill_install.classify_install(second_target) == "missing"
+
+
+def test_batch_failure_restores_replaced_entry_and_removes_new_entries(
+    monkeypatch, tmp_path
+):
+    first_source = _source(tmp_path)
+    second_source = tmp_path / "second source"
+    second_source.mkdir()
+    (second_source / "SKILL.md").write_text("# second\n", encoding="utf-8")
+    first_target = tmp_path / "first target"
+    first_target.mkdir()
+    (first_target / "keep.txt").write_text("owned by user", encoding="utf-8")
+    second_target = tmp_path / "second target"
+
+    real_create = skill_install._create_symlink
+
+    def create(source: Path, target: Path) -> None:
+        if target == second_target:
+            raise OSError("injected link failure")
+        real_create(source, target)
+
+    def fail_copy(_source: Path, target: Path, _root: Path) -> None:
+        if target == second_target:
+            raise OSError("injected copy failure")
+        raise AssertionError(f"unexpected copy: {target}")
+
+    monkeypatch.setattr(skill_install, "_create_symlink", create)
+    monkeypatch.setattr(skill_install, "_copy_skill", fail_copy)
+
+    with pytest.raises(OSError, match="injected copy failure"):
+        skill_install.install_skills(
+            [(first_source, first_target), (second_source, second_target)],
+            requested_mode="link",
+            force=True,
+            aqg_root=tmp_path,
+        )
+
+    assert first_target.is_dir() and not first_target.is_symlink()
+    assert (first_target / "keep.txt").read_text(encoding="utf-8") == "owned by user"
+    assert skill_install.classify_install(second_target) == "missing"
+
+
+def test_batch_reuses_correct_links_without_mutation(tmp_path):
+    source = _source(tmp_path)
+    target = tmp_path / "target"
+    items = [(source, target)]
+
+    first = skill_install.install_skills(
+        items, requested_mode="link", force=False, aqg_root=tmp_path
+    )
+    inode = os.lstat(target).st_ino
+    second = skill_install.install_skills(
+        items, requested_mode="link", force=False, aqg_root=tmp_path
+    )
+
+    assert first == ["linked"]
+    assert second == ["linked"]
+    assert os.lstat(target).st_ino == inode
+
+
+def test_batch_refuses_external_link_without_force(tmp_path):
+    source = _source(tmp_path)
+    external = tmp_path / "external"
+    external.mkdir()
+    target = tmp_path / "target"
+    target.symlink_to(external, target_is_directory=True)
+
+    with pytest.raises(skill_install.InstallError, match="external symlink"):
+        skill_install.install_skills(
+            [(source, target)],
+            requested_mode="link",
+            force=False,
+            aqg_root=tmp_path,
+        )
+
+    assert target.is_symlink()
+    assert target.resolve() == external
+
+
+def test_classify_and_remove_refuse_unknown_reparse(monkeypatch, tmp_path):
+    target = tmp_path / "unknown"
+    target.mkdir()
+    monkeypatch.setattr(skill_install, "link_kind", lambda _path: "other_reparse")
+
+    assert skill_install.classify_install(target) == "other_reparse"
+    with pytest.raises(skill_install.InstallError, match="unsupported reparse"):
+        skill_install.remove_install(target)
+    assert target.is_dir()

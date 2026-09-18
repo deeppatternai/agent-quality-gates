@@ -146,6 +146,8 @@ def test_the_journal_names_the_target_and_the_version_it_replaced(world, monkeyp
     _run(world, _plan(_action("activate_root")))
     assert captured["target"] == str(world["second"])
     assert captured["previous_root"] == str(world["first"])
+    assert captured["previous_link_kind"] == "symlink"
+    assert captured["new_link_kind"] == "symlink"
 
 
 # --- failure -------------------------------------------------------------------------
