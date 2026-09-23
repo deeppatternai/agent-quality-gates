@@ -11,6 +11,39 @@ logs, and path-by-path inventories in engineering records rather than this file.
 
 ## [Unreleased]
 
+## [0.14.24] - 2026-09-23
+
+### Added
+
+- Add portable evaluation and regression assets for AQG skills so their routing,
+  boundaries, recovery behavior, and evidence contracts can be checked directly.
+- Add first-class Windows directory-link handling for managed skill installs and
+  updates, including junction-aware staging, migration, and recovery.
+
+### Changed
+
+- Strengthen the code-construction, systematic-debugging, startup-preflight,
+  multi-review, security-review, test-quality-review, phase-transition,
+  audit-adjudication, and evidence-closeout workflows with clearer boundaries and
+  broader evaluation coverage.
+- Refresh public repository guidance, support documentation, and release-surface
+  metadata for the expanded workflow and evaluation coverage.
+
+### Fixed
+
+- Harden Windows managed-root reconciliation so interrupted installs and updates
+  preserve link identity and restore the previous installation consistently.
+- Make the Cursor stop hook return the empty JSON object expected by the host
+  instead of emitting an incompatible empty response. Cursor integrations from
+  0.14.23 and earlier may exhibit the old behavior.
+
+### Known limitations
+
+- On Windows, once the managed root uses a directory junction, activation or
+  rollback to 0.14.23 and earlier is refused because those releases do not
+  declare junction-aware updater capability. The current installation remains
+  active; use the documented recovery path rather than manually repointing it.
+
 ## [0.14.23] - 2026-09-14
 
 ### Changed
