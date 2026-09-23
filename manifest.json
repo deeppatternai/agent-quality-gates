@@ -1,6 +1,6 @@
 {
   "channel": "stable",
-  "commit": "161f3a24df40503fc180e170fa1ca241df316298",
+  "commit": "9483ab745ad172a4ca466386d99aae5dec8b7c49",
   "files": {
     ".gitattributes": {
       "executable": false,
@@ -68,7 +68,7 @@
     },
     "CHANGELOG.md": {
       "executable": false,
-      "sha256": "4d2699b823e25b2a2c57040a3e1bda8fdab6b498304060312f3d23ef6bed01f2"
+      "sha256": "1faac0ca4774a56f558d64649516c7d3e0259ac9f868c7a6bf1d27a61580e03b"
     },
     "CODE_OF_CONDUCT.md": {
       "executable": false,
@@ -88,11 +88,11 @@
     },
     "README.md": {
       "executable": false,
-      "sha256": "346fdb5a7fee2adb034acd12ffb4337766c7b0bde8085be6302c132ae81345a5"
+      "sha256": "7b6c590e90385147faefdd9635730d9a9809814cc9d35abdea85753918d41cbe"
     },
     "README.zh-CN.md": {
       "executable": false,
-      "sha256": "33e91f40a8450ab5c2356142cc63c2d4e09cb57ab524be3ca95bc7f069b6a896"
+      "sha256": "621bb5d9e0c2bdc7e087b370381c25ee6d69b4e6d38c0ab7b2dc289616322875"
     },
     "SECURITY.md": {
       "executable": false,
@@ -104,7 +104,7 @@
     },
     "VERSION": {
       "executable": false,
-      "sha256": "0335ca20bbd6a9ed81c6b2e0112ab54bfa512b8fb6541977458bf5fb29394db2"
+      "sha256": "06f9dacedac8d28cf7f4efc3043b1a53cf64474f0a794c0ee8f0257d1004ee06"
     },
     "agent-packs/claude-code/hooks/code_construction_post_tool.sh": {
       "executable": true,
@@ -3688,7 +3688,7 @@
     }
   },
   "key_id": "stable-2026-09",
-  "release_sequence": 29,
+  "release_sequence": 30,
   "schema": 1,
-  "version": "0.14.23"
+  "version": "0.14.24"
 }
