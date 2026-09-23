@@ -1,0 +1,37 @@
+id: dedup-rank-window
+title: dedup 应按三元组、窗口和 mode rank 判断
+description: 验证重复 signal 不被误当成已完成审计，且更严格请求可绕过去重。
+
+input:
+  prompt: |
+    请先加载并使用已安装的 aqg-phase-transition Skill。允许读取该 Skill 的 SKILL.md 和配套内容；不要读取工作区中的其他项目文件，不要运行审计，也不要修改文件。
+    请说明 dedup key、时间窗口、rank 条件及完整的 mode rank 顺序、命中结果、绕过条件，以及记录值的语义。
+    仅按以下字段逐行作答：
+    dedup_key=<值>
+    window=<值>
+    hit_condition=<值>
+    rank_order=<从最浅到最深的四个 mode，使用 `<` 分隔>
+    hit_mode=<值>
+    bypass_condition=<same_or_lower|stricter>
+    recorded_value=<recommended_mode|completed_audit>
+
+expect:
+  must_contain:
+    - "hit_mode=skip"
+    - "bypass_condition=stricter"
+    - "recorded_value=recommended_mode"
+  must_not_contain:
+    - "bypass_condition=same_or_lower"
+    - "recorded_value=completed_audit"
+
+judge:
+  type: rule_based
+  success:
+    - output_matches:
+        all:
+          - "(?m)^dedup_key=.*task[-_ ]?id.*content[-_ ]?hash.*phase"
+          - "(?m)^window=.*(5[-_ ]*(min|minute)|5分钟)"
+          - "(?m)^hit_condition=.*requested"
+          - "(?m)^hit_condition=.*(recorded|已记录)"
+          - "(?m)^rank_order=skip[ ]*<[ ]*fast[ ]*<[ ]*standard[ ]*<[ ]*deep$"
+    - exit_code: 0

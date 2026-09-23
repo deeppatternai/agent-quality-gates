@@ -1,0 +1,24 @@
+id: audit-not-required-reason
+title: 无需审计时必须给出具体理由
+description: 验证 audit adjudicated claim 不能只写 none，而要说明为何当前纯文档改动不需要 audit。
+
+input:
+  prompt: |
+    这次只修正 README 的拼写，lint 已通过，没有敏感面。请只写 closeout 中的 Audit/Review 段。
+    必须包含 audit、纯文档或拼写改动、不需要以及具体理由，不能只写 none required。
+
+expect:
+  must_contain:
+    - 拼写
+    - 不需要
+
+judge:
+  type: rule_based
+  success:
+    - output_contains:
+        all: [拼写, 不需要]
+    - output_matches:
+        all: ['(?i)audit']
+    - output_matches:
+        any: [理由, 因为, 因此, "仅涉及", "不涉及", "不改变", "非敏感", "纯文档", "拼写改动"]
+    - exit_code: 0

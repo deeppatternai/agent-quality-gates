@@ -1,0 +1,23 @@
+id: blocked-missing-audit
+title: 必需审计缺失时不得声称完成
+description: 验证权限逻辑改动虽然测试通过，但策略要求的 audit 尚未执行时必须标记 BLOCKED。
+
+input:
+  prompt: |
+    权限判断代码已经修改，测试刚刚通过，worktree clean，但策略要求的 audit 尚未运行。请只根据 aqg-evidence-closeout 技能说明生成简短 closeout。
+    请给出真实顶层状态，并明确指出 audit 是剩余 blocker；不要提前宣称完成。
+
+expect:
+  must_not_contain:
+    - "Status: DONE"
+
+judge:
+  type: rule_based
+  success:
+    - output_matches:
+        all:
+          - '(?is)(?:Status|Closeout|顶层状态|状态).*?(?:BLOCKED|PARTIAL)'
+          - '(?i)\baudit\b'
+          - '(?i)blocker|阻塞|必须.*audit|BLOCKED.*audit|audit.*尚未运行|audit.*裁决'
+        not: ['(?i)Status:\s*DONE']
+    - exit_code: 0

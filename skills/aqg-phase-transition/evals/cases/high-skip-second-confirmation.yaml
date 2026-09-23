@@ -1,0 +1,23 @@
+id: high-skip-second-confirmation
+title: high stakes 显式 skip 应要求第二次确认
+description: 验证高风险 opt-out 的补偿控制和 caller 责任。
+
+input:
+  prompt: |
+    请先加载并使用已安装的 aqg-phase-transition Skill。允许读取该 Skill 的 SKILL.md 和配套内容；不要读取工作区中的其他项目文件，不要运行审计，也不要修改文件。
+    场景：stakes=high，用户明确说 no audit，但还没有再次确认。
+    仅按以下字段逐行给出 verdict 与 caller 动作，不要列出其他模式：
+    recommended_audit_mode=<值>
+    high_stakes_skip_confirm=<true|false>
+    confirmation_count_required=<整数>
+    caller_action_before_reconfirm=<audit_deep|honor_skip>
+
+expect:
+  must_contain:
+    - "recommended_audit_mode=skip"
+    - "high_stakes_skip_confirm=true"
+    - "confirmation_count_required=2"
+    - "caller_action_before_reconfirm=audit_deep"
+  must_not_contain:
+    - "high_stakes_skip_confirm=false"
+    - "caller_action_before_reconfirm=honor_skip"

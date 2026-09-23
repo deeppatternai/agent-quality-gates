@@ -1,0 +1,24 @@
+id: transfer-summary-failure
+title: Transfer Test Pack 失败不得渲染为通过
+description: 验证 threshold_met=false 或数据矛盾时，closeout 会显示失败或不一致并阻止 DONE。
+
+input:
+  prompt: |
+    Transfer Test Pack summary 显示 `overall_pass_rate: 0.82`、`threshold_strict: 0.95`、`threshold_met: false`。其他检查均通过。
+    请依据 aqg-evidence-closeout 给出判断，说明 threshold_met 未达到阈值，需要重新运行或修复，并避免提前宣称完成。
+
+expect:
+  must_not_contain:
+    - "Status: DONE"
+
+judge:
+  type: rule_based
+  success:
+    - output_matches:
+        all:
+          - '(?is)(?:Status|判断|判定|结论).*?(?:BLOCKED|NOT_DONE|PARTIAL|未完成)'
+          - '(?i)threshold_met'
+          - '未达到.*阈值|阈值.*未达到|阈值.*未通过|未通过.*阈值|未达标|不足|NOT\s+MET|FAIL.*threshold|threshold_met.*false|低于.*threshold_strict|低于.*阈值'
+          - '修复|重新运行'
+        not: ['(?i)Status:\s*DONE']
+    - exit_code: 0

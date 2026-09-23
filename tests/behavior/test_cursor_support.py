@@ -19,6 +19,7 @@ ADAPTER = REPO / "scripts" / "cursor_aqg_hook.py"
 
 sys.path.insert(0, str(REPO / "scripts"))
 from aqg_policy_markers import gate_a_tokens, missing_gate_a_tokens  # noqa: E402
+from scripts import cursor_aqg_hook  # noqa: E402
 
 MANAGED_MARKER = ".aqg-cursor-managed.json"
 LINK_MARKER_DIR = "managed-links"
@@ -75,6 +76,25 @@ def _run_adapter_bytes(event: str, payload: bytes) -> subprocess.CompletedProces
         capture_output=True,
         check=False,
     )
+
+
+@pytest.mark.parametrize("loop_count", [0, 1])
+def test_stop_returns_empty_object_and_saves_checkpoint(
+    loop_count: int, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    calls: list[tuple[object, ...]] = []
+
+    def save_checkpoint(*args: object, **kwargs: object) -> str:
+        calls.append(args)
+        return "saved"
+
+    monkeypatch.setattr(cursor_aqg_hook, "_wip", save_checkpoint)
+
+    result = cursor_aqg_hook._stop({"loop_count": loop_count}, REPO, tmp_path)
+
+    assert result == 0
+    assert calls == [("save", {"loop_count": loop_count}, REPO, tmp_path)]
+    assert capsys.readouterr().out == "{}\n"
 
 
 def _link_marker(skill: Path) -> Path:
@@ -871,7 +891,7 @@ def test_lifecycle_hooks_emit_documented_cursor_outputs_without_git_writes(tmp_p
     assert compact.returncode == 0
     assert "user_message" in json.loads(compact.stdout)
     assert first_stop.returncode == 0
-    assert "followup_message" in json.loads(first_stop.stdout)
+    assert json.loads(first_stop.stdout) == {}
     assert json.loads(repeated_stop.stdout) == {}
     assert not (project / ".git").exists()
 

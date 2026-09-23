@@ -6,6 +6,9 @@ Locks the Batch-2 dual-audit fixes (audit 6529b5d4):
 - C2 Transfer Test Pack row fields redacted + table-escaped.
 - C3 threshold_strict range-validated (out-of-range never PASSES).
 - C4 redact_secrets is fail-CLOSED even when the construction parser is absent.
+
+Also locks the public closeout contract and keeps CLI help free of internal
+delivery labels that do not help callers use the skill.
 """
 
 from __future__ import annotations
@@ -53,6 +56,59 @@ def test_skeleton_prints_for_simple_task() -> None:
     assert "self-test" in text, "task slug missing from skeleton output"
 
 
+def test_closeout_contract_is_canonical() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        repo = Path(tmp)
+        (repo / ".git").mkdir()
+        rc, text = _run_main(
+            [
+                "--task",
+                "contract-check",
+                "--repo",
+                str(repo),
+                "--no-construction-import",
+                "--no-transfer-import",
+            ]
+        )
+    assert rc == 0
+    for claim in (
+        "scope completed",
+        "verification run",
+        "audit adjudicated",
+        "durable state updated",
+        "production boundary",
+        "remaining blockers",
+    ):
+        assert f"| {claim} |" in text, claim
+    assert "repository state plus six required evidence claims" in text
+    assert "DONE only when every required claim has fresh evidence" in text
+    assert "otherwise use PARTIAL or BLOCKED" in text
+    assert "TODO is a skeleton placeholder, not a claim status" in text
+    assert "Record audit/review disposition" in text
+    assert "Record durable-state update" in text
+    assert "Report whether the worktree is clean or intentionally dirty" in text
+
+
+def test_cli_help_omits_internal_delivery_labels() -> None:
+    out = io.StringIO()
+    saved = sys.argv
+    try:
+        sys.argv = ["aqg_closeout.py", "--help"]
+        with redirect_stdout(out):
+            try:
+                closeout.main()
+            except SystemExit as exc:
+                assert exc.code == 0
+    finally:
+        sys.argv = saved
+    text = out.getvalue()
+    assert "PR-D" not in text
+    assert "Q7" not in text
+    assert "7th-line" not in text
+    assert "construction ledger" in text
+    assert "Transfer Test Pack" in text
+
+
 def test_no_construction_import_is_silent_when_ledger_missing() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         repo = Path(tmp)
@@ -61,6 +117,29 @@ def test_no_construction_import_is_silent_when_ledger_missing() -> None:
     assert rc == 0
     assert "Code Construction Evidence" not in text, \
         "should not render construction section when ledger missing"
+
+
+def test_source_and_wrapper_skill_are_in_sync() -> None:
+    repo_root = Path(__file__).resolve().parents[3]
+    source = (repo_root / "skills/aqg-evidence-closeout/SKILL.md").read_text(
+        encoding="utf-8"
+    )
+    wrapper = (
+        repo_root / "agent-packs/claude-code/skills/aqg-evidence-closeout/SKILL.md"
+    ).read_text(encoding="utf-8")
+    host_invocation = (
+        'python3 "$aqg_root/skills/aqg-evidence-closeout/scripts/aqg_closeout.py" '
+        '--repo "${CLAUDE_PROJECT_DIR:?CLAUDE_PROJECT_DIR is required}" --task'
+    )
+    assert wrapper.count(host_invocation) == 1, (
+        "Claude wrapper must retain its CLAUDE_PROJECT_DIR --repo invocation"
+    )
+    wrapper = wrapper.replace(
+        host_invocation,
+        'python3 "$aqg_root/skills/aqg-evidence-closeout/scripts/aqg_closeout.py" '
+        '--task',
+    )
+    assert source == wrapper, "source Skill and Claude wrapper have diverged"
 
 
 # --------------------------------------------------------------------------
@@ -165,7 +244,10 @@ def test_valid_transfer_summary_still_passes() -> None:
 
 TESTS = [
     test_skeleton_prints_for_simple_task,
+    test_closeout_contract_is_canonical,
+    test_cli_help_omits_internal_delivery_labels,
     test_no_construction_import_is_silent_when_ledger_missing,
+    test_source_and_wrapper_skill_are_in_sync,
     test_redact_fail_closed_without_construction_parser,
     test_construction_file_line_cell_redacted,
     test_transfer_fields_redacted_and_escaped,

@@ -1,0 +1,91 @@
+id: multi-turn-promote-to-done
+title: 补齐证据后才能从 PARTIAL 升级到 DONE
+description: 验证多轮对话中状态会随新证据更新，而不是第一轮提前宣称完成。
+
+input:
+  turns:
+    - role: user
+      content: |
+        代码和测试已完成，但 audit 结果还没回来，worktree 里也有一个未解释文件。请按 aqg-evidence-closeout 给出当前状态。
+        不要调用工具或访问仓库，只根据这些事实回答。
+      post_condition:
+        must_contain_any:
+          - BLOCKED
+          - PARTIAL
+          - 未完成
+          - 暂不能关闭
+          - 尚不能关闭或宣称完成
+          - 尚未达到
+          - NOT READY
+          - 未关闭
+          - 不能宣称完成
+          - closeout blocked
+          - pending
+          - 审计待回
+          - 不能产出通过
+          - 不能完成 closeout
+          - 尚不能宣告完成
+          - closeout 待定
+          - 未达到 closeout 条件
+          - 暂不可关闭
+          - INCOMPLETE
+          - HOLD
+          - 未通过 closeout
+          - 暂不可宣称
+          - Pending
+          - closeout pending
+          - 不能宣告完成
+          - 阻塞项
+          - 实现完成、交付未闭环
+          - 未达到 AQG
+          - 未闭环项
+          - 待审计
+          - 待工作区清理
+          - 当前不能宣称完成
+          - 暂不能声称
+          - 未结项
+        on_fail: fail
+    - role: user
+      content: |
+        现在补充新证据：audit 已完成并接受，未解释文件确认是生成物且已删除，worktree clean，没有 blocker。请更新 closeout。
+        不要调用工具或访问仓库，只根据这些事实更新状态。
+
+judge:
+  type: rule_based
+  success:
+    - turn_response_contains:
+        turn: 1
+        contains_any:
+          - BLOCKED
+          - PARTIAL
+          - 未完成
+          - 暂不能关闭
+          - 尚未达到
+          - NOT READY
+          - 未关闭
+    - turn_response_not_contains:
+        turn: 1
+        not_contains:
+          - 'Status: DONE'
+    - turn_response_contains:
+        turn: 2
+        contains_any:
+          - clean
+          - Clean
+          - CLEAN
+          - 清洁
+          - 已清洁
+          - 工作区干净
+    - turn_response_contains:
+        turn: 2
+        contains_any:
+          - Blocker
+          - Blockers
+          - blocker
+          - 阻塞
+    - turn_response_contains:
+        turn: 2
+        contains_any:
+          - DONE
+          - 已完成
+    - exit_code: 0

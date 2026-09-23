@@ -1,0 +1,33 @@
+id: plan-moderate-standard
+title: PLAN_DONE 的 moderate 改动应推荐 standard
+description: 验证计划阶段的普通实质改动按 policy 路由到 standard。
+
+input:
+  prompt: |
+    请先加载并使用已安装的 aqg-phase-transition Skill。允许读取该 Skill 的 SKILL.md 和配套内容；不要读取工作区中的其他项目文件，不要运行审计，也不要修改文件。
+    场景：设计文档刚完成，改动具有实质性、非敏感，且不能被本地 test/type/lint 完全判定。
+    仅按以下字段逐行给出路由结论，不要列出候选项或其他模式：
+    phase=<值>
+    stakes=<值>
+    recommended_audit_mode=<值>
+    authority=<策略路径>
+
+expect:
+  must_contain:
+    - "stakes=moderate"
+    - "recommended_audit_mode=standard"
+    - "authority="
+    - "docs/policies/audit-trigger.md"
+  must_not_contain:
+    - "recommended_audit_mode=fast"
+    - "recommended_audit_mode=deep"
+    - "recommended_audit_mode=skip"
+
+judge:
+  type: rule_based
+  success:
+    - output_matches:
+        all:
+          - "(?im)^phase=plan_done$"
+          - "(?m)^authority=.*docs/policies/audit-trigger\\.md$"
+    - exit_code: 0

@@ -1,0 +1,22 @@
+id: moderate-skip-no-confirmation
+title: moderate stakes 显式 skip 不应要求第二次确认
+description: 验证高风险 skip 补偿控制不会错误扩展到普通改动。
+
+input:
+  prompt: |
+    请先加载并使用已安装的 aqg-phase-transition Skill。允许读取该 Skill 的 SKILL.md 和配套内容；不要读取工作区中的其他项目文件，不要运行审计，也不要修改文件。
+    场景：stakes=moderate，用户明确说 skip the audit。
+    仅按以下字段逐行给出 verdict，不要列出其他模式：
+    stakes=<值>
+    recommended_audit_mode=<值>
+    user_override_applied=<true|false>
+    high_stakes_skip_confirm=<true|false>
+
+expect:
+  must_contain:
+    - "stakes=moderate"
+    - "recommended_audit_mode=skip"
+    - "user_override_applied=true"
+    - "high_stakes_skip_confirm=false"
+  must_not_contain:
+    - "high_stakes_skip_confirm=true"

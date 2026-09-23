@@ -1,0 +1,27 @@
+id: rejected-explicit-tradeoff
+title: rejected 可以基于明确的技术或风险权衡而非只有反证
+description: 覆盖 Decision Rules 中 proposed action 不被采纳的第二条合法路径。
+
+context:
+  repo_fixture: .
+
+input:
+  prompt: |
+    请先读取当前评测工作区根目录的 SKILL.md，并严格按其中的 aqg-audit-adjudication 规则作答；不要使用用户目录中可能存在的同名旧版 Skill。不要修改文件。
+    Reviewer 建议为一个已正确工作的四字段解析器引入新的大型依赖。当前项目约束禁止为少量代码增加依赖，且供应链风险高于可读性收益。应如何裁决 proposed action？
+    仅按以下字段逐行作答：
+    decision=<值>
+    rejection_basis=<explicit_technical_or_risk_tradeoff|inconvenience|no_reason>
+    evidence=<project_constraint_and_risk|none>
+    reject_valid_finding_for_lack_of_authority=<yes|no>
+
+expect:
+  must_contain:
+    - "decision=rejected"
+    - "rejection_basis=explicit_technical_or_risk_tradeoff"
+    - "evidence=project_constraint_and_risk"
+    - "reject_valid_finding_for_lack_of_authority=no"
+  must_not_contain:
+    - "rejection_basis=inconvenience"
+    - "rejection_basis=no_reason"
+    - "evidence=none"

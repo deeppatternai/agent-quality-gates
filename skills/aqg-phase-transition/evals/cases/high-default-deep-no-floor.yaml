@@ -1,0 +1,23 @@
+id: high-default-deep-no-floor
+title: high 默认 deep 不应误报 safety floor
+description: 验证 high 列直接为 deep，只有较浅的非 skip 请求被提升时才标记 floor。
+
+input:
+  prompt: |
+    请先加载并使用已安装的 aqg-phase-transition Skill。允许读取该 Skill 的 SKILL.md 和配套内容；不要读取工作区中的其他项目文件，不要运行审计，也不要修改文件。
+    场景：stakes=high，没有 user signal，也没有 dedup hit。
+    仅按以下字段逐行给出 verdict，不要列出其他模式：
+    matrix_default=<值>
+    recommended_audit_mode=<值>
+    user_override_applied=<true|false>
+    safety_floor_applied=<true|false>
+
+expect:
+  must_contain:
+    - "matrix_default=deep"
+    - "recommended_audit_mode=deep"
+    - "user_override_applied=false"
+    - "safety_floor_applied=false"
+  must_not_contain:
+    - "recommended_audit_mode=standard"
+    - "safety_floor_applied=true"

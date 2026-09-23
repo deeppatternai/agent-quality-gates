@@ -1,0 +1,25 @@
+id: dedup-stricter-bypass
+title: 更严格的 requested mode 应绕过 dedup
+description: 验证相同三元组和窗口不会吞掉比 recorded mode 更严格的请求。
+
+input:
+  prompt: |
+    请先加载并使用已安装的 aqg-phase-transition Skill。允许读取该 Skill 的 SKILL.md 和配套内容；不要读取工作区中的其他项目文件，不要运行审计，也不要修改文件。
+    场景：stakes=moderate，同一 task-id、content-hash、phase 在 5 分钟内已记录 fast；现在用户说 review it，请求 standard。
+    仅按以下字段逐行给出结果：
+    requested_mode=<值>
+    recorded_mode=<值>
+    dedup_hit=<true|false>
+    recommended_audit_mode=<值>
+    user_override_applied=<true|false>
+
+expect:
+  must_contain:
+    - "requested_mode=standard"
+    - "recorded_mode=fast"
+    - "dedup_hit=false"
+    - "recommended_audit_mode=standard"
+    - "user_override_applied=true"
+  must_not_contain:
+    - "dedup_hit=true"
+    - "recommended_audit_mode=skip"

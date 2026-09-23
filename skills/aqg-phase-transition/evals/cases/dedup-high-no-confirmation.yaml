@@ -1,0 +1,22 @@
+id: dedup-high-no-confirmation
+title: high stakes 的 dedup skip 不应要求二次确认
+description: 验证二次确认只用于 high stakes 的显式用户 opt-out，不用于系统 dedup。
+
+input:
+  prompt: |
+    请先加载并使用已安装的 aqg-phase-transition Skill。允许读取该 Skill 的 SKILL.md 和配套内容；不要读取工作区中的其他项目文件，不要运行审计，也不要修改文件。
+    场景：stakes=high，同一 dedup key 在 5 分钟内已经记录 deep；没有 user signal，再次 emit 请求 deep。
+    仅按以下字段逐行给出 verdict：
+    dedup_hit=<true|false>
+    recommended_audit_mode=<值>
+    user_override_applied=<true|false>
+    high_stakes_skip_confirm=<true|false>
+
+expect:
+  must_contain:
+    - "dedup_hit=true"
+    - "recommended_audit_mode=skip"
+    - "user_override_applied=false"
+    - "high_stakes_skip_confirm=false"
+  must_not_contain:
+    - "high_stakes_skip_confirm=true"

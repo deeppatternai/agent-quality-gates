@@ -1,0 +1,30 @@
+id: markdown-cell-serialization
+title: 四列表中的管道符、换行和嵌套表格必须安全序列化
+description: 防止 finding 原文破坏严格四列表结构。
+
+context:
+  repo_fixture: .
+
+input:
+  prompt: |
+    请先读取当前评测工作区根目录的 SKILL.md，并严格按其中的 aqg-audit-adjudication 规则作答；不要使用用户目录中可能存在的同名旧版 Skill。不要修改文件。
+    Finding 原文含有普通管道符、shell pipeline、多行说明和一个 Markdown 子表格。写入严格四列表前应如何处理？
+    仅按以下字段逐行作答，并从每行给出的两个字面量值中选择一个：
+    prose_pipe=[escaped 或 raw]
+    command_pipeline=[backticks 或 split_cells]
+    embedded_newline=[字面量 `<br>` 或字面量 `literal_newline`；不得把 `<br>` 简写为 `br`]
+    nested_table=[summarize 或 paste_verbatim]
+    table_columns=[four 或 variable]
+
+expect:
+  must_contain:
+    - "prose_pipe=escaped"
+    - "command_pipeline=backticks"
+    - "embedded_newline=<br>"
+    - "nested_table=summarize"
+    - "table_columns=four"
+  must_not_contain:
+    - "prose_pipe=raw"
+    - "embedded_newline=literal_newline"
+    - "nested_table=paste_verbatim"
+    - "table_columns=variable"

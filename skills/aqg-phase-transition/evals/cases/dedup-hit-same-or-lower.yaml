@@ -1,0 +1,25 @@
+id: dedup-hit-same-or-lower
+title: 相同 dedup key 的同级或更浅请求应命中
+description: 验证同一三元组在窗口内、requested rank 不高于 recorded rank 时返回 skip。
+
+input:
+  prompt: |
+    请先加载并使用已安装的 aqg-phase-transition Skill。允许读取该 Skill 的 SKILL.md 和配套内容；不要读取工作区中的其他项目文件，不要运行审计，也不要修改文件。
+    场景：stakes=moderate，同一 task-id、content-hash、phase 在 5 分钟内已记录 standard；现在用户说 quick scan，请求 fast。
+    仅按以下字段逐行给出结果：
+    requested_mode=<值>
+    recorded_mode=<值>
+    dedup_hit=<true|false>
+    recommended_audit_mode=<值>
+    user_override_applied=<true|false>
+
+expect:
+  must_contain:
+    - "requested_mode=fast"
+    - "recorded_mode=standard"
+    - "dedup_hit=true"
+    - "recommended_audit_mode=skip"
+    - "user_override_applied=false"
+  must_not_contain:
+    - "dedup_hit=false"
+    - "recommended_audit_mode=fast"

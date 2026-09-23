@@ -1,0 +1,35 @@
+id: language-hygiene
+title: closeout 应保持单一工作语言
+description: 验证中文场景使用连贯中文，只保留必要技术标识，并避免 PR-D、Q7 等历史标签。
+
+input:
+  prompt: |
+    请用中文列出 aqg-evidence-closeout 的六项证据名称，并说明 language hygiene 规则。技术标识如 DONE、PARTIAL、BLOCKED、worktree、audit 可以保留英文。
+    不要调用工具或访问仓库，只根据技能说明回答。
+    六项名称必须逐项使用以下固定中文标签：范围完成、最新验证、审计裁决、持久状态更新、生产边界、剩余阻塞项；worktree 只能作为辅助元数据，不要列入六项。
+    不要包含内部交付代号，也不要写中英文重复翻译。
+
+constraints:
+  timeout_seconds: 120
+  max_turns: 2
+
+expect:
+  must_not_contain:
+    - PR-D
+    - Q7
+    - 7th-line
+
+judge:
+  type: rule_based
+  success:
+    - output_matches:
+        all:
+          - '完成范围|范围完成|范围已完成'
+          - '验证(?:执行|结果|已运行)|最新验证|已运行验证'
+          - '审计(?:裁定|裁决|已裁定)|audit.*(?:裁定|裁决|已裁定)'
+          - '持久状态'
+          - '生产边界|生产环境边界|生产操作边界|未触碰边界'
+          - '剩余(?:阻塞|阻碍)'
+          - '单一工作语言|统一使用一种工作语言|一种工作语言|中文为主|单一语言|使用中文|面向用户.*中文|中文表述|中文表达|用用户要求的中文|使用用户所用语言|language hygiene|Language hygiene|Language Hygiene'
+        not: ['PR-D', 'Q7', '7th-line']
+    - exit_code: 0

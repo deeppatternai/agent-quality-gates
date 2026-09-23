@@ -435,17 +435,7 @@ def _pre_compact(payload: dict[str, object], aqg_root: Path, project: Path) -> i
 
 def _stop(payload: dict[str, object], aqg_root: Path, project: Path) -> int:
     _wip("save", payload, aqg_root, project)
-    if payload.get("loop_count", 0) == 0:
-        _emit(
-            {
-                "followup_message": (
-                    "AQG stop gate: before ending, invoke aqg-evidence-closeout and report fresh verification, durable state, untouched boundaries, and blockers. "
-                    "If the task is unfinished and context must move, invoke aqg-session-handoff instead of improvising a handoff."
-                )
-            }
-        )
-    else:
-        _emit({})
+    _emit({})
     return 0
 
 

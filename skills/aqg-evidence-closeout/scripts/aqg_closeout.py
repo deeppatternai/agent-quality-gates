@@ -691,24 +691,24 @@ def main() -> int:
     )
     parser.add_argument(
         "--construction-ledger",
-        help="Path to AQG code construction ledger to auto-import (default: .aqg/current_ledger.md in first repo; PR-D)",
+        help="Path to AQG code construction ledger to auto-import (default: .aqg/current_ledger.md in first repo)",
     )
     parser.add_argument(
         "--no-construction-import",
         action="store_true",
-        help="Skip construction ledger auto-import even if .aqg/current_ledger.md exists (PR-D)",
+        help="Skip construction ledger auto-import even if .aqg/current_ledger.md exists",
     )
     parser.add_argument(
         "--transfer-summary",
         help=(
-            "Path to Transfer Test Pack run summary YAML (Q7). "
+            "Path to optional Transfer Test Pack v1 run summary YAML. "
             "Default: search .aqg/transfer/last_run_summary.yaml then run_summary.yaml then tests/transfer/_last_run_summary.yaml in first --repo"
         ),
     )
     parser.add_argument(
         "--no-transfer-import",
         action="store_true",
-        help="Skip Transfer Test Pack 7th-line auto-import even if a summary exists (Q7)",
+        help="Skip Transfer Test Pack auto-import even if a summary exists",
     )
     args = parser.parse_args()
     repos = (
@@ -723,6 +723,10 @@ def main() -> int:
     print(f"- task: {args.task}")
     print(
         "- note: skeleton generator only; fresh test/check/audit evidence must be filled manually from the current session"
+    )
+    print(
+        "- contract: repository state plus six required evidence claims; "
+        "DONE requires fresh evidence for every claim and no remaining blocker"
     )
     print()
     print("## Repo state")
@@ -763,6 +767,13 @@ def main() -> int:
         transfer_row = render_transfer_pack_evidence_row(transfer_result)
 
     print("## Evidence ledger")
+    print("- claim statuses: DONE | PARTIAL | BLOCKED | NOT_DONE | UNVERIFIABLE")
+    print(
+        "- TODO is a skeleton placeholder, not a claim status; replace every TODO "
+        "before submitting the closeout"
+    )
+    print("- record an approach change in evidence; CHANGED is not a completion status")
+    print()
     print("| claim | evidence | status |")
     print("|---|---|---|")
     print("| scope completed | <files/PR/issue/status doc> | TODO |")
@@ -777,8 +788,15 @@ def main() -> int:
         print(transfer_row)
     print()
     print("## Final-answer checklist")
+    print(
+        "- Set overall status to DONE only when every required claim has fresh evidence "
+        "and no blocker remains; otherwise use PARTIAL or BLOCKED."
+    )
     print("- State what changed in one sentence.")
     print("- List only fresh verification evidence.")
+    print("- Record audit/review disposition, including why none was required.")
+    print("- Record durable-state update or why none was needed.")
+    print("- Report whether the worktree is clean or intentionally dirty.")
     print("- Name deliberate non-actions.")
     print("- Name blockers instead of implying completion.")
     print("- If context is high, include a paste-ready handoff.")

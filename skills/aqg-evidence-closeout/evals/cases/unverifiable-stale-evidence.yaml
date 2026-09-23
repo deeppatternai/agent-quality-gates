@@ -1,0 +1,28 @@
+id: unverifiable-stale-evidence
+title: 旧验证结果不能支持 DONE
+description: 验证只有历史检查输出、当前会话没有 fresh verification 时，应标记 UNVERIFIABLE 并要求重跑。
+
+input:
+  prompt: |
+    今天是 2026-09-19。我只有 2026-09-18 的测试截图，当前会话没有重新运行任何检查。请依据 aqg-evidence-closeout 生成状态判断。
+    不要调用工具或访问仓库，只根据这些事实回答。请区分顶层状态和 verification claim，要求重新运行最小检查，并避免提前宣称完成。
+
+constraints:
+  timeout_seconds: 120
+  max_turns: 2
+
+expect:
+  must_not_contain:
+    - "Status: DONE"
+
+judge:
+  type: rule_based
+  success:
+    - output_matches:
+        all:
+          - '(?is)(?:Status|顶层状态).*?(?:PARTIAL|BLOCKED|未完成|待验证|待重新验证|等待新鲜验证|不能宣称完成)'
+          - '(?i)UNVERIFIABLE|不可验证|没有新鲜验证证据|等待新鲜验证|未验证|未新鲜验证|新鲜验证|证据过期|待重新验证|历史证据|历史验证证据|不能替代.*新鲜验证|不存在.*有效验证|不成立|不可声明通过|Pending Fresh Verification|verification stale|pending rerun|暂不具备.*closeout'
+          - '2026-09-18|2026 年 9 月 18 日'
+          - '重新运行|重跑'
+        not: ['(?i)Status:\s*DONE']
+    - exit_code: 0

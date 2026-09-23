@@ -1,0 +1,29 @@
+id: chinese-output-language-policy
+title: 中文请求应使用中文内容和英文规范 decision 值
+description: 避免裁决表正文无规则地中英文交错，同时保持机器可验证值稳定。
+
+context:
+  # 将当前 Skill 根复制到临时工作区，避免命中用户目录中的旧版同名 Skill。
+  repo_fixture: .
+
+input:
+  prompt: |
+    请先读取当前评测工作区根目录的 SKILL.md，并严格按其中的 aqg-audit-adjudication 规则作答；不要使用用户目录中可能存在的同名旧版 Skill。不要修改文件。
+    用户全程使用中文。说明裁决表四列应分别采用什么语言规则。
+    仅按以下字段逐行作答：
+    decision_language=<canonical_english|translated>
+    finding_language=<user_language|english_only>
+    action_language=<user_language|english_only>
+    verification_language=<user_language|english_only>
+    commands_and_identifiers=<preserve_original|translate>
+
+expect:
+  must_contain:
+    - "decision_language=canonical_english"
+    - "finding_language=user_language"
+    - "action_language=user_language"
+    - "verification_language=user_language"
+    - "commands_and_identifiers=preserve_original"
+  must_not_contain:
+    - "decision_language=translated"
+    - "commands_and_identifiers=translate"

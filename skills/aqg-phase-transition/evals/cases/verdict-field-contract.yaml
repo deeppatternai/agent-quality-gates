@@ -1,0 +1,29 @@
+id: verdict-field-contract
+title: caller 应读取稳定的 verdict 字段
+description: 验证 Skill 正确说明 mode、reason、matrix default、override、floor、confirmation 和 dedup 字段。
+
+input:
+  prompt: |
+    请先加载并使用已安装的 aqg-phase-transition Skill。允许读取该 Skill 的 SKILL.md 和配套内容；不要读取工作区中的其他项目文件，不要运行审计，也不要修改文件。
+    请列出 caller 读取 verdict 时使用的字段名。仅按以下标签逐行作答，每行值只能是一个字段名：
+    mode_field=<值>
+    reason_field=<值>
+    matrix_field=<值>
+    override_flag=<值>
+    floor_flag=<值>
+    confirmation_flag=<值>
+    dedup_flag=<值>
+    dedup_reason_field=<值>
+
+expect:
+  must_contain:
+    - "mode_field=recommended_audit_mode"
+    - "reason_field=reason"
+    - "matrix_field=matrix_default"
+    - "override_flag=user_override_applied"
+    - "floor_flag=safety_floor_applied"
+    - "confirmation_flag=high_stakes_skip_confirm"
+    - "dedup_flag=dedup_hit"
+    - "dedup_reason_field=dedup_reason"
+  must_not_contain:
+    - "dedup_flag=dedup_status"

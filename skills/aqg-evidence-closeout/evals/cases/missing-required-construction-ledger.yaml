@@ -1,0 +1,29 @@
+id: missing-required-construction-ledger
+title: 必需 construction ledger 缺失应手工标记 blocker
+description: 验证自动发现静默缺失不等于通过；代码任务本应使用 construction 时必须在 closeout 中记录阻塞。
+
+input:
+  prompt: |
+    这是代码改动，按团队规则本应运行 aqg-code-construction，但 `.aqg/current_ledger.md` 不存在。helper 自动发现时没有打印 construction section。
+    不要调用工具或访问仓库，只根据这些事实判断并生成 closeout 结论。
+    请依据 aqg-evidence-closeout 判断状态，包含 `.aqg/current_ledger.md`、手工记录和 blocker，并避免提前宣称完成。
+
+constraints:
+  timeout_seconds: 120
+  max_turns: 2
+
+expect:
+  must_not_contain:
+    - "Status: DONE"
+
+judge:
+  type: rule_based
+  success:
+    - output_matches:
+        all:
+          - '(?is)(?:Status|Closeout|状态).*?(?:BLOCKED|NOT_DONE|PARTIAL|未就绪|不可宣称完成|暂不能宣称完成|阻塞|未达到可关闭条件|不可关闭|未完成|证据不足|待补证|fail-closed)'
+          - '\.aqg/current_ledger\.md'
+          - '手工记录'
+          - '(?i)blocker|阻塞'
+        not: ['(?i)Status:\s*DONE']
+    - exit_code: 0

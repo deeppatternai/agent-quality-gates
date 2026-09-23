@@ -1,0 +1,37 @@
+id: stakes-classification
+title: stakes 分类应同时覆盖 sensitivity 与 complexity gates
+description: 验证 caller 能区分 trivial、moderate、high，且 blast radius 优先于大小。
+
+input:
+  prompt: |
+    请先加载并使用已安装的 aqg-phase-transition Skill。允许读取该 Skill 的 SKILL.md 和配套内容；不要读取工作区中的其他项目文件，不要运行审计，也不要修改文件。
+    请用 `trivial=`、`moderate=`、`high=` 三行说明分类标准；在 high 行完整列出技能说明中的全部 sensitivity 与 complexity gate。关键技术名词保留英文，不能省略 gate 类别；允许展开斜杠分组或补充同义词。
+
+expect:
+  must_contain:
+    - "trivial="
+    - "moderate="
+    - "high="
+
+judge:
+  type: rule_based
+  success:
+    - output_matches:
+        all:
+          - "(?i)(authentication|authorization|permissions|access control)"
+          - "(?i)(cryptography|secrets|credentials|token handling)"
+          - "(?i)(trust[- ]boundary|untrusted input)"
+          - "(?i)data model"
+          - "(?i)schema"
+          - "(?i)migration"
+          - "(?i)production config"
+          - "(?i)deployment"
+          - "(?i)CI"
+          - "(?i)install"
+          - "(?i)integrity"
+          - "(?i)irreversible"
+          - "(?i)(cross[- ]repo|spanning repositories)"
+          - "(?i)multi-file (behavior|behaviour) change"
+          - "(?i)(first time.*pattern|首次.*pattern|pattern.*first time|pattern.*首次)"
+          - "(?i)major architecture decision"
+    - exit_code: 0

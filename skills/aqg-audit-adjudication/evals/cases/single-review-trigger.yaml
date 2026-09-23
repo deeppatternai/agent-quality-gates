@@ -1,0 +1,31 @@
+id: single-review-trigger
+title: 单个 code reviewer 的 findings 也应触发
+description: 防止 Skill 被错误限定为多模型或指定模型版本的审计结果。
+
+context:
+  # 将当前 Skill 根复制到临时工作区，避免命中用户目录中的旧版同名 Skill。
+  repo_fixture: .
+
+input:
+  prompt: |
+    请先读取当前评测工作区根目录的 SKILL.md，并严格按其中的 aqg-audit-adjudication 规则作答；不要使用用户目录中可能存在的同名旧版 Skill。不要修改文件。
+    只有一个普通 code reviewer 返回了 4 条 findings，没有模型名称，也没有多模型 panel。这个 Skill 是否适用？
+    仅按以下字段逐行作答：
+    applies=<yes|no>
+    requires_multiple_reviewers=<yes|no>
+    requires_named_model=<yes|no>
+    trigger_sources=<值>
+
+expect:
+  must_contain:
+    - "applies=yes"
+    - "requires_multiple_reviewers=no"
+    - "requires_named_model=no"
+
+judge:
+  type: rule_based
+  success:
+    - output_matches:
+        all:
+          - "(?mi)^trigger_sources=.*(code review|review|代码审查)"
+    - exit_code: 0

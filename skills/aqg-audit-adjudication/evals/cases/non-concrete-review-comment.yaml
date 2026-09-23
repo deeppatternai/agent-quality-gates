@@ -1,0 +1,29 @@
+id: non-concrete-review-comment
+title: be careful 或 consider X 不是自动停工或自动采纳的 finding
+description: 覆盖 Stop Boundaries 中对非具体审查建议的处理方式。
+
+context:
+  repo_fixture: .
+
+input:
+  prompt: |
+    请先读取当前评测工作区根目录的 SKILL.md，并严格按其中的 aqg-audit-adjudication 规则作答；不要使用用户目录中可能存在的同名旧版 Skill。不要修改文件。
+    Review 只写了“be careful about retries; consider caching”，核验后仍没有可复现行为、位置或具体风险。请输出严格的四列 adjudication Markdown 表，只包含处理这条评论的一行，并在 action 中说明继续处理其余 findings。
+
+expect:
+  must_contain:
+    - "| finding | decision | action | verification |"
+    - "rejected"
+  must_not_contain:
+    - "accepted"
+    - "needs-user-decision"
+
+judge:
+  type: rule_based
+  success:
+    - output_matches:
+        all:
+          - "(?is)\\|[^\\n]*\\|\\s*rejected\\s*\\|[^\\n]+\\|[^\\n]+\\|"
+          - "(?is)(continue|继续).*(remaining findings|其余 findings|剩余 findings)"
+          - "(?is)(no|没有|缺少|未发现|无).*(reproducible|可复现|location|位置|risk|风险)"
+    - exit_code: 0

@@ -1,0 +1,28 @@
+id: phase-boundary-purpose
+title: 应在三个阶段边界发出 signal 而不是自行审计
+description: 验证 Skill 的核心职责、触发时机和 signal-only 边界。
+
+input:
+  prompt: |
+    请先加载并使用已安装的 aqg-phase-transition Skill。允许读取该 Skill 的 SKILL.md 和配套内容；不要读取工作区中的其他项目文件，不要运行审计，也不要修改文件。
+    请判断这个 Skill 在什么时候使用、输出什么，以及它是否会自行运行审计。
+    仅按以下字段逐行作答，不要增加其他字段：
+    purpose=<timing_signal|audit_execution>
+    phases=<逗号分隔的三个 CLI phase 枚举值>
+    result_field=<字段名>
+    audit_action=<call|do_not_call>
+    responsible_party=<skill|caller>
+
+expect:
+  must_contain:
+    - "purpose=timing_signal"
+    - "plan_done"
+    - "impl_done"
+    - "tests_written"
+    - "result_field=recommended_audit_mode"
+    - "audit_action=do_not_call"
+    - "responsible_party=caller"
+  must_not_contain:
+    - "purpose=audit_execution"
+    - "audit_action=call"
+    - "responsible_party=skill"

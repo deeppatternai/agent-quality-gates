@@ -1,0 +1,75 @@
+# skill-up 评测配置版本；保持为 v1alpha1。
+schema_version: v1alpha1
+
+environment:
+  # 这些用例只验证 Skill 的推理与路由说明，不需要额外沙箱。
+  type: none
+
+skills:
+  # 安装被测 Skill 及其命令契约、路由实现和接口元数据。
+  - source: local_path
+    path: .
+    include:
+      - SKILL.md
+      - agents/**
+      - scripts/**
+      - skill.template.json
+
+engine:
+  # 使用本机 Codex 引擎运行真实 Skill 调用。
+  name: codex
+
+cases:
+  # 主路径、边界、覆盖例外与负向路由均拆成独立用例。
+  files:
+    - evals/cases/phase-boundary-purpose.yaml
+    - evals/cases/plan-moderate-standard.yaml
+    - evals/cases/implementation-high-deep.yaml
+    - evals/cases/tests-trivial-skip.yaml
+    - evals/cases/phase-does-not-set-depth.yaml
+    - evals/cases/high-quick-scan-safety-floor.yaml
+    - evals/cases/moderate-quick-scan-no-floor.yaml
+    - evals/cases/high-default-deep-no-floor.yaml
+    - evals/cases/high-skip-second-confirmation.yaml
+    - evals/cases/moderate-skip-no-confirmation.yaml
+    - evals/cases/dedup-rank-window.yaml
+    - evals/cases/dedup-hit-same-or-lower.yaml
+    - evals/cases/dedup-stricter-bypass.yaml
+    - evals/cases/dedup-key-or-window-miss.yaml
+    - evals/cases/dedup-high-no-confirmation.yaml
+    - evals/cases/stakes-classification.yaml
+    - evals/cases/trivial-classification-examples.yaml
+    - evals/cases/unclear-stakes-caller-classifies.yaml
+    - evals/cases/cli-command-contract.yaml
+    - evals/cases/phase-order-warning.yaml
+    - evals/cases/canonical-phase-order.yaml
+    - evals/cases/alternative-tools-and-per-edit.yaml
+    - evals/cases/verdict-field-contract.yaml
+    - evals/cases/workflow-actions-by-mode.yaml
+    - evals/cases/state-persistence-and-query.yaml
+    - evals/cases/bilingual-user-signals.yaml
+    - evals/cases/english-user-signals.yaml
+  defaults:
+    # Local Codex startup/plugin retries can occasionally exceed five minutes;
+    # keep semantic failures distinct from runner latency.
+    timeout_seconds: 600
+    max_turns: 8
+    expect:
+      exit_code: 0
+      must_not_contain:
+        - "TODO"
+        - "LGTM"
+        - "不能帮助"
+  parallelism: 1
+
+judge:
+  # 内容条件由各 case 的 expect 提供；默认 judge 只确认正常退出。
+  type: rule_based
+  success:
+    - exit_code: 0
+
+report:
+  # JSON 用于机器诊断，HTML 便于人工查看。
+  formats:
+    - json
+    - html

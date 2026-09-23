@@ -1,0 +1,20 @@
+id: transfer-summary-optional-miss
+title: 未启用 Transfer Test Pack 时缺失 summary 不应污染 closeout
+description: 验证自动发现没有 summary 且用户未显式传路径时，该可选行应省略而不是永久 TODO。
+
+input:
+  prompt: |
+    当前仓库没有 Transfer Test Pack summary，用户也没有传 `--transfer-summary`。只根据技能说明解释 helper 应如何处理。
+    请说明这是可选导入、没有 summary 时不导入该行且不构成 blocker，并提到 `--no-transfer-import`。
+
+expect:
+judge:
+  type: rule_based
+  success:
+    - output_matches:
+        all:
+          - '可选(?:证据)?导入'
+          - '不导入.*行|不会.*导入|不添加.*(?:evidence row|证据行|行)|省略.*(?:evidence row|证据行|行)|跳过导入|跳过.*导入.*行|跳过该导入行|跳过.*这一行|跳过.*行|跳过.*Transfer Test Pack.*导入|不生成.*行'
+          - '(?i)(?:不构成|不会构成|不会因此构成|不把.*视为|不将.*视为|不算|不应.*(?:判定为|记为|记作|算作)).*(?:blocker|失败|PARTIAL|BLOCKED)'
+          - '--no-transfer-import'
+    - exit_code: 0

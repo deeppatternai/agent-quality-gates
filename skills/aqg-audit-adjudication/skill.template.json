@@ -1,37 +1,34 @@
 {
   "skill_template_schema": 1,
   "name": "aqg-audit-adjudication",
-  "description": "Decide accept / reject / needs-user-decision for each Claude Opus, Gemini 3.1, o3, Codex internal-review, or local-audit finding and produce a structured adjudication table for AI team project work. Use AFTER any audit / review / second-opinion returns with a list of issues to integrate before fixing code, especially for production-adjacent scripts, ADRs, decision packets, CI failures, or evidence artifacts.",
+  "description": "Decide whether to accept, reject, or mark needs-user-decision for each existing audit, code review, or second opinion finding, and produce a validated adjudication table in any repository. Use only after findings exist to verify current evidence, merge overlaps or conflicts, and plan remediation. Do not use to run the review itself or replace evidence closeout.",
   "version": "0.1.0",
   "wrapper_generated": true,
-  "primary_trigger_keywords": ["adjudicate", "audit", "review", "second opinion", "findings"],
-  "boundary_class": "writes-evidence",
+  "primary_trigger_keywords": ["adjudicate findings", "audit findings", "audit results", "code review findings", "review findings", "second opinion findings", "审计结果", "审查意见", "裁决 findings"],
+  "boundary_class": "read-only",
   "audit_mode_required": "standard",
   "trigger_grammar": {
-    "keywords": ["adjudicate", "audit", "review", "second opinion", "findings", "accept", "reject", "needs-user-decision"],
+    "keywords": ["adjudicate findings", "audit findings", "audit results", "code review findings", "review findings", "second opinion findings", "accept findings", "reject findings", "needs-user-decision", "审计结果", "审查意见", "裁决 findings", "采纳 findings", "拒绝 findings", "需要用户决定"],
     "sentence_patterns": [
       "Adjudicate this audit's findings",
-      "I have a list of review issues — accept/reject each one",
-      "走 audit adjudication 流程, 整合 findings",
-      "Decide what to do with the gpt-5.5 + gemini findings"
+      "I have a list of code review issues — verify and accept or reject each one",
+      "审计返回了一批问题，请逐条核对后做裁决",
+      "两轮审查有重复和冲突，请合并证据后生成裁决表"
     ]
   },
   "entry_script": "scripts/validate_audit_adjudication.py",
   "cli_contract": {
     "0": "success — adjudication table parsed and shape valid",
-    "1": "validation failed — missing/extra columns, malformed decision values, or row mismatch",
+    "1": "validation failed — malformed table shape, incomplete cells, invalid decisions, or an underspecified needs-user-decision row",
     "2": "usage error — argparse propagates exit 2 on bad args",
     "3": "reserved — config or schema error",
     "70": "reserved — internal error placeholder"
   },
-  "output_shape": "markdown_table",
+  "output_shape": "multi_section_report",
   "reads_paths": [
-    "skills/aqg-audit-adjudication/"
+    "."
   ],
-  "writes_paths": [
-    "docs/decisions/",
-    "docs/incidents/"
-  ],
+  "writes_paths": [],
   "forbidden_paths": [
     "production/",
     "secrets/",
@@ -45,35 +42,35 @@
     {
       "id": "adjudication-desc-001",
       "style": "description_based",
-      "prompt": "Just finished a /audit standard review — 8 findings to integrate before I fix",
+      "prompt": "An audit returned 8 findings; verify the evidence and adjudicate each one before remediation",
       "expected_skill": "aqg-audit-adjudication",
       "skill_file_ref": "skills/aqg-audit-adjudication/SKILL.md"
     },
     {
       "id": "adjudication-desc-002",
       "style": "description_based",
-      "prompt": "Code review came back with 12 issues — decide accept/reject for each",
+      "prompt": "Code review returned 12 issues — decide which to accept, reject, or escalate to the user",
       "expected_skill": "aqg-audit-adjudication",
       "skill_file_ref": "skills/aqg-audit-adjudication/SKILL.md"
     },
     {
       "id": "adjudication-desc-003",
       "style": "description_based",
-      "prompt": "The deep review gave me its reasoning — I need an adjudication table to decide which fixes to land",
+      "prompt": "Two reviews overlap and conflict — merge the root causes and produce an adjudication table",
       "expected_skill": "aqg-audit-adjudication",
       "skill_file_ref": "skills/aqg-audit-adjudication/SKILL.md"
     },
     {
       "id": "adjudication-desc-004",
       "style": "description_based",
-      "prompt": "Second-opinion review just landed — produce the structured decision table",
+      "prompt": "审查返回了 5 条问题，请核对当前证据后逐条裁决",
       "expected_skill": "aqg-audit-adjudication",
       "skill_file_ref": "skills/aqg-audit-adjudication/SKILL.md"
     },
     {
       "id": "adjudication-explicit-001",
       "style": "explicit_invocation",
-      "prompt": "Use /aqg-audit-adjudication to integrate this round's audit findings",
+      "prompt": "Use /aqg-audit-adjudication to produce the decision table only; do not modify code",
       "expected_skill": "aqg-audit-adjudication",
       "skill_file_ref": "skills/aqg-audit-adjudication/SKILL.md"
     }

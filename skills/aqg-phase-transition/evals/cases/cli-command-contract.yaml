@@ -1,0 +1,24 @@
+id: cli-command-contract
+title: 应正确说明 emit、query 和 override 命令契约
+description: 验证 Skill 会提供本地 helper 与 cloud thin-client 的关键调用方式。
+
+input:
+  prompt: |
+    请先加载并使用已安装的 aqg-phase-transition Skill。允许读取该 Skill 的 SKILL.md 和配套内容；不要读取工作区中的其他项目文件，不要运行审计，也不要修改文件。
+    请先说明 AQG root 的解析方式，并逐字引用解析失败时的错误与修复提示；再引用本地 helper 路径，分别给出 emit、query、override 的最小命令；最后给出 cloud thin-client 的 emit 命令。不要自行发明参数名。
+
+expect:
+  must_contain:
+    - "_aqg_context.sh"
+    - "AQG_ROOT"
+    - "cannot resolve AQG root"
+    - "export AQG_ROOT"
+    - "aqg_phase_emit.py"
+    - "python3 \"$script\" emit"
+    - "--phase plan_done"
+    - "--stakes moderate"
+    - "--task"
+    - "--artifact-file"
+    - "python3 \"$script\" query"
+    - "python3 \"$script\" override"
+    - "aqg-cli phase emit"

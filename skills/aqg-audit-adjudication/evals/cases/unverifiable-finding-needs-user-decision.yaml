@@ -1,0 +1,25 @@
+id: unverifiable-finding-needs-user-decision
+title: 尽力核验后仍缺证据的 finding 应升级而非猜测
+description: 防止证据不可访问时盲目 accepted 或 rejected。
+
+context:
+  repo_fixture: .
+
+input:
+  prompt: |
+    请先读取当前评测工作区根目录的 SKILL.md，并严格按其中的 aqg-audit-adjudication 规则作答；不要使用用户目录中可能存在的同名旧版 Skill。不要修改文件。
+    Finding 声称生产环境存在数据丢失，但当前仓库没有相关日志，生产指标也需要 Owner 授权才能查看；本地能做的核验均已完成，仍无法判断真伪。应如何分类？
+    仅按以下字段逐行作答：
+    decision=<值>
+    accept_without_evidence=<yes|no>
+    reject_for_missing_evidence=<yes|no>
+    action_contains=<actor_question_and_evidence_access|vague_wait>
+
+expect:
+  must_contain:
+    - "decision=needs-user-decision"
+    - "accept_without_evidence=no"
+    - "reject_for_missing_evidence=no"
+    - "action_contains=actor_question_and_evidence_access"
+  must_not_contain:
+    - "action_contains=vague_wait"

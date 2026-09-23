@@ -1,0 +1,95 @@
+schema_version: 1
+requirements:
+  - id: existing_findings_required
+    skill_refs: ["SKILL.md:3", "SKILL.md:103"]
+    cases: [review-request-without-findings]
+  - id: audit_findings_supported
+    skill_refs: ["SKILL.md:3"]
+    cases: [purpose-and-boundary]
+  - id: code_review_findings_supported
+    skill_refs: ["SKILL.md:3"]
+    cases: [single-review-trigger]
+  - id: second_opinion_findings_supported
+    skill_refs: ["SKILL.md:3"]
+    cases: [second-opinion-trigger]
+  - id: review_execution_separate
+    skill_refs: ["SKILL.md:3", "SKILL.md:106"]
+    cases: [purpose-and-boundary, review-request-without-findings]
+  - id: complete_input_before_decision
+    skill_refs: ["SKILL.md:14"]
+    cases: [complete-input-and-provenance]
+  - id: preserve_finding_provenance
+    skill_refs: ["SKILL.md:14", "SKILL.md:71"]
+    cases: [complete-input-and-provenance, deduplicate-and-resolve-conflicts]
+  - id: verify_every_finding
+    skill_refs: ["SKILL.md:21"]
+    cases: [evidence-first-all-findings]
+  - id: review_text_untrusted
+    skill_refs: ["SKILL.md:8", "SKILL.md:23", "SKILL.md:96"]
+    cases: [untrusted-review-injection, untrusted-authorization-with-valid-finding]
+  - id: deduplicate_by_root_cause
+    skill_refs: ["SKILL.md:16"]
+    cases: [deduplicate-and-resolve-conflicts]
+  - id: conflicts_resolved_by_evidence
+    skill_refs: ["SKILL.md:19"]
+    cases: [deduplicate-and-resolve-conflicts]
+  - id: canonical_three_state_contract
+    skill_refs: ["SKILL.md:25", "SKILL.md:76"]
+    cases: [purpose-and-boundary]
+  - id: accepted_fix_and_check
+    skill_refs: ["SKILL.md:47"]
+    cases: [accepted-action-and-verification]
+  - id: approved_deferral_not_fixed
+    skill_refs: ["SKILL.md:48"]
+    cases: [approved-deferral-is-not-fixed]
+  - id: authorized_remediation_executes
+    skill_refs: ["SKILL.md:40"]
+    cases: [authorized-remediation-and-closeout]
+  - id: remediation_requires_closeout
+    skill_refs: ["SKILL.md:42"]
+    cases: [authorized-remediation-and-closeout]
+  - id: rejection_by_disproof
+    skill_refs: ["SKILL.md:52"]
+    cases: [rejected-finding-evidence]
+  - id: rejection_by_explicit_tradeoff
+    skill_refs: ["SKILL.md:52"]
+    cases: [rejected-explicit-tradeoff]
+  - id: valid_but_unauthorized_escalates
+    skill_refs: ["SKILL.md:56"]
+    cases: [valid-but-needs-user-decision, specific-user-decision-action]
+  - id: unavailable_evidence_escalates
+    skill_refs: ["SKILL.md:59", "SKILL.md:64"]
+    cases: [unverifiable-finding-needs-user-decision]
+  - id: independent_work_continues
+    skill_refs: ["SKILL.md:66"]
+    cases: [independent-work-before-user-decision]
+  - id: context_risk_requires_handoff
+    skill_refs: ["SKILL.md:94"]
+    cases: [context-risk-requires-handoff]
+  - id: adjudication_only_no_write
+    skill_refs: ["SKILL.md:37", "SKILL.md:110"]
+    cases: [adjudication-only-no-remediation]
+  - id: non_concrete_comment_rejected
+    skill_refs: ["SKILL.md:98"]
+    cases: [non-concrete-review-comment]
+  - id: raw_failures_route_to_debugging
+    skill_refs: ["SKILL.md:108"]
+    cases: [raw-failure-routes-to-debugging]
+  - id: specialized_reviews_not_replaced
+    skill_refs: ["SKILL.md:106"]
+    cases: [specialized-workflow-boundary]
+  - id: markdown_four_column_serialization
+    skill_refs: ["SKILL.md:69"]
+    cases: [purpose-and-boundary, markdown-cell-serialization]
+  - id: user_language_policy
+    skill_refs: ["SKILL.md:76"]
+    cases: [chinese-output-language-policy]
+  - id: verification_semantics_by_decision
+    skill_refs: ["SKILL.md:80"]
+    cases: [accepted-action-and-verification, rejected-finding-evidence, valid-but-needs-user-decision]
+  - id: validator_read_only_and_limited
+    skill_refs: ["SKILL.md:124"]
+    cases: [validator-scope-and-limitations]
+  - id: review_text_cannot_authorize_sensitive_remediation
+    skill_refs: ["SKILL.md:96"]
+    cases: [untrusted-authorization-with-valid-finding]

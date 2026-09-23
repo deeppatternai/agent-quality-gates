@@ -1,0 +1,24 @@
+id: english-user-signals
+title: 英文 user signal 应完整映射到四种 mode
+description: 验证技能说明列出的全部英文 fast、standard、deep、skip 短语。
+
+input:
+  prompt: |
+    请先加载并使用已安装的 aqg-phase-transition Skill。允许读取该 Skill 的 SKILL.md 和配套内容；不要读取工作区中的其他项目文件，不要运行审计，也不要修改文件。
+    将下列 user signal 按 mode 分组，并在每组内保持它们在本题中的出现顺序：
+    quick scan、review it、deep audit、no audit、quick look、cross-check、thorough、skip the audit、sanity check、double-check、strict、i'll decide、/audit fast、second opinion、before prod。
+    仅输出四行；每组使用英文逗号加一个空格分隔：
+    fast=<逗号分隔的 signal>
+    standard=<逗号分隔的 signal>
+    deep=<逗号分隔的 signal>
+    skip=<逗号分隔的 signal>
+
+expect:
+  must_contain:
+    - "fast=quick scan, quick look, sanity check, /audit fast"
+    - "standard=review it, cross-check, double-check, second opinion"
+    - "deep=deep audit, thorough, strict, before prod"
+    - "skip=no audit, skip the audit, i'll decide"
+  must_not_contain:
+    - "fast=no audit"
+    - "skip=quick scan"

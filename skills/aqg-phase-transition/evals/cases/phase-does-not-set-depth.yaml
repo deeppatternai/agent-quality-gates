@@ -1,0 +1,25 @@
+id: phase-does-not-set-depth
+title: 相同 stakes 在三个 phase 应得到相同 depth
+description: 验证 phase 只决定触发时机，不能成为第二个 depth authority。
+
+input:
+  prompt: |
+    请先加载并使用已安装的 aqg-phase-transition Skill。允许读取该 Skill 的 SKILL.md 和配套内容；不要读取工作区中的其他项目文件，不要运行审计，也不要修改文件。
+    比较 moderate 改动分别位于 PLAN_DONE、IMPL_DONE 和 TESTS_WRITTEN 时的结果。
+    仅按以下字段逐行作答：
+    plan_done_mode=<值>
+    impl_done_mode=<值>
+    tests_written_mode=<值>
+    depth_input=<phase|stakes>
+    authority=<策略路径及 marker>
+
+expect:
+  must_contain:
+    - "plan_done_mode=standard"
+    - "impl_done_mode=standard"
+    - "tests_written_mode=standard"
+    - "depth_input=stakes"
+    - "depth-by-stakes"
+    - "docs/policies/audit-trigger.md"
+  must_not_contain:
+    - "depth_input=phase"

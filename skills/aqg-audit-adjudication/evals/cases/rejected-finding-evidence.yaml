@@ -1,0 +1,27 @@
+id: rejected-finding-evidence
+title: rejected 必须记录反证或明确的权衡理由
+description: 验证拒绝不是一句 false positive，而是可复核的技术裁决。
+
+context:
+  # 将当前 Skill 根复制到临时工作区，避免命中用户目录中的旧版同名 Skill。
+  repo_fixture: .
+
+input:
+  prompt: |
+    请先读取当前评测工作区根目录的 SKILL.md，并严格按其中的 aqg-audit-adjudication 规则作答；不要使用用户目录中可能存在的同名旧版 Skill。不要修改文件。
+    Reviewer 声称 src/cache.py:200 存在未关闭连接，但仓库中该文件只有 90 行，实际连接由 context manager 管理。说明 rejected 行应记录什么。
+    仅按以下字段逐行作答：
+    decision=<值>
+    action_contains=<technical_reason|generic_reason>
+    verification_contains=<current_evidence|none>
+    cited_location_status=<missing_or_mismatched|assumed_valid>
+
+expect:
+  must_contain:
+    - "decision=rejected"
+    - "action_contains=technical_reason"
+    - "verification_contains=current_evidence"
+    - "cited_location_status=missing_or_mismatched"
+  must_not_contain:
+    - "action_contains=generic_reason"
+    - "verification_contains=none"

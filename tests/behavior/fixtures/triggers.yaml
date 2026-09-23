@@ -122,7 +122,7 @@ cases:
   # ===== aqg-audit-adjudication (5 cases: 3 description + 2 explicit) =====
   - id: adjudicate-desc-001
     style: description_based
-    prompt: "audit 返回 5 个 finding, 帮我做 accept/reject 决定"
+    prompt: "审计返回了 5 个问题，请核对证据后逐条判断采纳、拒绝或需要我决定"
     expected_skill: aqg-audit-adjudication
     skill_file_ref: agent-packs/claude-code/skills/aqg-audit-adjudication/SKILL.md
     description_sha256_first8: null
@@ -130,7 +130,7 @@ cases:
 
   - id: adjudicate-desc-002
     style: description_based
-    prompt: "code reviewer 提了一些意见, 帮我做 accept/reject 决定哪些要 fix"
+    prompt: "代码审查提出了 8 条意见，请告诉我哪些采纳、哪些拒绝，以及理由"
     expected_skill: aqg-audit-adjudication
     skill_file_ref: agent-packs/claude-code/skills/aqg-audit-adjudication/SKILL.md
     description_sha256_first8: null
@@ -138,7 +138,7 @@ cases:
 
   - id: adjudicate-desc-003
     style: description_based
-    prompt: "三审输出 12 个 issue, 帮我做 adjudication accept/reject 区分 convergent/divergent"
+    prompt: "第二意见和第一轮审查有重复也有冲突，请合并根因后生成裁决表"
     expected_skill: aqg-audit-adjudication
     skill_file_ref: agent-packs/claude-code/skills/aqg-audit-adjudication/SKILL.md
     description_sha256_first8: null
@@ -146,7 +146,7 @@ cases:
 
   - id: adjudicate-explicit-001
     style: explicit_invocation
-    prompt: "请用 /aqg-audit-adjudication skill 处理这批 audit findings"
+    prompt: "请用 /aqg-audit-adjudication 处理这批审计问题"
     expected_skill: aqg-audit-adjudication
     expected_caller_type: direct
     skill_file_ref: agent-packs/claude-code/skills/aqg-audit-adjudication/SKILL.md
@@ -155,7 +155,7 @@ cases:
 
   - id: adjudicate-explicit-002
     style: explicit_invocation
-    prompt: "请用 /aqg-audit-adjudication skill 帮我把这次三审的 finding 整合成 4 列表 accept/reject 决定"
+    prompt: "请用 /aqg-audit-adjudication 只生成四列裁决表，不要修改代码"
     expected_skill: aqg-audit-adjudication
     expected_caller_type: direct
     skill_file_ref: agent-packs/claude-code/skills/aqg-audit-adjudication/SKILL.md

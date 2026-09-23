@@ -1,0 +1,24 @@
+id: implementation-high-deep
+title: IMPL_DONE 的敏感改动应推荐 deep
+description: 验证高 blast-radius 实现不会因改动很小而降级。
+
+input:
+  prompt: |
+    请先加载并使用已安装的 aqg-phase-transition Skill。允许读取该 Skill 的 SKILL.md 和配套内容；不要读取工作区中的其他项目文件，不要运行审计，也不要修改文件。
+    场景：实现刚完成，只改了两行 authorization 判断，但属于敏感面。
+    仅按以下字段逐行给出路由结论，不要列出候选项或其他模式：
+    phase=<CLI 小写枚举值>
+    stakes=<值>
+    recommended_audit_mode=<值>
+    escalation_gate_category=<sensitivity|complexity>
+
+expect:
+  must_contain:
+    - "phase=impl_done"
+    - "stakes=high"
+    - "recommended_audit_mode=deep"
+    - "escalation_gate_category=sensitivity"
+  must_not_contain:
+    - "recommended_audit_mode=fast"
+    - "recommended_audit_mode=standard"
+    - "recommended_audit_mode=skip"

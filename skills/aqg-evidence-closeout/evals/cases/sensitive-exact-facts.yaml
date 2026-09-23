@@ -1,0 +1,16 @@
+id: sensitive-exact-facts
+title: 敏感工作 closeout 应包含精确日期与分支 PR 事实
+description: 验证 production-adjacent 场景不会使用模糊的今天或当前分支，而会写出明确事实。
+
+input:
+  prompt: |
+    这是 production-adjacent 配置评审。已知日期为 2026-09-18，分支为 `review/evidence-closeout`，PR 为 `#712`，没有执行 deploy。
+    请只写 closeout 的事实摘要，必须包含精确日期、完整分支、PR #712 和未执行 deploy。
+
+expect:
+judge:
+  type: rule_based
+  success:
+    - output_matches:
+        all: ['2026(?:-09-18|\s*年\s*9\s*月\s*18\s*日)', 'review/evidence-closeout', '#712', '(?:未执行 deploy|Deploy[：:]?\s*未执行)']
+    - exit_code: 0

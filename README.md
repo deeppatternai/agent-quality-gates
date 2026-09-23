@@ -37,7 +37,7 @@ Most quality tooling reviews code *after* it's written, by one model, in one lan
 ### Guardrails that don't depend on remembering
 
 - **Preflight before you touch anything.** `aqg-startup-preflight` checks live git + GitHub state (dirty worktree / gone upstream / behind remote / missing context files / open PRs) so you never start on a stale base.
-- **Closeout before you say "done".** `aqg-evidence-closeout` makes you answer 6 questions — what changed · what fresh check proves it · what durable state updated · what boundary you did *not* cross · what's still blocked — before claiming completion.
+- **Closeout before you say "done".** `aqg-evidence-closeout` closes six evidence claims — scope · fresh verification · audit disposition · durable state · untouched boundaries · remaining blockers — plus clean or intentionally dirty worktree state before completion can be claimed.
 - **Mechanical enforcement.** Claude Code, Codex, Cursor, CodeBuddy, Kimi Code, Qoder CLI, Trae IDE, and Devin CLI clients have managed lifecycle adapters; WorkBuddy, Trae Work, Trae Work CN, Kimi Work, Zed, QoderWork, and QoderWake expose only the documented subset listed in the client matrices.
 
 At a glance:
@@ -156,7 +156,7 @@ Every supported client installer delivers the same 16 skills (Claude Code uses i
 | Review | `aqg-security-review` | In-session OWASP Top 10 + CWE Top 25 + an 8-category secure-by-default library checklist; complements semgrep SAST + audit-mcp external review |
 | Review | `aqg-test-quality-review` | Judges whether a test asserts BEHAVIOR (output/side-effect/error) vs SHAPE (type/structure/key existence) + finds coverage-gap / weakened / flaky; signal-only |
 | Review | `aqg-audit-adjudication` | Adjudicate each audit / code-review / second-opinion finding into accept / reject / needs-user-decision; outputs a structured table |
-| Close-out | `aqg-evidence-closeout` | Produce an evidence ledger before completion; auto-imports `.aqg/current_ledger.md` (from the construction skill) + the Transfer Test Pack run summary |
+| Close-out | `aqg-evidence-closeout` | Produce a six-claim evidence ledger plus worktree state before completion; auto-imports the construction ledger and optional Transfer Test Pack summary |
 | Close-out | `aqg-decision-capture` | Turn lasting decisions (ruling / agent choice / external-audit adjudication) into a grep-able, redacted-on-read one-line entry in `docs/decisions/LOG.md` (`format` / `query` / `validate`); fights "why did we decide this" amnesia |
 | Handoff | `aqg-session-handoff` | When CTX is near the limit / already compacted / handing off, produce a paste-ready handoff prompt (background + precise state + next steps + discipline traps) |
 | Orchestrate | `aqg-phase-transition` | Emits a signal at three phase nodes (`PLAN_DONE` / `IMPL_DONE` / `TESTS_WRITTEN`); depth comes from the `depth-by-stakes` mapping in `docs/policies/audit-trigger.md` (the skill supplies timing, never depth) + 5-min dedup |

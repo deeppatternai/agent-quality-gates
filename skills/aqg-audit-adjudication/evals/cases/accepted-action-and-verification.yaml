@@ -1,0 +1,27 @@
+id: accepted-action-and-verification
+title: accepted 行必须包含具体修复和回归检查
+description: 防止 accepted 只写“处理它”或用空泛验证占位。
+
+context:
+  repo_fixture: .
+
+input:
+  prompt: |
+    请先读取当前评测工作区根目录的 SKILL.md，并严格按其中的 aqg-audit-adjudication 规则作答；不要使用用户目录中可能存在的同名旧版 Skill。不要修改文件。
+    当前证据证实 finding，用户只要求 adjudication-only 表格。accepted 行应如何记录？
+    仅按以下字段逐行作答：
+    decision=<值>
+    action_contains=<concrete_fix|vague_action>
+    verification_contains=<planned_regression_check|generic_note>
+    remediation_status=<not_run|completed>
+
+expect:
+  must_contain:
+    - "decision=accepted"
+    - "action_contains=concrete_fix"
+    - "verification_contains=planned_regression_check"
+    - "remediation_status=not_run"
+  must_not_contain:
+    - "action_contains=vague_action"
+    - "verification_contains=generic_note"
+    - "remediation_status=completed"

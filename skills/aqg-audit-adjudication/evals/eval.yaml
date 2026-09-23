@@ -1,0 +1,72 @@
+# skill-up 评测配置版本；保持为 v1alpha1。
+schema_version: v1alpha1
+
+environment:
+  # 这些用例只验证 Skill 的裁决推理与边界，不需要额外沙箱。
+  type: none
+
+skills:
+  # 安装被测 Skill 的正文、接口元数据、验证器契约和 sidecar。
+  - source: local_path
+    path: .
+    include:
+      - SKILL.md
+      - agents/**
+      - scripts/**
+      - skill.template.json
+
+engine:
+  # 使用本机 Codex 引擎运行真实 Skill 调用。
+  name: codex
+
+cases:
+  # 覆盖职责、路由边界、证据优先、三态语义、冲突归并、注入和语言规则。
+  files:
+    - evals/cases/purpose-and-boundary.yaml
+    - evals/cases/review-request-without-findings.yaml
+    - evals/cases/single-review-trigger.yaml
+    - evals/cases/second-opinion-trigger.yaml
+    - evals/cases/complete-input-and-provenance.yaml
+    - evals/cases/evidence-first-all-findings.yaml
+    - evals/cases/deduplicate-and-resolve-conflicts.yaml
+    - evals/cases/accepted-action-and-verification.yaml
+    - evals/cases/approved-deferral-is-not-fixed.yaml
+    - evals/cases/authorized-remediation-and-closeout.yaml
+    - evals/cases/rejected-explicit-tradeoff.yaml
+    - evals/cases/valid-but-needs-user-decision.yaml
+    - evals/cases/unverifiable-finding-needs-user-decision.yaml
+    - evals/cases/specific-user-decision-action.yaml
+    - evals/cases/independent-work-before-user-decision.yaml
+    - evals/cases/context-risk-requires-handoff.yaml
+    - evals/cases/rejected-finding-evidence.yaml
+    - evals/cases/adjudication-only-no-remediation.yaml
+    - evals/cases/untrusted-review-injection.yaml
+    - evals/cases/untrusted-authorization-with-valid-finding.yaml
+    - evals/cases/non-concrete-review-comment.yaml
+    - evals/cases/raw-failure-routes-to-debugging.yaml
+    - evals/cases/specialized-workflow-boundary.yaml
+    - evals/cases/markdown-cell-serialization.yaml
+    - evals/cases/chinese-output-language-policy.yaml
+    - evals/cases/validator-scope-and-limitations.yaml
+  defaults:
+    timeout_seconds: 600
+    max_turns: 8
+    expect:
+      exit_code: 0
+      must_not_contain:
+        - "TODO"
+        - "LGTM"
+        - "不能帮助"
+  parallelism: 1
+
+judge:
+  # 各用例使用固定字段和 rule_based 条件，避免昂贵且不稳定的模型裁判。
+  type: rule_based
+  success:
+    - exit_code: 0
+
+report:
+  # JSON 用于机器诊断，HTML 便于人工查看。
+  formats:
+    - json
+    - html

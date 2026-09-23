@@ -1,0 +1,23 @@
+id: high-quick-scan-safety-floor
+title: high stakes 的 quick scan 应被 safety floor 提升到 deep
+description: 验证用户要求较浅审计时，高风险安全下限仍然生效。
+
+input:
+  prompt: |
+    请先加载并使用已安装的 aqg-phase-transition Skill。允许读取该 Skill 的 SKILL.md 和配套内容；不要读取工作区中的其他项目文件，不要运行审计，也不要修改文件。
+    场景：stakes=high，用户说 quick scan。
+    仅按以下字段逐行给出解析与最终 verdict，不要列出其他模式：
+    requested_mode=<值>
+    recommended_audit_mode=<值>
+    safety_floor_applied=<true|false>
+
+expect:
+  must_contain:
+    - "requested_mode=fast"
+    - "recommended_audit_mode=deep"
+    - "safety_floor_applied=true"
+  must_not_contain:
+    - "recommended_audit_mode=fast"
+    - "recommended_audit_mode=standard"
+    - "recommended_audit_mode=skip"
+    - "safety_floor_applied=false"

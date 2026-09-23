@@ -1,0 +1,20 @@
+id: durable-state-separate-action
+title: durable state 更新必须与只读 helper 分离
+description: 验证 helper 只打印 stdout，保存文件或更新 PR 是单独的 caller action。
+
+input:
+  prompt: |
+    用户问：“运行 aqg-evidence-closeout helper 后，它是不是已经替我更新了 PR 描述和状态文档？”
+    只根据技能说明回答，必须包含 read-only、stdout、separate caller action、权限或授权，并明确没有自动更新。
+
+judge:
+  type: rule_based
+  success:
+    - output_matches:
+        all:
+          - '(?i)read-only|只读'
+          - '(?i)stdout'
+          - '(?i)separate caller action'
+          - '授权'
+          - '(?:没有|不会|不应|不负责).{0,12}自动(?:更新|保存|写入|修改)|不自动(?:更新|保存|写入|修改)'
+    - exit_code: 0

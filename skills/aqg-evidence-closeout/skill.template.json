@@ -1,7 +1,7 @@
 {
   "skill_template_schema": 1,
   "name": "aqg-evidence-closeout",
-  "description": "Evidence-backed closeout for AI team project tasks in any repository path, covering fresh verification, audit adjudication, durable state, and remaining blockers. Use before saying work is complete, before final answers after code/docs/status edits, before PR/issue handoff, after tests/checks, and whenever the task touched production-adjacent preflight, audit artifacts, status docs, or handoff prompts.",
+  "description": "Produce an evidence-backed closeout for project work, covering fresh verification, audit adjudication, durable state, untouched boundaries, worktree state, and remaining blockers. Use before claiming completion, posting a final answer, or PR/issue handoff; not to run checks, perform audits, or authorize production actions.",
   "version": "0.1.0",
   "wrapper_generated": true,
   "host_overrides": {
@@ -36,7 +36,10 @@
   "reads_paths": [
     "skills/aqg-evidence-closeout/",
     ".aqg/current_ledger.md",
-    ".aqg/code-construction/"
+    ".aqg/code-construction/",
+    ".aqg/transfer/last_run_summary.yaml",
+    "run_summary.yaml",
+    "tests/transfer/_last_run_summary.yaml"
   ],
   "writes_paths": [],
   "forbidden_paths": [

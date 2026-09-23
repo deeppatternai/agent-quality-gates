@@ -1,0 +1,23 @@
+id: construction-ledger-import
+title: construction ledger 导入内容必须完整
+description: 验证自动导入会覆盖 header、六步、Behavior Contract、warnings 和 objections，同时保持只读与脱敏。
+
+input:
+  prompt: |
+    只根据 aqg-evidence-closeout 技能说明，列出 `.aqg/current_ledger.md` 自动导入的内容和安全边界，不要调用工具。
+    回答必须包含 six-step table、Behavior Contract、Warning Acknowledgements、Predicted Objections、secret-redacted、read-only、`--construction-ledger` 和 `--no-construction-import`。
+
+judge:
+  type: rule_based
+  success:
+    - output_matches:
+        all:
+          - '(?i)six[- ]step table|六步|\|\s*Step\s*\|'
+          - '(?i)Behavior Contract'
+          - '(?i)Warning Acknowledgements'
+          - '(?i)Predicted Objections'
+          - '(?i)secret-redacted'
+          - '(?i)read-only'
+          - '--construction-ledger'
+          - '--no-construction-import'
+    - exit_code: 0

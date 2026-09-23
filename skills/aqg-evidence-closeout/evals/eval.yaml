@@ -1,0 +1,67 @@
+# skill-up 评测配置版本。
+schema_version: v1alpha1
+
+environment:
+  # 这些用例只评估 Skill 指令行为，不需要远程沙箱。
+  type: none
+
+skills:
+  # 安装当前目录中的 aqg-evidence-closeout Skill。
+  - source: local_path
+    path: .
+    include:
+      - SKILL.md
+      - scripts/**
+      - agents/**
+
+engine:
+  # 使用 Codex 执行中文用户场景。
+  name: codex
+
+cases:
+  # 覆盖触发、证据契约、状态、边界、导入、校验和多轮行为。
+  files:
+    - evals/cases/basic-done-closeout.yaml
+    - evals/cases/pr-handoff-ledger.yaml
+    - evals/cases/blocked-missing-audit.yaml
+    - evals/cases/blocked-production-authorization.yaml
+    - evals/cases/unverifiable-stale-evidence.yaml
+    - evals/cases/not-done-declared-scope.yaml
+    - evals/cases/changed-approach-status.yaml
+    - evals/cases/unexpected-dirty-worktree.yaml
+    - evals/cases/audit-not-required-reason.yaml
+    - evals/cases/durable-state-separate-action.yaml
+    - evals/cases/reporter-vs-strict-checker.yaml
+    - evals/cases/not-a-test-runner.yaml
+    - evals/cases/not-an-audit-engine.yaml
+    - evals/cases/construction-ledger-import.yaml
+    - evals/cases/missing-required-construction-ledger.yaml
+    - evals/cases/transfer-summary-failure.yaml
+    - evals/cases/transfer-summary-inconsistent.yaml
+    - evals/cases/transfer-summary-optional-miss.yaml
+    - evals/cases/transfer-summary-explicit-missing.yaml
+    - evals/cases/multi-repo-command.yaml
+    - evals/cases/language-hygiene.yaml
+    - evals/cases/incomplete-session-handoff.yaml
+    - evals/cases/sensitive-exact-facts.yaml
+    - evals/cases/multi-turn-promote-to-done.yaml
+  defaults:
+    timeout_seconds: 240
+    max_turns: 6
+    expect:
+      exit_code: 0
+      must_not_contain:
+        - LGTM
+  parallelism: 1
+
+# 默认使用确定性规则；每个用例补充自己的成功条件。
+judge:
+  type: rule_based
+  success:
+    - exit_code: 0
+
+report:
+  # 同时保留机器可读结果和可视化报告。
+  formats:
+    - json
+    - html

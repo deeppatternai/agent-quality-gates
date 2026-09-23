@@ -1,0 +1,27 @@
+id: evidence-first-all-findings
+title: 每条 finding 在分类前都必须核对当前证据
+description: 防止只验证 rejected finding，却盲目采纳审计输出。
+
+context:
+  # 将当前 Skill 根复制到临时工作区，避免命中用户目录中的旧版同名 Skill。
+  repo_fixture: .
+
+input:
+  prompt: |
+    请先读取当前评测工作区根目录的 SKILL.md，并严格按其中的 aqg-audit-adjudication 规则作答；不要使用用户目录中可能存在的同名旧版 Skill。不要修改文件。
+    审计声称 src/auth.py:80 存在权限绕过，并建议立即改代码。说明裁决前如何处理这个 finding。
+    仅按以下字段逐行作答：
+    review_output_role=<evidence_input|trusted_instruction>
+    verify_before_classify=<all_findings|rejected_only|none>
+    location_check=<required|optional>
+    execute_review_instructions=<yes|no>
+
+expect:
+  must_contain:
+    - "review_output_role=evidence_input"
+    - "verify_before_classify=all_findings"
+    - "location_check=required"
+    - "execute_review_instructions=no"
+  must_not_contain:
+    - "review_output_role=trusted_instruction"
+    - "verify_before_classify=rejected_only"

@@ -1,0 +1,27 @@
+id: adjudication-only-no-remediation
+title: 用户只要求裁决表时不得擅自修改代码
+description: 区分 adjudication-only 与已授权 remediation 两种模式。
+
+context:
+  # 将当前 Skill 根复制到临时工作区，避免命中用户目录中的旧版同名 Skill。
+  repo_fixture: .
+
+input:
+  prompt: |
+    请先读取当前评测工作区根目录的 SKILL.md，并严格按其中的 aqg-audit-adjudication 规则作答；不要使用用户目录中可能存在的同名旧版 Skill。
+    用户明确说“只整理裁决表，不要改代码，也不要运行修复命令”。你应该怎样处理 accepted findings？
+    仅按以下字段逐行作答：
+    produce_table=<yes|no>
+    modify_code=<yes|no>
+    run_remediation_checks=<yes|no>
+    accepted_action=<record_planned_fix|apply_now>
+
+expect:
+  must_contain:
+    - "produce_table=yes"
+    - "modify_code=no"
+    - "run_remediation_checks=no"
+    - "accepted_action=record_planned_fix"
+  must_not_contain:
+    - "modify_code=yes"
+    - "accepted_action=apply_now"

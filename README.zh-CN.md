@@ -37,7 +37,7 @@ Agent Quality Gates（`AQG`）是给 AI 编码工作流用的**质量纪律工�
 ### 不靠"想起来"的护栏
 
 - **动手前先 preflight。** `aqg-startup-preflight` 检查实时的 git + GitHub 状态（dirty worktree / gone upstream / 落后 remote / 缺 context 文件 / open PR），让你绝不在陈旧基线上起步。
-- **说"完成"前先 closeout。** `aqg-evidence-closeout` 逼你回答 6 个问题 —— 什么改了 · 什么 fresh check 证明了 · 什么 durable state 更新了 · 什么边界你**没**碰 · 什么仍在 block —— 才能声称完成。
+- **说“完成”前先收口证据。** `aqg-evidence-closeout` 要求补齐 6 项证据——完成范围、最新验证、审计裁决、持久状态、未触碰边界、剩余阻塞——并说明 worktree 是干净还是有意保留改动，之后才能声称完成。
 - **机械强制。** Claude Code、Codex、Cursor、CodeBuddy、Kimi Code、Qoder CLI、Trae IDE 与 Devin CLI 有 managed 生命周期 adapter；WorkBuddy、Trae Work、Trae Work CN、Kimi Work、Zed、QoderWork 与 QoderWake 只暴露官方可证明子集。
 
 一眼速览：
@@ -153,7 +153,7 @@ Qoder Desktop profile 只按精确 macOS 产品身份选择，不根据配置目
 | 审查 | `aqg-security-review` | in-session OWASP Top 10 + CWE Top 25 + 8 类 secure-by-default 库 checklist；与 semgrep SAST + audit-mcp 外审三层互补 |
 | 审查 | `aqg-test-quality-review` | 判测试是 BEHAVIOR（输出/副作用/错误）还是 SHAPE（类型/结构/键存在）+ 找 coverage gap / weakened / flaky；signal-only |
 | 审查 | `aqg-audit-adjudication` | 把 audit / code-review / second-opinion finding 决出 accept / reject / needs-user-decision，出结构化 table |
-| 完工 | `aqg-evidence-closeout` | 完工前出 evidence ledger；自动 import `.aqg/current_ledger.md`（来自 construction skill）+ Transfer Test Pack run summary |
+| 完工 | `aqg-evidence-closeout` | 完工前生成六项证据账本并说明 worktree 状态；自动导入构造账本和可选的 Transfer Test Pack 摘要 |
 | 完工 | `aqg-decision-capture` | 持久决策（裁定 / agent 自主 / 外审裁决）→ `docs/decisions/LOG.md` 一行可 grep、读时脱敏条目（`format` / `query` / `validate`）；抗"当初为何这么定"健忘 |
 | 交接 | `aqg-session-handoff` | CTX 满 / 已压缩 / 交接下个 session 时出 paste-ready 交接 prompt（背景 + 现状 + 下一步 + 纪律 traps）|
 | 编排 | `aqg-phase-transition` | 三个 phase 节点（`PLAN_DONE` / `IMPL_DONE` / `TESTS_WRITTEN`）emit signal，深度取自 `docs/policies/audit-trigger.md` 的 `depth-by-stakes` 映射（本 skill 只提供时机，不决定深度）+ 5min dedup |

@@ -1,0 +1,32 @@
+id: reporter-vs-strict-checker
+title: reporter 与 strict checker 必须区分
+description: 验证 helper 的 exit 0 契约、严格完整性检查命令及其语义边界都被正确说明。
+
+input:
+  prompt: |
+    请用 8 行以内解释 aqg_closeout.py 与 check_evidence_closeout.py --strict 的区别，不要调用工具。
+    回答必须包含 always exits 0、reporter, not a gate、`python3 "$aqg_root/scripts/check_evidence_closeout.py" <closeout.md> --strict`、placeholder、完整性，以及“不判断证据质量”。
+
+expect:
+  must_contain:
+    - "always exits 0"
+    - "reporter, not a gate"
+    - "check_evidence_closeout.py"
+    - "--strict"
+    - placeholder
+    - 完整性
+    - 不判断证据质量
+
+judge:
+  type: rule_based
+  success:
+    - output_contains:
+        all:
+          - "always exits 0"
+          - "reporter, not a gate"
+          - "check_evidence_closeout.py"
+          - "--strict"
+          - placeholder
+          - 完整性
+          - 不判断证据质量
+    - exit_code: 0

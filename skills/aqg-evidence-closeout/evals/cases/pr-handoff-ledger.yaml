@@ -1,0 +1,27 @@
+id: pr-handoff-ledger
+title: PR 交接前应生成六项证据账本
+description: 验证准备打开 PR 时会列出标准六项 claim，并单独说明 worktree 状态。
+
+input:
+  prompt: |
+    我准备把工作交给 PR reviewer。只根据 aqg-evidence-closeout 技能说明，给我一个待填写的 evidence ledger，不要调用工具，也不要假装任何检查已经完成。
+    表格必须包含 scope completed、verification run、audit adjudicated、durable state updated、production boundary、remaining blockers，并在表格外提醒记录 worktree 状态。
+
+expect:
+  must_not_contain:
+    - "Status: DONE"
+
+judge:
+  type: rule_based
+  success:
+    - output_matches:
+        all:
+          - '(?i)scope completed'
+          - '(?i)verification run'
+          - '(?i)audit adjudicated'
+          - '(?i)durable state updated'
+          - '(?i)production boundary'
+          - '(?i)remaining blockers'
+          - '(?i)worktree'
+        not: ['(?i)Status:\s*DONE']
+    - exit_code: 0

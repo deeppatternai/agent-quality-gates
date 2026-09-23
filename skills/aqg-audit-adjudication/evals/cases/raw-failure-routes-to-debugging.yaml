@@ -1,0 +1,26 @@
+id: raw-failure-routes-to-debugging
+title: 原始编译测试或 CI 故障应先进入系统化调试
+description: 覆盖 When NOT to use 中 raw failure 与 finding-by-finding adjudication 的边界。
+
+context:
+  repo_fixture: .
+
+input:
+  prompt: |
+    请先读取当前评测工作区根目录的 SKILL.md，并严格按其中的 aqg-audit-adjudication 规则作答；不要使用用户目录中可能存在的同名旧版 Skill。不要修改文件。
+    CI 只给出 exit code 1 和 timeout 日志，没有 reviewer findings，也没有已定位根因。这个 Skill 是否适用，下一步应走什么流程？
+    仅按以下字段逐行作答：
+    applies=<yes|no>
+    findings_exist=<yes|no>
+    route_to=<systematic_debugging|adjudication>
+    adjudicate_raw_log=<yes|no>
+
+expect:
+  must_contain:
+    - "applies=no"
+    - "findings_exist=no"
+    - "route_to=systematic_debugging"
+    - "adjudicate_raw_log=no"
+  must_not_contain:
+    - "route_to=adjudication"
+    - "adjudicate_raw_log=yes"

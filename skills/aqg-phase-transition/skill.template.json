@@ -1,19 +1,19 @@
 {
   "skill_template_schema": 1,
   "name": "aqg-phase-transition",
-  "description": "Use PROACTIVELY at three points — after producing a plan/PRD/design doc, after finishing a non-trivial implementation, after writing tests — to emit a phase-transition signal (PLAN_DONE / IMPL_DONE / TESTS_WRITTEN) and get a recommended audit mode before moving on. The depth rule lives in `docs/policies/audit-trigger.md`, which this skill applies — a sensitive-surface change is audited at the strictest depth regardless of size, and a trivial non-sensitive one is not audited at all. Signal only — the caller runs /audit.",
+  "description": "Use at phase boundaries after a plan/design doc, a non-trivial implementation, or written tests to emit PLAN_DONE, IMPL_DONE, or TESTS_WRITTEN and return the recommended audit mode. Signal-only; it reads depth from docs/policies/audit-trigger.md, applies dedup/user-signal/safety-floor rules, and leaves the caller to run or skip /audit.",
   "version": "0.1.0",
   "wrapper_generated": true,
   "primary_trigger_keywords": ["phase transition", "PLAN_DONE", "IMPL_DONE", "TESTS_WRITTEN", "audit mode", "recommended audit", "phase boundary"],
   "boundary_class": "writes-evidence",
   "audit_mode_required": "standard",
   "trigger_grammar": {
-    "keywords": ["phase transition", "PLAN_DONE", "IMPL_DONE", "TESTS_WRITTEN", "audit mode", "phase boundary", "plan 写完", "impl done", "tests 写完", "要不要审"],
+    "keywords": ["phase transition", "PLAN_DONE", "IMPL_DONE", "TESTS_WRITTEN", "audit mode", "recommended audit mode", "phase boundary", "plan done", "implementation done", "tests written"],
     "sentence_patterns": [
-      "我刚写完 plan / sketch, 进 impl 前帮我看看要不要 audit",
-      "implementation done, 跑 review 之前问要不要 audit",
-      "tests 写完, 跑测试前要不要先过一遍 audit",
-      "我刚 plan_done, 这次改动是 prod migration 高 stakes 不可逆",
+      "I just finished the plan / sketch; before implementation, check whether I should audit",
+      "implementation is done; before review, ask whether an external audit is needed",
+      "tests are written; before running them, should I do an audit pass first",
+      "I just hit plan_done; this change is a production migration, high stakes, and irreversible",
       "Run aqg-phase-transition emit to get recommended audit mode"
     ]
   },
@@ -40,7 +40,7 @@
   ],
   "aqg_agent_gating": false,
   "owner_only_actions": [
-    "Production / migration / branch protection / Owner-admin actions remain separate authorization gates; phase-transition only emits a signal, never calls audit-mcp itself (per ADR 2026-05-08-aqg-skill-distribution-boundary-a1.md §5)"
+    "Production / migration / branch protection / Owner-admin actions remain separate authorization gates; phase-transition only emits a signal, never calls the audit tool itself (per ADR 2026-05-08-aqg-skill-distribution-boundary-a1.md §5)"
   ],
   "cases": [
     {

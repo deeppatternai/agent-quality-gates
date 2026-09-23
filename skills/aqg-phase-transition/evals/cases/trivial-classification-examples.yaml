@@ -1,0 +1,25 @@
+id: trivial-classification-examples
+title: 所有 trivial 示例都应保持 skip
+description: 验证 rename、reformat、comment、inert prose 和本地检查完全判定的改动不会被升级。
+
+input:
+  prompt: |
+    请先加载并使用已安装的 aqg-phase-transition Skill。允许读取该 Skill 的 SKILL.md 和配套内容；不要读取工作区中的其他项目文件，不要运行审计，也不要修改文件。
+    假设以下改动都没有触发 escalation gate，请分别给出 `<stakes>/<recommended_audit_mode>`：rename、纯 reformat、只改 comment、inert prose edit、可由 test/type/lint 完全判定的改动。
+    仅按以下字段逐行作答。尖括号只表示占位符，答案值中不要保留 `<` 或 `>`：
+    rename=<值>
+    reformat=<值>
+    comment=<值>
+    inert_prose=<值>
+    locally_settled=<值>
+
+expect:
+  must_contain:
+    - "rename=trivial/skip"
+    - "reformat=trivial/skip"
+    - "comment=trivial/skip"
+    - "inert_prose=trivial/skip"
+    - "locally_settled=trivial/skip"
+  must_not_contain:
+    - "rename=moderate"
+    - "comment=high"

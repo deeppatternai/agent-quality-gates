@@ -1,0 +1,22 @@
+id: canonical-phase-order
+title: canonical phase 顺序不应产生 warning
+description: 验证正常 PLAN_DONE 到 IMPL_DONE 到 TESTS_WRITTEN 顺序被允许且不误告警。
+
+input:
+  prompt: |
+    请先加载并使用已安装的 aqg-phase-transition Skill。允许读取该 Skill 的 SKILL.md 和配套内容；不要读取工作区中的其他项目文件，不要运行审计，也不要修改文件。
+    场景：同一任务依次发出 PLAN_DONE、IMPL_DONE、TESTS_WRITTEN，没有跳阶段或回退。
+    仅按以下字段逐行说明 phase-order 结果：
+    plan_to_impl_warning=<true|false>
+    impl_to_tests_warning=<true|false>
+    transitions_allowed=<true|false>
+
+expect:
+  must_contain:
+    - "plan_to_impl_warning=false"
+    - "impl_to_tests_warning=false"
+    - "transitions_allowed=true"
+  must_not_contain:
+    - "plan_to_impl_warning=true"
+    - "impl_to_tests_warning=true"
+    - "transitions_allowed=false"

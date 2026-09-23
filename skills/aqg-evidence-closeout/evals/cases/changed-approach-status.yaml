@@ -1,0 +1,28 @@
+id: changed-approach-status
+title: 方案调整不应成为独立完成状态
+description: 验证目标通过不同方案实现时仍使用真实完成状态，并把 approach change 写进 evidence。
+
+input:
+  prompt: |
+    原计划修改 parser，最终改成复用现有 validator；目标已达成，fresh checks 全部通过，没有 blocker，worktree clean。
+    不要调用工具或访问仓库，只根据这些事实回答。
+    请依据 aqg-evidence-closeout 生成最终答复，在证据中说明方案调整，并使用真实完成状态而不是把方案变化当成状态。
+
+constraints:
+  timeout_seconds: 120
+  max_turns: 2
+
+expect:
+  must_not_contain:
+    - "Status: CHANGED"
+
+judge:
+  type: rule_based
+  success:
+    - output_matches:
+        all:
+          - '(?is)(?:Status|完成状态|状态).*?(?:DONE|已完成|完成)'
+          - '方案(?:的)?(?:调整|变化|优化)|改为复用|实现路径调整|最终方案|实施方案.*(?:优化|调整)|从.*调整为|路径.*变化'
+          - '(?i)validator'
+        not: ['(?i)Status:\s*CHANGED']
+    - exit_code: 0

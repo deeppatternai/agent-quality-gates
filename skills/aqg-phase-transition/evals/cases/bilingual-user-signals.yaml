@@ -1,0 +1,16 @@
+id: bilingual-user-signals
+title: 中英文 user signal 应映射到统一 mode
+description: 验证保留中文自然语言输入不会改变 fast、standard、deep、skip 枚举。
+
+input:
+  prompt: |
+    请先加载并使用已安装的 aqg-phase-transition Skill。允许读取该 Skill 的 SKILL.md 和配套内容；不要读取工作区中的其他项目文件，不要运行审计，也不要修改文件。
+    请把以下 user signal 映射到 mode：快速扫一下、审一下、深审、别审。
+    每个 signal 只输出一行，格式为 `<原始 signal> -> <mode>`，不要列出候选 mode 或解释。
+
+expect:
+  must_contain:
+    - "快速扫一下 -> fast"
+    - "审一下 -> standard"
+    - "深审 -> deep"
+    - "别审 -> skip"

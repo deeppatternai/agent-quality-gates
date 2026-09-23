@@ -1,0 +1,22 @@
+id: alternative-tools-and-per-edit
+title: 非 phase-boundary 请求应路由到其他工具
+description: 验证 Skill 不覆盖 session preflight、final closeout、显式 audit 或每次文件编辑。
+
+input:
+  prompt: |
+    请先加载并使用已安装的 aqg-phase-transition Skill。允许读取该 Skill 的 SKILL.md 和配套内容；不要读取工作区中的其他项目文件，不要运行审计，也不要修改文件。
+    请说明四种不应使用本 Skill 的场景：session 开始、最终交付、用户直接要求审计、普通文件刚修改。
+    仅按以下字段逐行给出应该使用的工具或动作。前三项必须填写 Skill 文档路由表中命名的替代 Skill，不能只写“不运行 phase-transition”；最后一项填写动作：
+    session_start=<值>
+    final_handoff=<值>
+    explicit_artifact_audit=<值>
+    ordinary_file_edit=<run_phase_transition|do_not_run_phase_transition>
+
+expect:
+  must_contain:
+    - "session_start=aqg-startup-preflight"
+    - "final_handoff=aqg-evidence-closeout"
+    - "explicit_artifact_audit=audit"
+    - "ordinary_file_edit=do_not_run_phase_transition"
+  must_not_contain:
+    - "ordinary_file_edit=run_phase_transition"

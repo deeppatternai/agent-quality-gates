@@ -4,14 +4,14 @@
 Resolves stakes → recommended audit mode via the depth mapping owned by
 `docs/policies/audit-trigger.md` + safety floor + user-signal override + 5-min
 content-hash dedup. Phase is a timing signal, not a depth input. Persists state to
-`<repo>/.aqg/phase-state-<task>.json`.
+`<repo>/.aqg/phase-state-<safe-task>-<short-hash>.json`.
 
-Boundary (per ADR §5): emits SIGNAL only — does NOT call audit-mcp de_audit.
+Boundary (per ADR §5): emits SIGNAL only — does NOT call the audit tool.
 Caller (human / Claude session / EAF) reads `recommended_audit_mode` and acts.
 
 Subcommands:
 - emit       — read state + decide mode + write back state
-- override   — explicit mode pick (e.g. user said "深审" / "严格审"); update state
+- override   — explicit mode pick (e.g. user said "deep audit" / "strict review"); update state
 - query      — print current state for one task
 
 Exit codes:
@@ -340,7 +340,7 @@ def _build_parser() -> argparse.ArgumentParser:
                       help="task id (e.g. sprint-11a-aqg-automation-audit)")
     emit.add_argument("--artifact-file", help="path to plan/impl/tests artifact")
     emit.add_argument("--artifact", help="literal artifact text (alternative to --artifact-file)")
-    emit.add_argument("--user-signal", help="natural-language user signal (e.g. '快速扫一下')")
+    emit.add_argument("--user-signal", help="natural-language user signal (e.g. 'quick scan')")
     emit.add_argument("--allow-empty-artifact", action="store_true",
                       help="allow an empty/whitespace artifact (skips the fail-closed guard)")
     emit.set_defaults(func=cmd_emit)

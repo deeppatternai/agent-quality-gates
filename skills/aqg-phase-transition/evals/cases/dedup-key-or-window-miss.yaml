@@ -1,0 +1,25 @@
+id: dedup-key-or-window-miss
+title: dedup key 任一分量不同或超窗都不应命中
+description: 验证 task、content、phase 三元组及 5 分钟窗口都必须同时匹配。
+
+input:
+  prompt: |
+    请先加载并使用已安装的 aqg-phase-transition Skill。允许读取该 Skill 的 SKILL.md 和配套内容；不要读取工作区中的其他项目文件，不要运行审计，也不要修改文件。
+    基准记录为同一 task-id、content-hash、phase 且未超过 5 分钟。分别判断四种变化是否 dedup hit：task-id 不同、content-hash 不同、phase 不同、其余相同但已超过 5 分钟。
+    仅按以下字段逐行作答：
+    different_task_dedup_hit=<true|false>
+    different_hash_dedup_hit=<true|false>
+    different_phase_dedup_hit=<true|false>
+    outside_window_dedup_hit=<true|false>
+
+expect:
+  must_contain:
+    - "different_task_dedup_hit=false"
+    - "different_hash_dedup_hit=false"
+    - "different_phase_dedup_hit=false"
+    - "outside_window_dedup_hit=false"
+  must_not_contain:
+    - "different_task_dedup_hit=true"
+    - "different_hash_dedup_hit=true"
+    - "different_phase_dedup_hit=true"
+    - "outside_window_dedup_hit=true"

@@ -32,8 +32,8 @@ def _run_main(argv: list[str]) -> tuple[int, str]:
 def test_emit_returns_valid_audit_mode() -> None:
     """Issue #114 sidecar smoke: emit a PLAN_DONE phase + parse recommended_audit_mode.
 
-    State persists to <repo>/.aqg/phase-state-<task>.json (per docstring); we use
-    a tmp dir as the repo so no real .aqg/ is polluted.
+    State persists to <repo>/.aqg/phase-state-<safe-task>-<short-hash>.json; we
+    use a tmp dir as the repo so no real .aqg/ is polluted.
     """
     with tempfile.TemporaryDirectory() as tmp:
         repo = Path(tmp)

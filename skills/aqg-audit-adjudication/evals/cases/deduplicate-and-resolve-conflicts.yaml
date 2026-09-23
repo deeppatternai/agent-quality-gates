@@ -1,0 +1,28 @@
+id: deduplicate-and-resolve-conflicts
+title: 多来源 findings 应按根因归并并保留来源
+description: 验证重复、收敛和互相矛盾的 finding 不会被逐字重复处理。
+
+context:
+  # 将当前 Skill 根复制到临时工作区，避免命中用户目录中的旧版同名 Skill。
+  repo_fixture: .
+
+input:
+  prompt: |
+    请先读取当前评测工作区根目录的 SKILL.md，并严格按其中的 aqg-audit-adjudication 规则作答；不要使用用户目录中可能存在的同名旧版 Skill。不要修改文件。
+    Reviewer A 和 Reviewer B 都指出同一行的空值处理错误；Reviewer C 则认为该行为是有意设计。说明应该怎样整理后再裁决，同时不能增加表格列。
+    仅按以下字段逐行作答：
+    deduplicate_by=<root_cause|wording>
+    preserve_sources=<yes|no>
+    conflicting_claims=<verify_current_evidence|pick_majority>
+    provenance_location=<finding_cell|new_columns>
+
+expect:
+  must_contain:
+    - "deduplicate_by=root_cause"
+    - "preserve_sources=yes"
+    - "conflicting_claims=verify_current_evidence"
+    - "provenance_location=finding_cell"
+  must_not_contain:
+    - "deduplicate_by=wording"
+    - "conflicting_claims=pick_majority"
+    - "provenance_location=new_columns"

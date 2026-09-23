@@ -1,0 +1,34 @@
+id: purpose-and-boundary
+title: 审计裁决应发生在 findings 已存在之后
+description: 验证 Skill 不发起审计，并保留固定四列表和三种规范裁决值。
+
+context:
+  # 将当前 Skill 根复制到临时工作区，避免命中用户目录中的旧版同名 Skill。
+  repo_fixture: .
+
+input:
+  prompt: |
+    请先读取当前评测工作区根目录的 SKILL.md，并严格按其中的 aqg-audit-adjudication 规则作答；不要使用用户目录中可能存在的同名旧版 Skill。不要运行审计，不要修改文件。
+    请说明它的触发时机、是否负责运行 review、规范 decision 值和表格列。
+    仅按以下字段逐行作答：
+    purpose=<post_review_adjudication|review_execution>
+    findings_required=<yes|no>
+    runs_review=<yes|no>
+    decisions=<逗号分隔>
+    columns=<逗号分隔>
+
+expect:
+  must_contain:
+    - "purpose=post_review_adjudication"
+    - "findings_required=yes"
+    - "runs_review=no"
+    - "accepted"
+    - "rejected"
+    - "needs-user-decision"
+    - "finding"
+    - "decision"
+    - "action"
+    - "verification"
+  must_not_contain:
+    - "purpose=review_execution"
+    - "runs_review=yes"

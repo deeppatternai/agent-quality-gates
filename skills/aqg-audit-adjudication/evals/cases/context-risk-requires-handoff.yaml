@@ -1,0 +1,27 @@
+id: context-risk-requires-handoff
+title: 上下文风险达到边界时应停止并生成可粘贴 handoff
+description: 覆盖 Stop Boundaries 中唯一与会话上下文有关的停止条件。
+
+context:
+  repo_fixture: .
+
+input:
+  prompt: |
+    请先读取当前评测工作区根目录的 SKILL.md，并严格按其中的 aqg-audit-adjudication 规则作答；不要使用用户目录中可能存在的同名旧版 Skill。不要修改文件。
+    当前裁决会话很长，剩余上下文已不足以安全完成后续 findings，但已完成部分有明确证据和开放决定。应如何处理？
+    仅按以下字段逐行作答：
+    stop_for_context_risk=<yes|no>
+    handoff_shape=<paste_ready|informal_summary|none>
+    preserve_goal_progress_open_decisions=<yes|no>
+    continue_guessing=<yes|no>
+
+expect:
+  must_contain:
+    - "stop_for_context_risk=yes"
+    - "handoff_shape=paste_ready"
+    - "preserve_goal_progress_open_decisions=yes"
+    - "continue_guessing=no"
+  must_not_contain:
+    - "handoff_shape=informal_summary"
+    - "handoff_shape=none"
+    - "continue_guessing=yes"

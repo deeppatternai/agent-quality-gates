@@ -1,0 +1,27 @@
+id: approved-deferral-is-not-fixed
+title: 已批准延期必须引用持久跟踪项且不能声称已修复
+description: 区分接受 finding、批准延期和真正完成修复。
+
+context:
+  repo_fixture: .
+
+input:
+  prompt: |
+    请先读取当前评测工作区根目录的 SKILL.md，并严格按其中的 aqg-audit-adjudication 规则作答；不要使用用户目录中可能存在的同名旧版 Skill。不要修改文件。
+    Finding 已被证实，用户明确批准延期，并创建了 docs/decisions/LOG.md 中的跟踪记录。应如何写这一行？
+    仅按以下字段逐行作答：
+    decision=<值>
+    action_reference=<durable_follow_up|none>
+    claims_fixed=<yes|no>
+    verification=<follow_up_record|remediation_passed>
+
+expect:
+  must_contain:
+    - "decision=accepted"
+    - "action_reference=durable_follow_up"
+    - "claims_fixed=no"
+    - "verification=follow_up_record"
+  must_not_contain:
+    - "action_reference=none"
+    - "claims_fixed=yes"
+    - "verification=remediation_passed"

@@ -1,0 +1,21 @@
+id: transfer-summary-explicit-missing
+title: 显式错误的 Transfer summary 路径必须显示诊断
+description: 验证用户明确传入不存在的 summary 路径时不会静默省略，而会回显路径并要求修正。
+
+input:
+  prompt: |
+    用户显式传入 `--transfer-summary /tmp/missing-summary.yaml`，但文件不存在。只根据 aqg-evidence-closeout 技能说明解释输出行为。
+    请说明该显式路径需要诊断和修正，缺失 summary 不能作为通过证据。
+
+expect:
+judge:
+  type: rule_based
+  success:
+    - output_matches:
+        all:
+          - '/tmp/missing-summary\.yaml'
+          - '显式参数|显式路径|显式传入|显式指定|显式.*指定'
+          - '诊断|明确呈现|报告(?:该路径)?缺失|路径缺失'
+          - '修正|正确路径'
+          - '(?i)(?:不得|不能|不应).{0,80}(?:通过证据|PASS|DONE)|不能.*静默省略|不可用|无法导入.*证据|而不是.*PASS|证据不完整'
+    - exit_code: 0

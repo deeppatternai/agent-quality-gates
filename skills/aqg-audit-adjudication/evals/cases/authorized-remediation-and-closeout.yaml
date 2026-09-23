@@ -1,0 +1,30 @@
+id: authorized-remediation-and-closeout
+title: 已授权 fix-now 应执行修复、回归检查和 evidence closeout
+description: 覆盖 Authorized remediation 模式以及“不替代 evidence closeout”的描述边界。
+
+context:
+  repo_fixture: .
+
+input:
+  prompt: |
+    请先读取当前评测工作区根目录的 SKILL.md，并严格按其中的 aqg-audit-adjudication 规则作答；不要使用用户目录中可能存在的同名旧版 Skill。不要实际修改文件。
+    Finding 已被证实并标为 accepted；用户明确授权 fix-now，修复不跨越 stop boundary，且会修改代码和文档。说明获授权的真实任务应遵循的完整工作流；本评测本身只询问规范，不要求现在修改文件。
+    `verification_after_run` 询问真实任务完成检查后，最终 verification 记录应写实际结果还是仅写检查计划。
+    仅按以下字段逐行作答：
+    apply_accepted_fix=<yes|no>
+    run_listed_checks=<yes|no>
+    verification_after_run=<actual_result|planned_only>
+    use_evidence_closeout=<yes|no>
+    adjudication_replaces_closeout=<yes|no>
+
+expect:
+  must_contain:
+    - "apply_accepted_fix=yes"
+    - "run_listed_checks=yes"
+    - "verification_after_run=actual_result"
+    - "use_evidence_closeout=yes"
+    - "adjudication_replaces_closeout=no"
+  must_not_contain:
+    - "apply_accepted_fix=no"
+    - "verification_after_run=planned_only"
+    - "adjudication_replaces_closeout=yes"

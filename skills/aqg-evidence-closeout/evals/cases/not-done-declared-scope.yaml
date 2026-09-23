@@ -1,0 +1,24 @@
+id: not-done-declared-scope
+title: 已声明但未尝试的范围应标记 NOT_DONE
+description: 验证任务范围中的一项完全没有开始时，会使用 NOT_DONE 并阻止整体 DONE。
+
+input:
+  prompt: |
+    本轮计划同时更新文档和补测试。文档已经完成并验证，但测试部分完全没有开始。请依据 aqg-evidence-closeout 给出简短状态。
+    请区分顶层状态和测试相关 claim，并在 Remaining 中列出补测试；不要提前宣称完成。
+
+expect:
+  must_not_contain:
+    - "Status: DONE"
+
+judge:
+  type: rule_based
+  success:
+    - output_matches:
+        all:
+          - '(?is)(?:Status|顶层状态).*?PARTIAL'
+          - '(?i)NOT_DONE|未开始|尚未开始'
+          - '(?i)Remaining|剩余'
+          - '补(?:充|写)?测试|测试补充|测试相关 claim|补充计划内测试'
+        not: ['(?i)Status:\s*DONE']
+    - exit_code: 0

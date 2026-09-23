@@ -1,0 +1,26 @@
+id: multi-repo-command
+title: 多仓库 closeout 应重复使用 --repo
+description: 验证 Skill 能通过重复的 --repo 参数给出多个仓库的正确 helper 命令。
+
+input:
+  prompt: |
+    我要同时收口 `/repo/api` 和 `/repo/web`。请只根据技能说明给出 aqg_closeout.py 命令和一条注意事项，不要调用工具。
+    命令必须包含 `--repo /repo/api`、`--repo /repo/web`、`--task "multi-repo release"`，并说明 `--repo` 可以重复使用。
+
+expect:
+  must_contain:
+    - "--repo /repo/api"
+    - "--repo /repo/web"
+    - "--task \"multi-repo release\""
+    - 重复使用
+
+judge:
+  type: rule_based
+  success:
+    - output_contains:
+        all:
+          - "--repo /repo/api"
+          - "--repo /repo/web"
+          - "--task \"multi-repo release\""
+          - 重复使用
+    - exit_code: 0

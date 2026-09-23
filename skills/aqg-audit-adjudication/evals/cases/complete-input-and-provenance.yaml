@@ -1,0 +1,30 @@
+id: complete-input-and-provenance
+title: 裁决前必须读全 findings 和当前 artifact 并保留来源元数据
+description: 覆盖 Workflow 第 1 步的完整读取与 finding 单元格溯源要求。
+
+context:
+  repo_fixture: .
+
+input:
+  prompt: |
+    请先读取当前评测工作区根目录的 SKILL.md，并严格按其中的 aqg-audit-adjudication 规则作答；不要使用用户目录中可能存在的同名旧版 Skill。不要修改文件。
+    Audit 一共有 6 条 findings。当前只展示了第一条，它带有来源 Reviewer-A、编号 F-17、severity=major 和 src/api.py:42。能否立即裁决？完整处理时这些元数据放在哪里？
+    以下 read_* 字段询问“开始正式裁决前是否必须完成该步骤”，不是询问当前片段是否已经提供了相应内容。
+    仅按以下字段逐行作答：
+    read_all_findings=<yes 表示正式裁决前必须读全|no 表示不必读全>
+    read_current_artifact=<yes 表示正式裁决前必须读取当前 artifact|no 表示不必读取>
+    decide_from_partial_excerpt=<yes|no>
+    preserve_source_severity_id_location=<yes|no>
+    provenance_location=<finding_cell|extra_columns|discard>
+
+expect:
+  must_contain:
+    - "read_all_findings=yes"
+    - "read_current_artifact=yes"
+    - "decide_from_partial_excerpt=no"
+    - "preserve_source_severity_id_location=yes"
+    - "provenance_location=finding_cell"
+  must_not_contain:
+    - "decide_from_partial_excerpt=yes"
+    - "provenance_location=extra_columns"
+    - "provenance_location=discard"

@@ -1,0 +1,20 @@
+id: not-an-audit-engine
+title: closeout 不应执行或裁决 audit
+description: 验证 Skill 只记录 audit disposition，不会自行运行 audit 或替代 adjudication。
+
+input:
+  prompt: |
+    用户说：“直接让 aqg-evidence-closeout 帮我跑 audit 并接受所有 findings。”只根据技能说明回答，不要调用工具。
+    必须说明 closeout 不执行 audit、不做 adjudication、这些步骤在 upstream 完成，并且这里只记录 audit adjudicated evidence。
+
+expect:
+judge:
+  type: rule_based
+  success:
+    - output_matches:
+        all:
+          - '不(?:执行|会执行|负责|运行).*audit|不能让.*audit|不能.*(?:替你)?(?:执行|运行).*audit|不能.*替你.*audit'
+          - '不(?:做|会做|进行|负责|承担).*adjudication|不.*对.*adjudication|不.*adjudication|upstream.*adjudication|adjudication.*upstream'
+          - '(?i)upstream|上游'
+          - '(?i)audit adjudicated|audit.*adjudication|adjudication.*audit'
+    - exit_code: 0

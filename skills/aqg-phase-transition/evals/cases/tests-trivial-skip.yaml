@@ -1,0 +1,24 @@
+id: tests-trivial-skip
+title: TESTS_WRITTEN 的 trivial 改动应 skip
+description: 验证阶段边界不会把纯机械、可本地判定的改动升级成外审。
+
+input:
+  prompt: |
+    请先加载并使用已安装的 aqg-phase-transition Skill。允许读取该 Skill 的 SKILL.md 和配套内容；不要读取工作区中的其他项目文件，不要运行审计，也不要修改文件。
+    场景：测试刚写完，改动只是 rename，且 lint 和现有测试完全判定正确，没有 escalation gate。
+    仅按以下字段逐行给出路由结论，不要列出候选项或其他模式：
+    phase=<CLI 小写枚举值>
+    stakes=<值>
+    recommended_audit_mode=<值>
+    escalation_gate_fired=<true|false>
+
+expect:
+  must_contain:
+    - "phase=tests_written"
+    - "stakes=trivial"
+    - "recommended_audit_mode=skip"
+    - "escalation_gate_fired=false"
+  must_not_contain:
+    - "recommended_audit_mode=fast"
+    - "recommended_audit_mode=standard"
+    - "recommended_audit_mode=deep"

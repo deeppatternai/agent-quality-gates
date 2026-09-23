@@ -1,0 +1,26 @@
+id: second-opinion-trigger
+title: 单独的 second opinion findings 也属于裁决输入
+description: 覆盖 frontmatter 中 audit、code review 之外的第三类输入来源。
+
+context:
+  repo_fixture: .
+
+input:
+  prompt: |
+    请先读取当前评测工作区根目录的 SKILL.md，并严格按其中的 aqg-audit-adjudication 规则作答；不要使用用户目录中可能存在的同名旧版 Skill。不要修改文件。
+    一次 second opinion 已经返回 3 条具体 findings，用户现在要求逐条决定是否采纳。没有 audit 标签，也没有 code review 平台。这个 Skill 是否适用？
+    仅按以下字段逐行作答：
+    applies=<yes|no>
+    existing_findings=<yes|no>
+    source_supported=<yes|no>
+    runs_second_opinion=<yes|no>
+
+expect:
+  must_contain:
+    - "applies=yes"
+    - "existing_findings=yes"
+    - "source_supported=yes"
+    - "runs_second_opinion=no"
+  must_not_contain:
+    - "applies=no"
+    - "runs_second_opinion=yes"

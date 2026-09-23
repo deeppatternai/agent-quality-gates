@@ -1,0 +1,27 @@
+id: unclear-stakes-caller-classifies
+title: stakes 不明确时应由 caller 保守分类
+description: 验证 server hint 不是权威，caller 必须读取 policy 并选择更保守的 stakes。
+
+input:
+  prompt: |
+    请先加载并使用已安装的 aqg-phase-transition Skill。允许读取该 Skill 的 SKILL.md 和配套内容；不要读取工作区中的其他项目文件，不要运行审计，也不要修改文件。
+    场景：caller 无法确定一个改动应归为 moderate 还是 high，server-side hint 倾向 moderate。
+    仅按以下字段逐行说明应如何处理：
+    classifier=<caller|skill|server_hint>
+    server_hint_authoritative=<true|false>
+    authority=<策略路径>
+    selected_stakes=<moderate|high>
+    phase_used_as_depth_input=<true|false>
+
+expect:
+  must_contain:
+    - "classifier=caller"
+    - "server_hint_authoritative=false"
+    - "authority="
+    - "docs/policies/audit-trigger.md"
+    - "selected_stakes=high"
+    - "phase_used_as_depth_input=false"
+  must_not_contain:
+    - "classifier=server_hint"
+    - "selected_stakes=moderate"
+    - "phase_used_as_depth_input=true"

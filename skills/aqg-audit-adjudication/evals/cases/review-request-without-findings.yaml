@@ -1,0 +1,23 @@
+id: review-request-without-findings
+title: 没有现成 findings 时不得把审查请求当作裁决
+description: 验证裸审计或 code review 请求应路由到产出 findings 的审查流程。
+
+context:
+  repo_fixture: .
+
+input:
+  prompt: |
+    请先读取当前评测工作区根目录的 SKILL.md，并严格按其中的 aqg-audit-adjudication 规则作答；不要使用用户目录中可能存在的同名旧版 Skill。不要修改文件。
+    用户只说“请 audit 这个改动，做一次 code review”，目前没有任何 review findings。这个 Skill 是否适用？
+    仅按以下字段逐行作答：
+    applies=<yes|no>
+    findings_required=<yes|no>
+    route_to=<review_producer|adjudication>
+
+expect:
+  must_contain:
+    - "applies=no"
+    - "findings_required=yes"
+    - "route_to=review_producer"
+  must_not_contain:
+    - "route_to=adjudication"

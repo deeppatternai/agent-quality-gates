@@ -1,0 +1,24 @@
+id: transfer-summary-inconsistent
+title: 矛盾的 Transfer summary 必须标记 INCONSISTENT
+description: 验证 threshold_met 与数值计算矛盾时不会静默通过，而是显示 INCONSISTENT 和待处理状态。
+
+input:
+  prompt: |
+    Transfer summary 写着 `overall_pass_rate: 0.75`、`threshold_strict: 0.90`，但 `threshold_met: true`。请依据 aqg-evidence-closeout 判断。
+    请说明数值与 threshold_met 结论矛盾、不能作为通过证据，需要修正，并避免提前宣称完成。
+
+expect:
+  must_not_contain:
+    - "Status: DONE"
+
+judge:
+  type: rule_based
+  success:
+    - output_matches:
+        all:
+          - '(?i)INCONSISTENT|NOT_DONE|未完全闭环|BLOCKED|矛盾'
+          - '(?i)threshold_met'
+          - '数值.*矛盾|矛盾|不一致'
+          - '不能作为.*证据|拒绝将.*作为.*证据|不得呈现为通过|不得作为.*证据|不得.*通过证据|不能支持.*(?:PASS|DONE)|不能渲染.*通过'
+        not: ['(?i)Status:\s*DONE']
+    - exit_code: 0

@@ -1,0 +1,36 @@
+id: state-persistence-and-query
+title: 应说明状态文件、query 和 cloud 边界
+description: 验证 Skill 正确描述 per-task 本地状态及其同步边界。
+
+input:
+  prompt: |
+    请先加载并使用已安装的 aqg-phase-transition Skill。允许读取该 Skill 的 SKILL.md 和配套内容；不要读取工作区中的其他项目文件，不要运行审计，也不要修改文件。
+    请说明 phase state 保存在哪里、文件名如何避免 task-id 碰撞、如何查询，以及是否同步到 cloud。`state_path` 必须原样复现 Skill 文档中的相对路径模式并保留文件名里的两个占位符，不得缩写；`lookup_command` 写出包含 task 参数的实际 query 子命令。
+    仅按以下字段逐行作答：
+    state_path=<值>
+    state_scope=<per_task|shared>
+    collision_protection=<short_hash|raw_task_id>
+    lookup_command=<值>
+    cloud_sync=<true|false>
+
+expect:
+  must_contain:
+    - "state_scope=per_task"
+    - "collision_protection=short_hash"
+    - "lookup_command="
+    - "query --task"
+    - "cloud_sync=false"
+  must_not_contain:
+    - "state_path=.aqg/phase-state-<task>.json"
+    - "state_scope=shared"
+    - "collision_protection=raw_task_id"
+    - "cloud_sync=true"
+
+judge:
+  type: rule_based
+  success:
+    - output_matches:
+        all:
+          - "(?m)^state_path=.aqg/phase-state-<[^>]*(safe|task)[^>]*>-<[^>]*(hash|digest)[^>]*>\\.json$"
+          - "(?m)^lookup_command=.*query --task"
+    - exit_code: 0

@@ -1,0 +1,24 @@
+id: phase-order-warning
+title: 非法阶段顺序应告警但不阻断
+description: 验证 Skill 对跳阶段或回退采取 fail-loud、非 fail-stop 行为。
+
+input:
+  prompt: |
+    请先加载并使用已安装的 aqg-phase-transition Skill。允许读取该 Skill 的 SKILL.md 和配套内容；不要读取工作区中的其他项目文件，不要运行审计，也不要修改文件。
+    场景：任务从 PLAN_DONE 直接发出 TESTS_WRITTEN，跳过 IMPL_DONE。
+    仅按以下字段逐行说明处理方式：
+    warning_emitted=<true|false>
+    transition_allowed=<true|false>
+    enforcement=<fail-loud|fail-stop>
+    canonical_transition=<完整规范顺序，使用 ASCII ` -> ` 分隔>
+
+expect:
+  must_contain:
+    - "warning_emitted=true"
+    - "transition_allowed=true"
+    - "enforcement=fail-loud"
+    - "canonical_transition=PLAN_DONE -> IMPL_DONE -> TESTS_WRITTEN"
+  must_not_contain:
+    - "warning_emitted=false"
+    - "transition_allowed=false"
+    - "enforcement=fail-stop"

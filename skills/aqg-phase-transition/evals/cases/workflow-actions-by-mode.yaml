@@ -1,0 +1,26 @@
+id: workflow-actions-by-mode
+title: caller 应按 verdict mode 执行正确后续动作
+description: 验证 signal-only Skill 返回结果后，由 caller 运行对应 audit 或合法跳过。
+
+input:
+  prompt: |
+    请先加载并使用已安装的 aqg-phase-transition Skill。允许读取该 Skill 的 SKILL.md 和配套内容；不要读取工作区中的其他项目文件，不要运行审计，也不要修改文件。
+    对以下 verdict 给出 caller 的下一步动作。动作值只能使用 run_audit_fast、run_audit_standard、run_audit_deep、skip_audit：
+    fast、standard、deep、dedup 导致的 skip、moderate stakes 下用户明确 opt-out 导致的 skip。
+    仅按以下字段逐行作答：
+    fast_action=<值>
+    standard_action=<值>
+    deep_action=<值>
+    dedup_skip_action=<值>
+    user_skip_action=<值>
+
+expect:
+  must_contain:
+    - "fast_action=run_audit_fast"
+    - "standard_action=run_audit_standard"
+    - "deep_action=run_audit_deep"
+    - "dedup_skip_action=skip_audit"
+    - "user_skip_action=skip_audit"
+  must_not_contain:
+    - "deep_action=skip_audit"
+    - "standard_action=run_audit_fast"

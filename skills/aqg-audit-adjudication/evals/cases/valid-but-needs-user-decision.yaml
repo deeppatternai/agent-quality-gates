@@ -1,0 +1,36 @@
+id: valid-but-needs-user-decision
+title: 正确但越过权限或产品语义的 finding 应升级给用户
+description: 防止把有效但需要 Owner 选择的问题误标为 rejected 或静默延期。
+
+context:
+  # 将当前 Skill 根复制到临时工作区，避免命中用户目录中的旧版同名 Skill。
+  repo_fixture: .
+
+input:
+  prompt: |
+    请先读取当前评测工作区根目录的 SKILL.md，并严格按其中的 aqg-audit-adjudication 规则作答；不要使用用户目录中可能存在的同名旧版 Skill。不要修改文件。
+    Finding 已被当前代码证据证实，但修复需要改变公开 API 语义并迁移生产数据，用户尚未授权。应该如何分类和记录？
+    仅按以下字段逐行作答：
+    decision=<值>
+    actor=<值>
+    question=<值>
+    blocked_action=<值>
+    verification=<值>
+
+expect:
+  must_contain:
+    - "decision=needs-user-decision"
+    - "question="
+    - "blocked_action="
+    - "verification="
+  must_not_contain:
+    - "decision=rejected"
+    - "decision=accepted"
+
+judge:
+  type: rule_based
+  success:
+    - output_matches:
+        all:
+          - "(?mi)^actor=.*(user|owner|用户|负责人)"
+    - exit_code: 0

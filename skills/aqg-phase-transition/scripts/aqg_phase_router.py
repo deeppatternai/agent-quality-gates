@@ -13,8 +13,8 @@ only — it answers "should I be asking now?", never "how deep" — so every pha
 maps identically.
 
 Per ADR `2026-05-09-phase-transition-audit-trigger-a1.md` (enum re-aligned to
-audit-mcp fast/standard/deep, Owner 2026-06-04), what this module DOES own:
-- Safety floor: high stakes cannot drop below deep (even if the user says "快速扫")
+fast/standard/deep, Owner 2026-06-04), what this module DOES own:
+- Safety floor: high stakes cannot drop below deep (even on a quick-scan signal)
 - User signal language → override the policy depth (within the safety floor)
 - Dedup hit → forced "skip"
 
@@ -37,7 +37,7 @@ Phase = Literal["plan_done", "impl_done", "tests_written"]
 Stakes = Literal["trivial", "moderate", "high"]
 Mode = Literal["skip", "fast", "standard", "deep"]
 
-# Per ADR §2 matrix (Owner 2026-06-04 enum re-alignment to audit-mcp fast/standard/deep).
+# Per ADR §2 matrix (Owner 2026-06-04 enum re-alignment to fast/standard/deep).
 # Legacy → new: fast→fast · single→standard · two→standard · three→deep.
 # The `high` column is filled `deep` DIRECTLY (not `standard` rescued by the floor):
 # floor=deep means a high-stakes matrix default below deep would contradict its own
@@ -66,7 +66,7 @@ MATRIX: dict[Phase, dict[Stakes, Mode]] = {
 
 
 # Mode rank — used for "fail-safer" (max of multiple sources) + safety floor.
-# New 3-tier scale (audit-mcp fast/standard/deep): skip < fast < standard < deep.
+# New 3-tier scale: skip < fast < standard < deep.
 DEPTH_RANK: dict[Mode, int] = {
     "skip": 0,
     "fast": 1,
@@ -77,25 +77,25 @@ DEPTH_RANK: dict[Mode, int] = {
 RANK_TO_MODE: dict[int, Mode] = {v: k for k, v in DEPTH_RANK.items()}
 
 # Safety floor: high stakes never below deep (Owner 2026-06-04). High stakes is
-# irreversible-class; user "快速扫" cannot drop it (explicit skip opt-out still wins).
+# irreversible-class; quick-scan signals cannot drop it (explicit skip opt-out still wins).
 HIGH_STAKES_FLOOR_RANK = DEPTH_RANK["deep"]
 
 
 # ---- User signal parsing -------------------------------------------------
 
 # Maps natural-language fragments (English AND Chinese) to a target Mode
-# (audit-mcp fast/standard/deep). Both languages are recognized so the tool works
+# (fast/standard/deep). Both languages are recognized so the tool works
 # for English- and Chinese-speaking users alike.
-# - "skip" / "no audit" / "别审" / "我自己拍板" → skip
-# - "fast" / "quick scan" / "快速扫一下" / "随便看看" → fast
-# - "review it" / "cross-check" / "看看" / "审一下" / "交叉验证" → standard (dual-mainstream 2 models)
-# - "deep" / "strict" / "thorough" / "before prod" / "严格审" / "深审" / "挖深" → deep (6 models)
-# Legacy Chinese tier words 二审/三审/双审 are retired and deliberately NOT matched
+# - English and Chinese no-audit phrases -> skip
+# - English and Chinese quick-scan phrases -> fast
+# - English and Chinese cross-check phrases -> standard
+# - English and Chinese strict/deep-review phrases -> deep
+# Legacy Chinese tier words for old auditor counts are retired and deliberately NOT matched
 # (the model is fast/standard/deep only). ASCII "two"/"three" fragments are also not
 # matched (false-match "two files" risk + not a mode).
 USER_SIGNAL_TABLE: list[tuple[str, Mode]] = [
     # Skip — most specific first (opt out of the audit). Legacy Chinese tier words
-    # 二审/三审/双审 are retired and NOT recognized (only fast/standard/deep now).
+    # for old auditor counts are retired and NOT recognized (only fast/standard/deep now).
     ("我自己拍板", "skip"),
     ("自己看着办", "skip"),
     ("别审", "skip"),
@@ -110,7 +110,7 @@ USER_SIGNAL_TABLE: list[tuple[str, Mode]] = [
     ("i'll decide", "skip"),
     ("my call", "skip"),
     ("just proceed", "skip"),
-    # Deep (strictest — 6 models)
+    # Deep (strictest)
     ("深审", "deep"),
     ("严格审", "deep"),
     ("严格", "deep"),
@@ -127,7 +127,7 @@ USER_SIGNAL_TABLE: list[tuple[str, Mode]] = [
     ("before production", "deep"),
     ("extra careful", "deep"),
     ("deep", "deep"),
-    # Standard (dual-mainstream 2 models — cross-check / default-audit)
+    # Standard (cross-check / default-audit)
     ("交叉验证", "standard"),
     ("再确认", "standard"),
     ("cross-check", "standard"),
@@ -185,9 +185,9 @@ def _matches_signal_fragment(fragment: str, signal_lower: str) -> bool:
 
 
 # Audit fix f1 (audit c03e5465): negation tokens that, when they immediately
-# precede a skip fragment, flip its meaning ("do not skip", "不要别审"). Checked
+# precede a skip fragment, flip its meaning ("do not skip" or a CJK equivalent). Checked
 # only against the contiguous run right before the fragment (stops at
-# punctuation) so a separate skip phrase like "不用审, 自己看着办" is unaffected.
+# punctuation) so a separate skip phrase in a later clause is unaffected.
 _SKIP_NEGATION_RE = re.compile(r"do(es)?\s*not|n['’]?t\b|never|\bnot\b|不|勿|非|莫|甭")
 _RUN_SPLIT_RE = re.compile(r"[,;。，；、!?！？\n]")
 
@@ -200,7 +200,7 @@ def parse_user_signal(signal: str | None) -> Mode | None:
     for ASCII fragments, substring for CJK.
 
     Audit fix f1 (audit c03e5465): a skip fragment negated immediately before it
-    ("do not skip audit", "不要别审") is NOT an opt-out. Fail-safer — drop the
+    ("do not skip audit" or a CJK equivalent) is NOT an opt-out. Fail-safer — drop the
     skip match and let the matrix + safety floor decide, never silently skip a
     high-stakes audit the user explicitly asked NOT to skip.
     """
@@ -256,7 +256,7 @@ def decide_mode(
     4. matrix default → applied with safety floor
 
     Safety floor: high stakes cannot be lowered below "deep" by a lower-depth
-    audit request (e.g. "快速扫"→fast). An explicit skip / no-audit opt-out still
+    audit request (e.g. quick-scan -> fast). An explicit skip / no-audit opt-out still
     wins (per ADR §4 invariant 4) — the floor lifts under-depth requests, it does
     NOT force an audit the user explicitly declined. Phase-transition is a
     fail-safer mechanism, not a user-bypass tool.
@@ -287,7 +287,7 @@ def decide_mode(
 
     # Per ADR §4 invariant 4: user explicit opt-out (skip) wins — phase-transition
     # does NOT override "I don't want an audit". Safety floor only catches user
-    # who *did* want some audit but at lower depth than safe (e.g. "快速扫" on
+    # who *did* want some audit but at lower depth than safe (e.g. quick-scan on
     # high stakes → bumped to deep, not skip → deep).
     if chosen == "skip" and source != f"matrix[{phase}][{stakes}]":
         # issue #282: a high-stakes opt-out skip is still honored (invariant 4),
@@ -338,7 +338,7 @@ def merge_with_existing(
     existing_mode: Mode | None,
 ) -> tuple[Mode, str]:
     """Combine a phase-transition decision with an existing audit decision
-    (e.g. user already said "审一下" before phase fires).
+    (e.g. user already asked for a review before phase fires).
 
     Per ADR §4 / unchanged invariants:
     - A user EXPLICIT opt-out (skip via user_signal, i.e. user_override_applied)

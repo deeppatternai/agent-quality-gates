@@ -1,0 +1,31 @@
+id: validator-scope-and-limitations
+title: Validator 只校验表格契约不证明事实或修复结果
+description: 覆盖 validated table、read-only entry script 和 validator 能力边界。
+
+context:
+  repo_fixture: .
+
+input:
+  prompt: |
+    请先读取当前评测工作区根目录的 SKILL.md，并严格按其中的 aqg-audit-adjudication 规则作答；不要使用用户目录中可能存在的同名旧版 Skill。不要修改文件。
+    已有一个保存的 Markdown 裁决表。说明 validator 会验证和不会验证什么，以及 sidecar boundary 描述谁。
+    仅按以下字段逐行作答：
+    validates=<four_columns_complete_cells_canonical_decisions|technical_truth>
+    reads_file_or_stdin=<yes|no>
+    writes_project_state=<yes|no>
+    proves_finding_true=<yes|no>
+    proves_fix_ran=<yes|no>
+    sidecar_boundary_scope=<entry_script|whole_agent_workflow>
+
+expect:
+  must_contain:
+    - "validates=four_columns_complete_cells_canonical_decisions"
+    - "reads_file_or_stdin=yes"
+    - "writes_project_state=no"
+    - "proves_finding_true=no"
+    - "proves_fix_ran=no"
+    - "sidecar_boundary_scope=entry_script"
+  must_not_contain:
+    - "validates=technical_truth"
+    - "writes_project_state=yes"
+    - "sidecar_boundary_scope=whole_agent_workflow"
