@@ -92,6 +92,17 @@ INSTALLER_FLAGS = {
         "--mode",
         "--no-hooks",
     },
+    "install_aqg_deepseek_harness.py": {
+        "--apply",
+        "--verify",
+        "--uninstall",
+        "--is-installed",
+        "--aqg-root",
+        "--dsh-home",
+        "--home",
+        "--mode",
+        "--no-hooks",
+    },
     "install_aqg_clients.py": {
         "--clients",
         "--core",
@@ -160,6 +171,7 @@ def test_entry_docs_reference_shipped_support_installers(relative_path: str) -> 
     assert "install_aqg_work_clients.py" in text
     assert "install_aqg_agent_clients.py" in text
     assert "install_aqg_pi.py" in text
+    assert "install_aqg_deepseek_harness.py" in text
     for action in ("--apply", "--verify", "--uninstall", "--is-installed"):
         assert action in text
 
@@ -372,6 +384,9 @@ def test_macos_product_identities_are_single_sourced_and_exact() -> None:
         "trae-cn": (("Trae CN.app", "cn.trae.app"),),
         "trae-work": (("TRAE SOLO.app", "com.trae.solo.app"),),
         "trae-work-cn": (("TRAE SOLO CN.app", "cn.trae.solo.app"),),
+        "xiaomi-mimo": (
+            ("Xiaomi MiMo.app", "com.xiaomi.mimo.desktop"),
+        ),
     }
     actual = {
         client_id: tuple((product.app_name, product.bundle_id) for product in products)

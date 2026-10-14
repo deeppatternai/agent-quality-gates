@@ -111,6 +111,8 @@ def test_all_known_user_rule_locations_report_drift_without_writes(home):
     native = Path(os.environ['APPDATA'])
     expected = {
         'claude-code': home / '.claude/CLAUDE.md', 'codex': home / '.codex/AGENTS.md',
+        'deepseek-harness': home / '.dsh/AGENTS.md',
+        'xiaomi-mimo': home / '.config/mimocode/AGENTS.md',
         'workbuddy': home / '.workbuddy/rules/aqg.md', 'codebuddy': home / '.codebuddy/rules/aqg.md',
         'workbuddy-ai': home / '.workbuddy-ai/rules/aqg.md', 'kimi-code': home / '.kimi-code/rules/aqg.md',
         'qoderwork': home / '.qoderwork/rules/aqg.md', 'qoderwake': home / '.qoderwake/rules/aqg.md',

@@ -796,7 +796,8 @@ def test_kimi_work_uninstall_backs_up_external_skills_to_central_store(
 
     central = tmp_path / ".aqg-central"
     manifests = [
-        json.loads(path.read_text(encoding="utf-8")) for path in central.rglob("manifest.json")
+        json.loads(path.read_text(encoding="utf-8"))
+        for path in central.glob("*/*/*/manifest.json")
     ]
     assert manifests, "central store should record a manifest"
     source_roots = {manifest["source_root"] for manifest in manifests}

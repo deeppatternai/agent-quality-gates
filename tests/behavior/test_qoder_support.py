@@ -64,7 +64,7 @@ def _isolate_central_backups(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) ->
 def central_relpaths(central: Path) -> list[str]:
     """Every backed-up entry relpath across all manifests in the central store."""
     rels: list[str] = []
-    for manifest in central.rglob("manifest.json"):
+    for manifest in central.glob("*/*/*/manifest.json"):
         data = json.loads(manifest.read_text(encoding="utf-8"))
         rels.extend(entry["relpath"] for entry in data.get("entries", []))
     return rels

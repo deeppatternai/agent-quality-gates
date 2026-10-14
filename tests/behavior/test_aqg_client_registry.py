@@ -37,6 +37,8 @@ EXPECTED_CLIENTS = {
     "qoderwork",
     "qoderwake",
     "pi",
+    "deepseek-harness",
+    "xiaomi-mimo",
 }
 
 REQUIRED_FIELDS = {

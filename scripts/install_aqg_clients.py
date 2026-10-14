@@ -66,6 +66,8 @@ NO_HOOKS_FLAG_INSTALLER_FRAGMENTS = (
     "install_aqg_work_clients.py",
     "install_aqg_agent_clients.py",
     "install_aqg_pi.py",
+    "install_aqg_deepseek_harness.py",
+    "install_aqg_xiaomi_mimo.py",
 )
 
 
@@ -147,6 +149,16 @@ CLIENT_DETECTION_CANDIDATES: dict[str, tuple[ClientDetectionEvidence, ...]] = {
     "qoderwork": (_home_relative(".qoderwork"),),
     "qoderwake": (_home_relative(".qoderwake"),),
     "pi": (_home_relative(".pi/agent"),),
+    "deepseek-harness": (
+        _env_relative("DSH_HOME"),
+        _home_relative(".dsh"),
+        _path_binary("dsh", "dsh.exe", "dsh.cmd"),
+    ),
+    "xiaomi-mimo": (
+        _env_relative("MIMOCODE_HOME", "config"),
+        _env_relative("XDG_CONFIG_HOME", "mimocode"),
+        _home_relative(".config/mimocode"),
+    ),
 }
 
 
@@ -177,6 +189,9 @@ MACOS_PRODUCT_IDENTITIES: dict[str, tuple[MacOSProduct, ...]] = {
     "trae-cn": (MacOSProduct("Trae CN.app", "cn.trae.app"),),
     "trae-work": (MacOSProduct("TRAE SOLO.app", "com.trae.solo.app"),),
     "trae-work-cn": (MacOSProduct("TRAE SOLO CN.app", "cn.trae.solo.app"),),
+    "xiaomi-mimo": (
+        MacOSProduct("Xiaomi MiMo.app", "com.xiaomi.mimo.desktop"),
+    ),
 }
 
 CLI_RUNTIME_IDENTITIES: dict[str, tuple[str, ...]] = {
@@ -192,9 +207,9 @@ SHARED_HOOK_SURFACES: tuple[tuple[str, ...], ...] = (
     ("qoder-cn", "qoder-cli-cn"),
 )
 
-IDENTITY_GATED_CLIENTS = frozenset(MACOS_PRODUCT_IDENTITIES) | frozenset(
-    CLI_RUNTIME_IDENTITIES
-)
+IDENTITY_GATED_CLIENTS = (
+    frozenset(MACOS_PRODUCT_IDENTITIES) - {"xiaomi-mimo"}
+) | frozenset(CLI_RUNTIME_IDENTITIES)
 
 
 @dataclass(frozen=True)
@@ -462,6 +477,20 @@ def _local_client_roots(client_id: str, home: Path) -> tuple[Path, ...]:
     if client_id == "codex":
         override = os.environ.get("CODEX_HOME")
         return (Path(override).expanduser(),) if override else (home / ".codex",)
+    if client_id == "xiaomi-mimo":
+        for env_var, relative in (
+            ("MIMOCODE_HOME", "config"),
+            ("XDG_CONFIG_HOME", "mimocode"),
+        ):
+            value = os.environ.get(env_var)
+            if not value:
+                continue
+            candidate = Path(value).expanduser()
+            if not candidate.is_absolute():
+                return ()
+            env_root = _env_root_for_home(env_var, home)
+            return (env_root / relative,) if env_root is not None else ()
+        return (home / ".config" / "mimocode",)
     candidates = CLIENT_DETECTION_CANDIDATES.get(client_id, ())
     paths: list[Path] = []
     for candidate in candidates:
@@ -559,6 +588,26 @@ def _directory_evidence(client_id: str, home: Path, allow_global_evidence: bool)
         ):
             return f"Kimi Work skills root {resolved.skills_root} ({resolved.discovery_source})"
         return None
+    if client_id == "deepseek-harness":
+        for root in _local_client_roots(client_id, home):
+            if not _is_installed_client_root(root):
+                continue
+            identity = root / "cordis.patch.yml"
+            if identity.is_file() and not identity.is_symlink():
+                return f"DeepSeek Harness Cordis config {identity}"
+        for candidate in CLIENT_DETECTION_CANDIDATES.get(client_id, ()):
+            if _path_binary_exists(candidate):
+                return f"DeepSeek Harness executable on PATH: {candidate.value}"
+        return None
+    if client_id == "xiaomi-mimo":
+        for root in _local_client_roots(client_id, home):
+            if not _is_installed_client_root(root):
+                continue
+            for name in ("mimocode.jsonc", "mimocode.json", "config.json"):
+                identity = root / name
+                if identity.is_file() and not identity.is_symlink():
+                    return f"Xiaomi MiMo config {identity}"
+        return None
     for root in _local_client_roots(client_id, home):
         if _is_installed_client_root(root):
             return f"config directory {root}"
@@ -593,10 +642,12 @@ def detect_clients(home: Path | str | None = None) -> DetectionResult:
         if spec.support_status not in INSTALLED_SUPPORTED_STATUSES:
             continue
         client_id = spec.client_id
-        if client_id in IDENTITY_GATED_CLIENTS:
-            if client_id in identity_evidence and client_id not in blocked:
+        if client_id in identity_evidence:
+            if client_id not in blocked:
                 selected.append(client_id)
                 evidence[client_id] = identity_evidence[client_id]
+            continue
+        if client_id in IDENTITY_GATED_CLIENTS:
             continue
         found = _directory_evidence(client_id, resolved_home, allow_global_evidence)
         if found is not None:

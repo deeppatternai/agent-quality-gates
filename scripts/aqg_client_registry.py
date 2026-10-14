@@ -206,6 +206,22 @@ def _pi_commands(action: str, *, scope: str = "user") -> CommandGroup:
     return _commands(base)
 
 
+def _deepseek_harness_commands(action: str) -> CommandGroup:
+    mode = " --mode link" if action in (ACTION_APPLY, ACTION_VERIFY) else ""
+    return _commands(
+        'python3 "$AQG_ROOT/scripts/install_aqg_deepseek_harness.py" '
+        f'--aqg-root "$AQG_ROOT"{mode} --{action}'
+    )
+
+
+def _xiaomi_mimo_commands(action: str) -> CommandGroup:
+    mode = " --mode link" if action in (ACTION_APPLY, ACTION_VERIFY) else ""
+    return _commands(
+        'python3 "$AQG_ROOT/scripts/install_aqg_xiaomi_mimo.py" '
+        f'--aqg-root "$AQG_ROOT"{mode} --{action}'
+    )
+
+
 def _codex_skill_check() -> CommandGroup:
     return _commands(
         "bash -lc 'for skill in \"$AQG_ROOT\"/skills/aqg-*; do "
@@ -684,6 +700,48 @@ _CLIENTS = (
             "scripts/install_aqg_work_clients.py PROFILES qoderwake support_level=partial",
         ),
         is_installed_command=_work_client_commands("qoderwake", "is-installed"),
+    ),
+    _spec(
+        client_id="deepseek-harness",
+        support_status="partial",
+        supported_scopes=("user",),
+        skills_source="skills/",
+        skills_install_mode_default="link",
+        installer_command=_deepseek_harness_commands("apply"),
+        verify_command=_deepseek_harness_commands("verify"),
+        uninstall_command=_deepseek_harness_commands("uninstall"),
+        rules_surface=("$DSH_HOME/AGENTS.md managed AQG rule block",),
+        hooks_surface=("No managed hooks installed for DeepSeek Harness",),
+        hook_delivery="none",
+        supports_no_hooks=True,
+        capability_evidence=(
+            "DeepSeek Harness 0.2.1-alpha.2 user skills root: $DSH_HOME/skills",
+            "DeepSeek Harness user instructions file: $DSH_HOME/AGENTS.md",
+            "scripts/install_aqg_deepseek_harness.py support_status=partial",
+            "docs/client-support-matrix.zh-CN.md DeepSeek Harness row",
+        ),
+        is_installed_command=_deepseek_harness_commands("is-installed"),
+    ),
+    _spec(
+        client_id="xiaomi-mimo",
+        support_status="partial",
+        supported_scopes=("user",),
+        skills_source="skills/",
+        skills_install_mode_default="link",
+        installer_command=_xiaomi_mimo_commands("apply"),
+        verify_command=_xiaomi_mimo_commands("verify"),
+        uninstall_command=_xiaomi_mimo_commands("uninstall"),
+        rules_surface=("MiMo config-root/AGENTS.md managed AQG rule block",),
+        hooks_surface=("No managed hooks installed for Xiaomi MiMo",),
+        hook_delivery="none",
+        supports_no_hooks=True,
+        capability_evidence=(
+            "Xiaomi MiMo 26.1010.101546 config-root skills/<id>/SKILL.md",
+            "Xiaomi MiMo global instructions file: config-root/AGENTS.md",
+            "scripts/install_aqg_xiaomi_mimo.py support_status=partial",
+            "docs/client-support-matrix.zh-CN.md Xiaomi MiMo row",
+        ),
+        is_installed_command=_xiaomi_mimo_commands("is-installed"),
     ),
     _spec(
         client_id="pi",

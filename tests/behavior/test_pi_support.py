@@ -196,7 +196,7 @@ def test_pi_uninstall_backups_land_in_central_store(tmp_path: Path) -> None:
     assert not (home / ".pi" / "agent" / ".aqg-backups").exists()
     runs = sorted((central / "pi" / "user").glob("*"))
     assert runs, "expected a central backup run dir under <base>/pi/user/"
-    manifests = list(central.rglob("manifest.json"))
+    manifests = list(central.glob("*/*/*/manifest.json"))
     assert manifests, "central store should record a manifest"
     entries = json.loads(manifests[0].read_text(encoding="utf-8"))
     assert entries["client"] == "pi"

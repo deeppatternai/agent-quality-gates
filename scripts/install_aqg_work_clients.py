@@ -108,6 +108,46 @@ class SkillInstallSummary:
 
 
 PROFILES = {
+    "deepseek-harness": WorkClientProfile(
+        client_id="deepseek-harness",
+        support_level="partial",
+        user_dir=".dsh",
+        project_dir=".dsh",
+        skills=True,
+        rules=False,
+        mcp=False,
+        hooks=False,
+        hooks_format="none",
+        hook_blocking=False,
+        degradation=(
+            "AQG manages user-scope skills and the dedicated AGENTS.md rules block; "
+            "DeepSeek Harness lifecycle hooks are not supported."
+        ),
+        docs=(
+            "DeepSeek Harness 0.2.1-alpha.2 user skills root: $DSH_HOME/skills",
+            "DeepSeek Harness user instructions file: $DSH_HOME/AGENTS.md",
+        ),
+    ),
+    "xiaomi-mimo": WorkClientProfile(
+        client_id="xiaomi-mimo",
+        support_level="partial",
+        user_dir=".config/mimocode",
+        project_dir=".mimocode",
+        skills=True,
+        rules=False,
+        mcp=False,
+        hooks=False,
+        hooks_format="none",
+        hook_blocking=False,
+        degradation=(
+            "AQG manages user-scope skills and the dedicated AGENTS.md rules block; "
+            "Xiaomi MiMo lifecycle hooks are not supported."
+        ),
+        docs=(
+            "Xiaomi MiMo 26.1010.101546 config-root skills/<id>/SKILL.md",
+            "Xiaomi MiMo global instructions file: config-root/AGENTS.md",
+        ),
+    ),
     "workbuddy": WorkClientProfile(
         client_id="workbuddy",
         support_level="partial",
@@ -1220,6 +1260,8 @@ def _install_report(
 
 def _client_root(args: argparse.Namespace, profile: WorkClientProfile) -> Path:
     if args.scope == "user":
+        if args.client_root is not None:
+            return args.client_root.expanduser().absolute()
         return args.home.expanduser().resolve() / profile.user_dir
     if args.project_root is None:
         raise InstallError("--project-root is required for --scope project")
@@ -1580,6 +1622,7 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--scope", choices=("user", "project"), default="user")
     parser.add_argument("--home", type=Path, default=Path.home())
+    parser.add_argument("--client-root", type=Path, help="exact user-scope client root")
     parser.add_argument("--project-root", type=Path)
     parser.add_argument("--aqg-root", type=Path, default=REPO_ROOT)
     parser.add_argument("--mode", choices=("link", "copy"), default="link")
@@ -1607,6 +1650,15 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     try:
         profile = PROFILES[args.client]
+        if args.client_root is not None and args.scope != "user":
+            raise InstallError("--client-root is valid only for --scope user")
+        explicit_root_clients = {"deepseek-harness", "xiaomi-mimo"}
+        if args.client_root is not None and profile.client_id not in explicit_root_clients:
+            raise InstallError(
+                "--client-root is reserved for deepseek-harness and xiaomi-mimo"
+            )
+        if profile.client_id in explicit_root_clients and args.scope != "user":
+            raise InstallError(f"{profile.client_id} supports user scope only")
         client_root = _client_root(args, profile)
         resolution = _skills_root(args, profile, client_root)
         if args.is_installed:

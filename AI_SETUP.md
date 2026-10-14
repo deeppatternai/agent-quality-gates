@@ -31,6 +31,8 @@ English | [中文](AI_SETUP.zh-CN.md)
   - When running in a Trae-family IDE host, set `CURRENT_CLIENT` only if the exact profile is known: `trae` / `trae-cn` are partial IDE profiles; `trae-work` / `trae-work-cn` are partial Work profiles.
   - When running in Zed, set `CURRENT_CLIENT=zed`.
   - When running in Devin CLI, set `CURRENT_CLIENT=devin`.
+  - When running in DeepSeek Harness, set `CURRENT_CLIENT=deepseek-harness`.
+  - When running in Xiaomi MiMo, set `CURRENT_CLIENT=xiaomi-mimo`.
   - If you cannot reliably identify the current runtime / host context or Qoder profile → **stop and ask the user** which currently running client/profile should be configured. Do not guess from `~/.claude`, `~/.codex`, `~/.cursor`, `~/.qoder`, `~/.lingma`, `~/.qoder-cn`, or any other directory.
 
 ### 1. Locate / obtain the AQG checkout (call it `AQG_ROOT`)
@@ -179,6 +181,8 @@ The table below is not a permanent support registry; it documents the current in
 | `zed` | Agent-client support installer (`scripts/install_aqg_agent_clients.py`), Zed Skills/Instructions/MCP evidence, and `docs/CLIENT_SUPPORT_MATRIX_TRAE_ZED_DEVIN.md` marking Zed partial because lifecycle hooks are unavailable | Zed |
 | `devin` | Agent-client support installer (`scripts/install_aqg_agent_clients.py`), hook adapter (`scripts/agent_client_aqg_hook.py`), Devin Rules/Skills/MCP/Hooks evidence, and `docs/CLIENT_SUPPORT_MATRIX_TRAE_ZED_DEVIN.md` marking Devin partial because PreCompact-before-compaction is unavailable | Devin CLI |
 | `pi` | Pi support installer (`scripts/install_aqg_pi.py`), Pi hook runner (`scripts/pi_aqg_hook.py`), Pi official Skills/Extensions evidence, and `docs/client-support-matrix.zh-CN.md` marking Pi partial because MCP/connectors are unsupported and closeout/WIP save depend on extension lifecycle delivery | Pi |
+| `deepseek-harness` | Dedicated installer (`scripts/install_aqg_deepseek_harness.py`), user skills under `$DSH_HOME/skills`, managed `$DSH_HOME/AGENTS.md` rules, and registry `support_status=partial`; lifecycle hooks are not supported | DeepSeek Harness |
+| `xiaomi-mimo` | Dedicated installer (`scripts/install_aqg_xiaomi_mimo.py`), user skills and managed `AGENTS.md` under the resolved MiMo config root, exact macOS identity/config-file detection, and registry `support_status=partial`; lifecycle hooks and AQG MCP are not supported | Xiaomi MiMo |
 
 Known non-target statuses:
 
@@ -191,6 +195,8 @@ Known non-target statuses:
 | `zed` | partial | Include when locally detected; report that lifecycle hooks are unavailable, so mechanical gates are not installed. |
 | `devin` | partial | Include when locally detected; report missing PreCompact-before-compaction and Stop-only WIP save. |
 | `pi` | partial | Include when locally detected; report MCP/connectors unsupported and lifecycle delivery/trust caveats from `docs/client-support-matrix.zh-CN.md`. |
+| `deepseek-harness` | partial | Include only when `$DSH_HOME/cordis.patch.yml`, `~/.dsh/cordis.patch.yml`, or a `dsh` PATH executable proves product identity; install skills/rules and report hooks unavailable. |
+| `xiaomi-mimo` | partial | Include only when the exact Xiaomi MiMo macOS application identity or `mimocode.jsonc`, `mimocode.json`, or `config.json` under the resolved config root proves product identity; install user skills/rules and report hooks/AQG MCP unavailable. Never inspect or modify provider credentials. |
 
 Only add a future client row after the AQG checkout contains its formal adapter / installer / rules template / capability evidence and a supported/full/partial status declaration. Manual-only, experimental, unsupported, or unknown clients are **not** install targets for this guide.
 
@@ -201,6 +207,8 @@ Selection rules:
 - If no locally installed supported/full/partial client is detected, stop before writing anything and report the empty detected set plus the AQG evidence source.
 - Unsupported / unknown clients are not default install targets even if their config directories exist.
 - Configure each selected client's owned rule surface: Codex -> `AGENTS.md`, Claude Code -> `CLAUDE.md`, Cursor/Qoder CLI/work-code clients -> the rule surface owned by that selected installer and scope.
+- DeepSeek Harness -> `${DSH_HOME:-$HOME/.dsh}/AGENTS.md`; never treat an empty `.dsh` directory as installed product identity.
+- Xiaomi MiMo -> resolved config-root `AGENTS.md`; resolve `$MIMOCODE_HOME/config`, then `$XDG_CONFIG_HOME/mimocode`, then `~/.config/mimocode`, require absolute environment overrides, and never treat an empty directory as product identity.
 - Project scope remains explicit: only use `--project-root` after the user confirms an existing absolute `PROJECT_ROOT`.
 Default mode is `INSTALL_MODE=installed-supported`: dry-run `scripts/install_aqg_clients.py --installed-supported` first, validate the plan and required source/scope inputs, then automatically apply the same detected supported/full/partial set without asking the user to confirm the plan or hooks again. Supported lifecycle hooks are installed/refreshed by default for selected clients; pass `--no-hooks` only when the user explicitly chooses a skills/rules-only install and every selected profile can honor it. If the user explicitly wants every AQG registry adapter installed in one batch regardless of support-status label, switch to `INSTALL_MODE=multi-client-all` and use `scripts/install_aqg_clients.py --all-registry`. `--all-supported` remains a backward-compatible alias for the same registry-all mode.
 
@@ -368,6 +376,20 @@ python3 "$AQG_ROOT/scripts/install_aqg_pi.py" --scope user --aqg-root "$AQG_ROOT
 # python3 "$AQG_ROOT/scripts/install_aqg_pi.py" --scope project --project-root "$PROJECT_ROOT" --aqg-root "$AQG_ROOT" --mode link --apply
 ```
 
+If `CURRENT_CLIENT=deepseek-harness`:
+
+```bash
+# Partial support: user-scope skills and AGENTS.md rules only; no lifecycle hooks.
+python3 "$AQG_ROOT/scripts/install_aqg_deepseek_harness.py" --aqg-root "$AQG_ROOT" --mode link --apply
+```
+
+If `CURRENT_CLIENT=xiaomi-mimo`:
+
+```bash
+# Partial support: user-scope skills and AGENTS.md rules only; no lifecycle hooks or AQG MCP.
+python3 "$AQG_ROOT/scripts/install_aqg_xiaomi_mimo.py" --aqg-root "$AQG_ROOT" --mode link --apply
+```
+
 Then run:
 
 ```bash
@@ -443,6 +465,8 @@ python3 "$AQG_ROOT/scripts/install_aqg_work_clients.py" --client "$WORK_CLIENT" 
 python3 "$AQG_ROOT/scripts/install_aqg_qoder.py" --client "$QODER_CLIENT" --scope user --aqg-root "$AQG_ROOT" --mode link --verify  # if Qoder CLI user scope was selected
 python3 "$AQG_ROOT/scripts/install_aqg_agent_clients.py" --client "$AGENT_CLIENT" --scope user --aqg-root "$AQG_ROOT" --mode link --verify  # if a Trae/Zed/Devin profile was selected
 python3 "$AQG_ROOT/scripts/install_aqg_pi.py" --scope user --aqg-root "$AQG_ROOT" --mode link --verify  # if Pi user scope was selected
+python3 "$AQG_ROOT/scripts/install_aqg_deepseek_harness.py" --aqg-root "$AQG_ROOT" --mode link --verify  # if DeepSeek Harness was selected
+python3 "$AQG_ROOT/scripts/install_aqg_xiaomi_mimo.py" --aqg-root "$AQG_ROOT" --mode link --verify  # if Xiaomi MiMo was selected
 ```
 
 For project scope, repeat the matching `--project-root "$PROJECT_ROOT"` arguments used during `--apply`. Any failed verification stops the workflow. To inspect or remove a managed install later, use the same arguments with `--is-installed` or `--uninstall`.

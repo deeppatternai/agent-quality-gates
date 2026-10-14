@@ -30,6 +30,7 @@
   - 在 Trae 家族 IDE host 中运行时，只有能可靠判断精确 runtime profile 才设置 `CURRENT_CLIENT`：`trae` / `trae-cn` 是 partial IDE profile；`trae-work` / `trae-work-cn` 是 partial Work profile。
   - 在 Zed 中运行时，设 `CURRENT_CLIENT=zed`。
   - 在 Devin CLI 中运行时，设 `CURRENT_CLIENT=devin`。
+  - 在 DeepSeek Harness 中运行时，设 `CURRENT_CLIENT=deepseek-harness`。
   - 如果无法可靠判断当前 runtime / host context 或 Qoder profile → **停下询问用户**当前正在运行的客户端/profile 是哪个。不要根据 `~/.claude`、`~/.codex`、`~/.cursor`、`~/.qoder`、`~/.lingma`、`~/.qoder-cn` 或任何其它目录猜测。
 
 ### 1. 定位 / 获取 AQG checkout（记为 `AQG_ROOT`）
@@ -172,6 +173,7 @@ rg "INSTALL_MODE=installed-supported|--installed-supported|multi-client-all" "$A
 | `zed` | Agent-client support installer (`scripts/install_aqg_agent_clients.py`)、Zed Skills/Instructions/MCP 证据，以及 `docs/CLIENT_SUPPORT_MATRIX_TRAE_ZED_DEVIN.md` 因 lifecycle hooks 不可用将 Zed 标为 partial | Zed |
 | `devin` | Agent-client support installer (`scripts/install_aqg_agent_clients.py`)、hook adapter (`scripts/agent_client_aqg_hook.py`)、Devin Rules/Skills/MCP/Hooks 证据，以及 `docs/CLIENT_SUPPORT_MATRIX_TRAE_ZED_DEVIN.md` 因缺少压缩前 PreCompact 将 Devin 标为 partial | Devin CLI |
 | `pi` | Pi support installer (`scripts/install_aqg_pi.py`)、Pi hook runner (`scripts/pi_aqg_hook.py`)、Pi 官方 Skills/Extensions 证据，以及 `docs/client-support-matrix.zh-CN.md` 因 MCP/connectors 不支持和 closeout/WIP save 依赖 extension 生命周期投递将 Pi 标为 partial | Pi |
+| `deepseek-harness` | 专用 installer（`scripts/install_aqg_deepseek_harness.py`）、`$DSH_HOME/skills` user skills、`$DSH_HOME/AGENTS.md` 托管 rules 与 registry `support_status=partial`；不支持 lifecycle hooks | DeepSeek Harness |
 
 已知非安装目标状态：
 
@@ -184,6 +186,7 @@ rg "INSTALL_MODE=installed-supported|--installed-supported|multi-client-all" "$A
 | `zed` | partial | 本地检测到时纳入；报告 lifecycle hooks 不可用，因此不安装机械 hook gates。 |
 | `devin` | partial | 本地检测到时纳入；报告缺少压缩前 PreCompact，WIP save 只能在 Stop 时执行。 |
 | `pi` | partial | 本地检测到时纳入；报告 MCP/connectors 不支持与 lifecycle/trust caveat。 |
+| `deepseek-harness` | partial | 仅在 `$DSH_HOME/cordis.patch.yml`、`~/.dsh/cordis.patch.yml` 或 PATH 中 `dsh` 证明产品身份时纳入；安装 skills/rules 并报告 hooks 不可用。 |
 
 只有当 AQG checkout 已经包含正式 adapter / installer / rules template / capability evidence，并且有 supported/full/partial 状态声明时，才能添加未来客户端行。manual-only、experimental、unsupported 或 unknown 客户端**不是**本指南的安装目标。
 
@@ -340,6 +343,13 @@ python3 "$AQG_ROOT/scripts/install_aqg_pi.py" --scope user --aqg-root "$AQG_ROOT
 # python3 "$AQG_ROOT/scripts/install_aqg_pi.py" --scope project --project-root "$PROJECT_ROOT" --aqg-root "$AQG_ROOT" --mode link --apply
 ```
 
+若 `CURRENT_CLIENT=deepseek-harness`：
+
+```bash
+# partial：仅 user-scope skills 与 AGENTS.md rules；不安装 lifecycle hooks。
+python3 "$AQG_ROOT/scripts/install_aqg_deepseek_harness.py" --aqg-root "$AQG_ROOT" --mode link --apply
+```
+
 然后运行：
 
 ```bash
@@ -414,6 +424,7 @@ python3 "$AQG_ROOT/scripts/install_aqg_work_clients.py" --client "$WORK_CLIENT" 
 python3 "$AQG_ROOT/scripts/install_aqg_qoder.py" --client "$QODER_CLIENT" --scope user --aqg-root "$AQG_ROOT" --mode link --verify  # 若选择了 Qoder CLI user scope
 python3 "$AQG_ROOT/scripts/install_aqg_agent_clients.py" --client "$AGENT_CLIENT" --scope user --aqg-root "$AQG_ROOT" --mode link --verify  # 若选择了 Trae/Zed/Devin profile
 python3 "$AQG_ROOT/scripts/install_aqg_pi.py" --scope user --aqg-root "$AQG_ROOT" --mode link --verify  # 若选择了 Pi user scope
+python3 "$AQG_ROOT/scripts/install_aqg_deepseek_harness.py" --aqg-root "$AQG_ROOT" --mode link --verify  # 若选择了 DeepSeek Harness
 ```
 
 project scope 验证时重复 `--apply` 使用的 `--project-root "$PROJECT_ROOT"` 参数。任何验证失败都停止流程。以后检查或移除 managed install，使用同一组参数配 `--is-installed` 或 `--uninstall`。

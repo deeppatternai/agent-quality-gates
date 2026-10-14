@@ -171,6 +171,8 @@ def test_dry_run_prints_plan_without_executing_commands(monkeypatch, capsys) -> 
         "devin",
         "qoderwork",
         "qoderwake",
+        "deepseek-harness",
+        "xiaomi-mimo",
         "pi",
     ],
 )
@@ -210,6 +212,8 @@ def test_all_supported_expands_from_registry() -> None:
         "devin",
         "qoderwork",
         "qoderwake",
+        "deepseek-harness",
+        "xiaomi-mimo",
         "pi",
     )
 
@@ -623,7 +627,9 @@ def test_all_supported_dry_run_outputs_every_registry_command(monkeypatch, capsy
         "qoder-cli[full], qoder-cli-cn[full], qoder[partial], "
         "qoder-cn[partial], trae[partial], trae-cn[partial], "
         "trae-work-cn[partial], zed[partial], devin[partial], "
-        "qoderwork[partial], qoderwake[partial], pi[partial]"
+        "qoderwork[partial], qoderwake[partial], deepseek-harness[partial], "
+        "xiaomi-mimo[partial], "
+        "pi[partial]"
     ) in out
     assert "- workbuddy: support_status=partial" in out
     assert "- kimi-work: support_status=partial" in out
@@ -633,6 +639,8 @@ def test_all_supported_dry_run_outputs_every_registry_command(monkeypatch, capsy
     assert "- zed: support_status=partial" in out
     assert "- devin: support_status=partial" in out
     assert "- pi: support_status=partial" in out
+    assert "- deepseek-harness: support_status=partial" in out
+    assert "- xiaomi-mimo: support_status=partial" in out
     assert "install.sh\" --force" in out
     assert "claude-code/install.sh\" --scope user --mode link --force" in out
     assert "install_cursor_support.py\" --apply --scope user --mode link" in out
@@ -644,8 +652,10 @@ def test_all_supported_dry_run_outputs_every_registry_command(monkeypatch, capsy
     assert "install_aqg_qoder.py\" --client qoder-cn --scope project" in out
     assert "install_aqg_agent_clients.py\" --client trae" in out
     assert "install_aqg_agent_clients.py\" --client zed" in out
+    assert "install_aqg_xiaomi_mimo.py\" --aqg-root" in out
     assert "install_aqg_agent_clients.py\" --client devin" in out
     assert "install_aqg_pi.py\" --scope user" in out
+    assert "install_aqg_deepseek_harness.py\" --aqg-root" in out
 
 
 def test_apply_no_hooks_omits_hook_installers(monkeypatch) -> None:

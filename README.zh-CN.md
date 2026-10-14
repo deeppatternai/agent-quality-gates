@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-当前版本：`0.14.24`（权威源：`VERSION`；release notes 见 `CHANGELOG.md`）。
+当前版本：`0.14.25`（权威源：`VERSION`；release notes 见 `CHANGELOG.md`）。
 
 Agent Quality Gates（`AQG`）是给 AI 编码工作流用的**质量纪律工具箱** —— 把质量从"写完再审"推到"边写边守"。它**骑在你现有的 coding agent 之上**、与任何具体 agent 解耦，四大件：
 
@@ -73,6 +73,7 @@ AQG 能力核心 agent-agnostic；每个 agent 通过一层薄 adapter 接入。
 | Devin（`devin`）| partial | skills + hooks + `AGENTS.md` rules；无压缩前 `PreCompact` |
 | QoderWork（`qoderwork`）| partial | skills + rules + MCP；无 Qoder CLI lifecycle hook contract |
 | QoderWake（`qoderwake`）| partial | skills + rules + MCP；无 blocking lifecycle hook contract |
+| DeepSeek Harness（`deepseek-harness`）| partial | user-scope skills + `${DSH_HOME:-$HOME/.dsh}/AGENTS.md` rules；无受支持 lifecycle hooks |
 | Pi（`pi`）| partial | skills + TypeScript extension hooks + 支持报告；无 AQG MCP connector |
 
 能力矩阵与逐功能降级说明见 [`docs/client-support-matrix.zh-CN.md`](docs/client-support-matrix.zh-CN.md) 与 [`docs/CLIENT_SUPPORT_MATRIX_TRAE_ZED_DEVIN.md`](docs/CLIENT_SUPPORT_MATRIX_TRAE_ZED_DEVIN.md)。
@@ -95,7 +96,7 @@ python3 "$AQG_ROOT/scripts/install_aqg_clients.py" --all-registry --project-root
 python3 "$AQG_ROOT/scripts/install_aqg_clients.py" --clients codex,claude-code,cursor,qoder-cli --apply
 ```
 
-wrapper 默认 dry-run；只有加 `--apply` 才会写入。被选中客户端只要支持 lifecycle hooks，就会默认安装/刷新 hooks；只有用户明确要求 skills/rules-only 时才传 `--no-hooks`。`--installed-supported` 检测本地配置目录并只选择 `support_status` 为 `supported`、`full` 或 `partial` 的 registry client。`kimi-work` 指 Kimi Work Desktop / Kimi Desktop，会从 Daimon skills root 检测（`KIMI_WORK_SKILLS_ROOT`、`KIMI_DESKTOP_SKILLS_ROOT`、运行中的 Daimon 进程命令行、Kimi Desktop 日志、`.rehomed` marker、Kimi.exe 安装盘证据）；`kimi-code` 仍指 Kimi Code CLI，目标是 `~/.kimi-code`，两者不是同一个安装目标。`--all-registry` 会从 `scripts/aqg_client_registry.py` 动态展开所有 registry adapter，不按 support-status label 过滤；`--all-supported` 是同一模式的向后兼容别名。当前展开为 `codex`、`claude-code`、`cursor`、`workbuddy`、`codebuddy`、`trae-work`、`kimi-work`、`kimi-code`、`qoder-cli`、`qoder-cli-cn`、`qoder`、`qoder-cn`、`trae`、`trae-cn`、`trae-work-cn`、`zed`、`devin`、`qoderwork`、`qoderwake`、`pi`。plan 会展示每个 client 的 `support_status`，并对降级 label 输出能力提示；对 `kimi-work` 还会展示 `resolved_skills_root` 和 `discovery_source`。它也暴露 registry 的只读/移除动作：`--verify`、`--is-installed`、`--uninstall`。`--core` 只展开为 `codex,claude-code`。Qoder IDE 与 Pi project-scope profiles 在执行写入动作前必须提供 `--project-root`。
+wrapper 默认 dry-run；只有加 `--apply` 才会写入。被选中客户端只要支持 lifecycle hooks，就会默认安装/刷新 hooks；只有用户明确要求 skills/rules-only 时才传 `--no-hooks`。`--installed-supported` 检测本地配置目录并只选择 `support_status` 为 `supported`、`full` 或 `partial` 的 registry client。`kimi-work` 指 Kimi Work Desktop / Kimi Desktop，会从 Daimon skills root 检测（`KIMI_WORK_SKILLS_ROOT`、`KIMI_DESKTOP_SKILLS_ROOT`、运行中的 Daimon 进程命令行、Kimi Desktop 日志、`.rehomed` marker、Kimi.exe 安装盘证据）；`kimi-code` 仍指 Kimi Code CLI，目标是 `~/.kimi-code`，两者不是同一个安装目标。DeepSeek Harness 必须由真实的 `${DSH_HOME:-$HOME/.dsh}/cordis.patch.yml` 或 PATH 中的 `dsh` 证明产品身份；空 `.dsh` 目录不算。`--all-registry` 会从 `scripts/aqg_client_registry.py` 动态展开所有 registry adapter，不按 support-status label 过滤；`--all-supported` 是同一模式的向后兼容别名。当前展开为 `codex`、`claude-code`、`cursor`、`workbuddy`、`codebuddy`、`trae-work`、`kimi-work`、`kimi-code`、`qoder-cli`、`qoder-cli-cn`、`qoder`、`qoder-cn`、`trae`、`trae-cn`、`trae-work-cn`、`zed`、`devin`、`qoderwork`、`qoderwake`、`deepseek-harness`、`pi`。plan 会展示每个 client 的 `support_status`，并对降级 label 输出能力提示；对 `kimi-work` 还会展示 `resolved_skills_root` 和 `discovery_source`。它也暴露 registry 的只读/移除动作：`--verify`、`--is-installed`、`--uninstall`。`--core` 只展开为 `codex,claude-code`。Qoder IDE 与 Pi project-scope profiles 在执行写入动作前必须提供 `--project-root`。
 
 registry 客户端的 skills 默认使用 link/symlink 安装。copy 模式必须显式指定：Codex 用 `--copy`；Claude Code 用 `--mode copy`；Cursor、Qoder、work/code clients、Trae/Zed/Devin clients 与 Pi 用 `--mode copy`。Kimi Work 默认先尝试 link；若 Windows symlink/junction 创建失败，会自动 fallback 到 copy，并在输出、marker、support report 中记录 `requested_mode=link`、`effective_mode=copy` 和 `fallback_reason`。显式 `--mode copy` 会直接 copy；显式 `--mode link --strict-link` 会在 link 失败时 fail closed。安装后请重启 Kimi Work / Kimi Desktop 让 Daimon 重新加载 skills。Qoder installer 当前没有 `--no-hooks`，所以 wrapper 的 `--no-hooks` 遇到 Qoder 家族 profiles 会拒绝，而不是伪造不支持的参数。Work/code clients 使用 `scripts/install_aqg_work_clients.py`，Trae/Zed/Devin clients 使用 `scripts/install_aqg_agent_clients.py`，Pi 使用 `scripts/install_aqg_pi.py`；三者都支持 `--no-hooks`。没有官方 hook 合同的 profile 不会写入 hook。
 
@@ -135,6 +136,7 @@ Kimi Work Desktop / Kimi Desktop 的 Daimon shareDir 可能随安装盘 rehome�
 Qoder Desktop profile 只按精确 macOS 产品身份选择，不根据配置目录猜测。`qoder` 接受 `Qoder.app` / `com.qoder.app` 和 `Qoder IDE.app` / `com.qoder.ide`；`qoder-cn` 接受 `Qoder CN.app` / `com.qodercn.app` 和 `Qoder CN IDE.app` / `com.aliyun.lingma.ide`。同一 profile 的多个合法 bundle 同时存在时只选择一次。CLI profile 仍要求在 `PATH` 上找到对应可执行文件；Desktop 与 CLI 同时命中共享 settings surface 时保持 fail-closed，要求显式选择 `--clients`。
 - **Trae / Zed / Devin：** `python3 "$AQG_ROOT/scripts/install_aqg_agent_clients.py" --client trae --scope user --aqg-root "$AQG_ROOT" --mode link --apply`。profile 六选一：`trae`、`trae-cn`、`trae-work`、`trae-work-cn`、`zed`、`devin`；项目级还需 `--project-root /path/to/project --mode link`。支持 `--verify` / `--uninstall` / `--is-installed` 和 `--no-hooks`。六个 profile 都是 partial；`trae-work` 现在通过这个 adapter 使用共享的 `.trae` root。降级项见 `docs/CLIENT_SUPPORT_MATRIX_TRAE_ZED_DEVIN.md`。
 - **Pi：** `python3 "$AQG_ROOT/scripts/install_aqg_pi.py" --scope user --aqg-root "$AQG_ROOT" --mode link --apply` 会把 AQG skills 安装到 `~/.pi/agent/skills`，把托管 TypeScript extension 写到 `~/.pi/agent/extensions`，并写支持报告。项目级使用 `.pi/`：`--scope project --project-root /path/to/project --mode link`。支持 `--verify` / `--uninstall` / `--is-installed` 和 `--no-hooks`；等级为 partial，因为 MCP/connectors 不支持，closeout/WIP save 依赖 Pi extension 生命周期投递。
+- **DeepSeek Harness：** `python3 "$AQG_ROOT/scripts/install_aqg_deepseek_harness.py" --aqg-root "$AQG_ROOT" --mode link --apply` 会把 user-scope AQG skills 与字节保留的托管规则块写入 `${DSH_HOME:-$HOME/.dsh}`。支持 `--verify` / `--uninstall` / `--is-installed`，不安装 lifecycle hooks 或 AQG MCP。`installed-supported` 只接受 `cordis.patch.yml` 或 PATH 中 `dsh` 的产品身份，空 `.dsh` 目录不算安装。
 - **pre-commit**（git-lifecycle secret 门，opt-in）—— 通过 [pre-commit framework](https://pre-commit.com/) 接 [Gitleaks](https://github.com/gitleaks/gitleaks)：`python3 "$AQG_ROOT/scripts/install_pre_commit.py" --target-repo /path/to/project`。AQG 默认**不** `pip install`（`--allow-pip` 才开）。模板：`templates/pre-commit-config.aqg.example.yaml`、`templates/.gitleaks.aqg.example.toml`。
 - 各 agent 低层 installer（`--copy` / `--force` / `--dest`）、版本化/钉版安装、多机部署：见 `docs/INTEGRATION_GUIDE.md` + `docs/INSTALL_VERSIONING.md`。
 

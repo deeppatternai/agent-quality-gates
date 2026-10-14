@@ -98,7 +98,7 @@ def _isolate_central_backups(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) ->
 def _manifests(central: Path) -> list[dict]:
     return [
         json.loads(path.read_text(encoding="utf-8"))
-        for path in central.rglob("manifest.json")
+        for path in central.glob("*/*/*/manifest.json")
     ]
 
 

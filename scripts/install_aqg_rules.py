@@ -58,6 +58,7 @@ BEGIN_MARKER = (
     "<!-- BEGIN AQG rules (managed by scripts/install_aqg_rules.py; do not edit inside) -->"
 )
 END_MARKER = "<!-- END AQG rules -->"
+ADDED_SEPARATOR_PREFIX = "<!-- AQG-ADDED-SEPARATOR:"
 # Matched as a prefix so a future revision of the BEGIN line still finds, and
 # replaces, a region an older version wrote.
 BEGIN_PREFIX = "<!-- BEGIN AQG rules"
@@ -95,6 +96,20 @@ CLIENTS: dict[str, ClientProfile] = {
         template="examples/aqg-codex-agents.example.md",
         home_env="CODEX_HOME",
     ),
+    "deepseek-harness": ClientProfile(
+        client_id="deepseek-harness",
+        root_parts=(".dsh",),
+        rules_name="AGENTS.md",
+        template="examples/aqg-codex-agents.example.md",
+        home_env="DSH_HOME",
+    ),
+    "xiaomi-mimo": ClientProfile(
+        client_id="xiaomi-mimo",
+        root_parts=(".config", "mimocode"),
+        rules_name="AGENTS.md",
+        template="examples/aqg-codex-agents.example.md",
+        home_env=None,
+    ),
 }
 
 
@@ -124,13 +139,19 @@ def _resolve_aqg_root(value: str | None) -> Path:
     return root
 
 
-def client_root(profile: ClientProfile, home: Path | None) -> Path:
+def client_root(
+    profile: ClientProfile,
+    home: Path | None,
+    explicit_root: Path | None = None,
+) -> Path:
     """The client's config directory.
 
     ``--home`` wins over the client's own env var so a test (or an isolated
     install) can redirect every client with one flag and not have to know which
     of them read an environment variable.
     """
+    if explicit_root is not None:
+        return explicit_root.expanduser().absolute()
     if home is not None:
         return home.joinpath(*profile.root_parts)
     if profile.home_env:
@@ -140,8 +161,12 @@ def client_root(profile: ClientProfile, home: Path | None) -> Path:
     return Path.home().joinpath(*profile.root_parts)
 
 
-def rules_path(profile: ClientProfile, home: Path | None) -> Path:
-    return client_root(profile, home) / profile.rules_name
+def rules_path(
+    profile: ClientProfile,
+    home: Path | None,
+    explicit_root: Path | None = None,
+) -> Path:
+    return client_root(profile, home, explicit_root) / profile.rules_name
 
 
 # --- rendering ---------------------------------------------------------------
@@ -183,6 +208,10 @@ def _span(text: str) -> tuple[int, int] | None:
             "malformed AQG region: the end marker precedes the begin marker; "
             "remove the partial region by hand, then re-run"
         )
+    if text.startswith("\r\n", end):
+        end += 2
+    elif text.startswith("\n", end):
+        end += 1
     return start, end
 
 
@@ -214,15 +243,68 @@ def _installed_root(region: str) -> str | None:
     return match.group(1) if match else None
 
 
+def _region_content(region: str) -> str:
+    if region.endswith("\r\n"):
+        return region[:-2]
+    if region.endswith("\n"):
+        return region[:-1]
+    return region
+
+
+def _separator_metadata(region: str) -> str | None:
+    matches = [
+        line.strip()
+        for line in region.splitlines()
+        if line.strip().startswith(ADDED_SEPARATOR_PREFIX)
+    ]
+    if not matches:
+        return None
+    if len(matches) != 1:
+        raise InstallError("malformed AQG separator metadata")
+    expected = {
+        "LF": f"{ADDED_SEPARATOR_PREFIX} LF -->",
+        "CRLF": f"{ADDED_SEPARATOR_PREFIX} CRLF -->",
+    }
+    for label, marker in expected.items():
+        if matches[0] == marker:
+            return label
+    raise InstallError("malformed AQG separator metadata")
+
+
+def _with_separator_metadata(region: str, label: str) -> str:
+    marker = f"{ADDED_SEPARATOR_PREFIX} {label} -->"
+    first_newline = region.find("\n")
+    if first_newline < 0:
+        raise InstallError("AQG managed region has no marker line ending")
+    return region[: first_newline + 1] + marker + "\n" + region[first_newline + 1 :]
+
+
+def _without_separator_metadata(region: str) -> str:
+    label = _separator_metadata(region)
+    if label is None:
+        return region
+    marker = f"{ADDED_SEPARATOR_PREFIX} {label} -->\n"
+    normalized = region.replace("\r\n", "\n")
+    if normalized.count(marker) != 1:
+        raise InstallError("malformed AQG separator metadata")
+    return normalized.replace(marker, "", 1)
+
+
 def compose(current: str, region: str) -> str:
     """Replace the managed region in *current*, or append it, preserving the rest."""
     span = _span(current)
     _reject_legacy_block(current, span)
     if span is None:
-        prefix = current.rstrip()
-        return (prefix + "\n\n" if prefix else "") + region + "\n"
+        if current and not current.endswith(("\n", "\r")):
+            separator = "\r\n" if "\r\n" in current else "\n"
+            label = "CRLF" if separator == "\r\n" else "LF"
+            return current + separator + _with_separator_metadata(region, label) + "\n"
+        return current + region + "\n"
     start, end = span
-    return current[:start] + region + current[end:]
+    label = _separator_metadata(current[start:end])
+    if label is not None:
+        region = _with_separator_metadata(region, label)
+    return current[:start] + region + "\n" + current[end:]
 
 
 def strip(current: str) -> str:
@@ -231,8 +313,15 @@ def strip(current: str) -> str:
     if span is None:
         return current
     start, end = span
-    remainder = current[:start].rstrip() + "\n\n" + current[end:].lstrip()
-    return remainder.rstrip() + "\n" if remainder.strip() else ""
+    block = current[start:end]
+    label = _separator_metadata(block)
+    prefix = current[:start]
+    if label is not None:
+        separator = "\r\n" if label == "CRLF" else "\n"
+        if not prefix.endswith(separator):
+            raise InstallError("AQG separator metadata does not match the file")
+        prefix = prefix[: -len(separator)]
+    return prefix + current[end:]
 
 
 # --- writing -----------------------------------------------------------------
@@ -316,8 +405,13 @@ def _write_with_backup(
 # --- commands ----------------------------------------------------------------
 
 
-def cmd_apply(profile: ClientProfile, home: Path | None, aqg_root: Path) -> int:
-    path = rules_path(profile, home)
+def cmd_apply(
+    profile: ClientProfile,
+    home: Path | None,
+    aqg_root: Path,
+    explicit_root: Path | None = None,
+) -> int:
+    path = rules_path(profile, home, explicit_root)
     current = _read(path)
     rendered = compose(current, render_region(profile, aqg_root))
     if rendered == current:
@@ -329,8 +423,13 @@ def cmd_apply(profile: ClientProfile, home: Path | None, aqg_root: Path) -> int:
     return EXIT_OK
 
 
-def cmd_uninstall(profile: ClientProfile, home: Path | None, aqg_root: Path) -> int:
-    path = rules_path(profile, home)
+def cmd_uninstall(
+    profile: ClientProfile,
+    home: Path | None,
+    aqg_root: Path,
+    explicit_root: Path | None = None,
+) -> int:
+    path = rules_path(profile, home, explicit_root)
     if not path.is_file() and not path.is_symlink():
         print(f"[{profile.client_id}] no rules file to clean: {path}")
         return EXIT_OK
@@ -348,8 +447,13 @@ def cmd_uninstall(profile: ClientProfile, home: Path | None, aqg_root: Path) -> 
     return EXIT_OK
 
 
-def cmd_verify(profile: ClientProfile, home: Path | None, aqg_root: Path) -> int:
-    path = rules_path(profile, home)
+def cmd_verify(
+    profile: ClientProfile,
+    home: Path | None,
+    aqg_root: Path,
+    explicit_root: Path | None = None,
+) -> int:
+    path = rules_path(profile, home, explicit_root)
     if not path.is_file():
         print(f"[{profile.client_id}] FAIL no rules file: {path}", file=sys.stderr)
         return EXIT_ERROR
@@ -361,7 +465,7 @@ def cmd_verify(profile: ClientProfile, home: Path | None, aqg_root: Path) -> int
         )
         return EXIT_ERROR
     start, end = span
-    region = current[start:end]
+    region = _without_separator_metadata(_region_content(current[start:end]))
     expected = render_region(profile, aqg_root)
     if region != expected:
         installed_from = _installed_root(region)
@@ -385,9 +489,14 @@ def cmd_verify(profile: ClientProfile, home: Path | None, aqg_root: Path) -> int
     return EXIT_OK
 
 
-def cmd_is_installed(profile: ClientProfile, home: Path | None, aqg_root: Path) -> int:
+def cmd_is_installed(
+    profile: ClientProfile,
+    home: Path | None,
+    aqg_root: Path,
+    explicit_root: Path | None = None,
+) -> int:
     """Presence of a well-formed region — whether it is CURRENT is --verify's job."""
-    path = rules_path(profile, home)
+    path = rules_path(profile, home, explicit_root)
     if not path.is_file():
         return EXIT_ERROR
     current = _read(path)
@@ -416,6 +525,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     action.add_argument("--is-installed", action="store_true")
     parser.add_argument("--aqg-root", help="AQG checkout to install from")
     parser.add_argument("--home", help="treat this directory as HOME (isolation seam)")
+    parser.add_argument("--client-root", help="use this exact client root")
     return parser.parse_args(argv)
 
 
@@ -423,15 +533,23 @@ def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     try:
         profile = CLIENTS[args.client]
+        if args.client_root and profile.client_id not in {
+            "deepseek-harness",
+            "xiaomi-mimo",
+        }:
+            raise InstallError(
+                "--client-root is reserved for deepseek-harness and xiaomi-mimo"
+            )
         aqg_root = _resolve_aqg_root(args.aqg_root)
         home = Path(args.home).expanduser().resolve() if args.home else None
+        explicit_root = Path(args.client_root).expanduser().absolute() if args.client_root else None
         if args.apply:
-            return cmd_apply(profile, home, aqg_root)
+            return cmd_apply(profile, home, aqg_root, explicit_root)
         if args.uninstall:
-            return cmd_uninstall(profile, home, aqg_root)
+            return cmd_uninstall(profile, home, aqg_root, explicit_root)
         if args.verify:
-            return cmd_verify(profile, home, aqg_root)
-        return cmd_is_installed(profile, home, aqg_root)
+            return cmd_verify(profile, home, aqg_root, explicit_root)
+        return cmd_is_installed(profile, home, aqg_root, explicit_root)
     except Exception as exc:  # aqg: top-level boundary
         print(f"ERROR: {exc}", file=sys.stderr)
         return EXIT_ERROR

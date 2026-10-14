@@ -11,6 +11,28 @@ logs, and path-by-path inventories in engineering records rather than this file.
 
 ## [Unreleased]
 
+## [0.14.25] - 2026-10-14
+
+### Added
+
+- Add partial user-scope AQG integration for DeepSeek Harness, including skill
+  installation, managed `AGENTS.md` rules, discovery, verification, uninstall,
+  and installed-state checks.
+- Add partial user-scope AQG integration for Xiaomi MiMo, including config-root
+  discovery, skill installation, managed `AGENTS.md` rules, verification,
+  uninstall, and installed-state checks without reading provider credentials.
+
+### Changed
+
+- Extend the shared client registry, installer routing, setup guidance, and
+  support matrix for both new clients, with explicit product-identity checks so
+  empty configuration directories are not treated as installed applications.
+
+### Known limitations
+
+- DeepSeek Harness and Xiaomi MiMo do not expose verified managed lifecycle
+  hooks or AQG MCP integration, so both adapters are classified as partial.
+
 ## [0.14.24] - 2026-09-23
 
 ### Added
