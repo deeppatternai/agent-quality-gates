@@ -51,6 +51,10 @@ MARKER_MANAGERS = {MANAGER, "AQG"}
 RULE_MARKER = "<!-- AQG WORK CLIENT MANAGED RULE: do not edit generated content -->"
 REPORT_MARKER = "<!-- AQG WORK CLIENT SUPPORT REPORT: managed by AQG -->"
 HOOK_SENTINEL = "cursor_aqg_hook.py"
+LEGACY_MCP_DESCRIPTION = "AQG diagnostic connector placeholder; lifecycle gates remain hook/rule driven."
+LEGACY_MCP_CLIENTS = frozenset(
+    {"codebuddy", "workbuddy-ai", "kimi-code", "qoderwork", "qoderwake"}
+)
 BACKUP_SUFFIX = ".aqg-work-client.bak"  # legacy adjacent suffix, migrated into the central store
 LEGACY_BACKUP_DIR = "aqg-backups"  # legacy owned dir, migrated into the central store
 
@@ -169,7 +173,7 @@ PROFILES = {
         project_dir=".codebuddy",
         skills=True,
         rules=True,
-        mcp=True,
+        mcp=False,
         hooks=True,
         hooks_format="json",
         hook_blocking=True,
@@ -187,7 +191,7 @@ PROFILES = {
         project_dir=".workbuddy-ai",
         skills=True,
         rules=True,
-        mcp=True,
+        mcp=False,
         hooks=True,
         hooks_format="json",
         hook_blocking=True,
@@ -229,7 +233,7 @@ PROFILES = {
         project_dir=".kimi-code",
         skills=True,
         rules=True,
-        mcp=True,
+        mcp=False,
         hooks=True,
         hooks_format="toml",
         hook_blocking=False,
@@ -247,7 +251,7 @@ PROFILES = {
         project_dir=".qoderwork",
         skills=True,
         rules=True,
-        mcp=True,
+        mcp=False,
         hooks=True,
         hooks_format="json",
         hook_blocking=True,
@@ -265,7 +269,7 @@ PROFILES = {
         project_dir=".qoderwake",
         skills=True,
         rules=True,
-        mcp=True,
+        mcp=False,
         hooks=False,
         hooks_format="none",
         hook_blocking=False,
@@ -1000,31 +1004,51 @@ def _install_rule(client_root: Path, profile: WorkClientProfile, aqg_root: Path 
     return True
 
 
-def _install_mcp(client_root: Path, aqg_root: Path) -> bool:
-    mcp_path = client_root / "mcp.json"
-    _refuse_symlink_path(mcp_path, "MCP config")
-    config = {"mcpServers": {}}
-    if mcp_path.exists():
-        try:
-            config = json.loads(mcp_path.read_text(encoding="utf-8"))
-        except ValueError as exc:
-            raise InstallError(f"cannot parse MCP config {mcp_path}: {exc}") from exc
-        if not isinstance(config, dict):
-            raise InstallError(f"MCP config must be a JSON object: {mcp_path}")
-    servers = config.setdefault("mcpServers", {})
-    if not isinstance(servers, dict):
-        raise InstallError(f"mcpServers must be a JSON object: {mcp_path}")
-    expected = {
-        "command": "python3",
-        "args": [str((aqg_root / "scripts" / "aqg_doctor.py").absolute()), "--no-cli"],
-        "description": "AQG diagnostic connector placeholder; lifecycle gates remain hook/rule driven.",
-    }
-    if servers.get("aqg-support") == expected:
+def _is_historical_aqg_mcp_entry(value: object) -> bool:
+    if not isinstance(value, dict) or set(value) != {"command", "args", "description"}:
         return False
-    servers["aqg-support"] = expected
-    if mcp_path.exists():
-        _backup_adjacent(mcp_path)
-    _atomic_write(mcp_path, json.dumps(config, ensure_ascii=False, indent=2) + "\n")
+    if value.get("command") != "python3" or value.get("description") != LEGACY_MCP_DESCRIPTION:
+        return False
+    args = value.get("args")
+    if not isinstance(args, list) or len(args) != 2 or args[1] != "--no-cli":
+        return False
+    script = args[0]
+    if not isinstance(script, str):
+        return False
+    normalized = script.replace("\\", "/")
+    absolute = normalized.startswith("/") or re.match(r"^[A-Za-z]:/", normalized) is not None
+    return absolute and normalized.endswith("/scripts/aqg_doctor.py")
+
+
+def _read_legacy_mcp_config(
+    client_root: Path,
+) -> tuple[Path, dict[str, object] | None, dict[str, object] | None]:
+    path = client_root / "mcp.json"
+    if not path.exists() and not path.is_symlink():
+        return path, None, None
+    config = _read_json(path, {})
+    if "mcpServers" not in config:
+        return path, config, None
+    servers = config["mcpServers"]
+    if not isinstance(servers, dict):
+        raise InstallError(f"mcpServers must be a JSON object: {path}")
+    return path, config, servers
+
+
+def _strip_historical_aqg_mcp(client_root: Path) -> bool:
+    path, config, servers = _read_legacy_mcp_config(client_root)
+    if config is None or servers is None:
+        return False
+    if not _is_historical_aqg_mcp_entry(servers.get("aqg-support")):
+        return False
+    del servers["aqg-support"]
+    if not servers:
+        config.pop("mcpServers", None)
+    _backup_adjacent(path)
+    if config:
+        _atomic_write(path, json.dumps(config, ensure_ascii=False, indent=2) + "\n")
+    else:
+        path.unlink()
     return True
 
 
@@ -1315,6 +1339,8 @@ def _check_collisions(client_root: Path, profile: WorkClientProfile, skills_root
     for path in (client_root / "settings.json", client_root / "config.toml", client_root / "mcp.json"):
         if path.exists() or path.is_symlink():
             _refuse_symlink_path(path, "managed config")
+    if profile.client_id in LEGACY_MCP_CLIENTS:
+        _read_legacy_mcp_config(client_root)
 
 
 def _apply(args: argparse.Namespace) -> int:
@@ -1348,12 +1374,12 @@ def _apply(args: argparse.Namespace) -> int:
     ) or changed
     if profile.rules:
         changed = _install_rule(client_root, profile, args.aqg_root) or changed
-    if profile.mcp:
-        changed = _install_mcp(client_root, aqg_root) or changed
     if profile.hooks and not args.no_hooks:
         if not CURSOR_ADAPTER.is_file():
             raise InstallError(f"AQG hook adapter missing: {CURSOR_ADAPTER}")
         changed = _install_hooks(client_root, profile, aqg_root) or changed
+    if profile.client_id in LEGACY_MCP_CLIENTS:
+        changed = _strip_historical_aqg_mcp(client_root) or changed
     print(f"OK: AQG {profile.client_id} support {'updated' if changed else 'already current'} at {client_root}")
     _print_resolution(
         profile=profile,
@@ -1414,11 +1440,11 @@ def _has_managed_install(client_root: Path, profile: WorkClientProfile, skills_r
         return True
     if any(_read_marker(path) is not None for path in skills_root.glob("aqg-*")):
         return True
-    for path in (client_root / "settings.json", client_root / "config.toml", client_root / "mcp.json"):
+    for path in (client_root / "settings.json", client_root / "config.toml"):
         if not path.is_file() or path.is_symlink():
             continue
         text = path.read_text(encoding="utf-8")
-        if HOOK_SENTINEL in text or "aqg-support" in text:
+        if HOOK_SENTINEL in text:
             return True
     rule = client_root / "rules" / "aqg.md"
     return rule.is_file() and not rule.is_symlink() and RULE_MARKER in rule.read_text(encoding="utf-8")
@@ -1430,6 +1456,12 @@ def _verify(args: argparse.Namespace) -> int:
     resolution = _skills_root(args, profile, client_root)
     skills_root = resolution.skills_root
     problems: list[str] = []
+    if profile.client_id in LEGACY_MCP_CLIENTS:
+        _path, _config, servers = _read_legacy_mcp_config(client_root)
+        if servers is not None and _is_historical_aqg_mcp_entry(
+            servers.get("aqg-support")
+        ):
+            problems.append("MCP drift: historical aqg-support residue")
     report = client_root / "aqg-support-report.md"
     if not report.is_file() or REPORT_MARKER not in report.read_text(encoding="utf-8"):
         problems.append("support report drift/missing")
@@ -1453,10 +1485,6 @@ def _verify(args: argparse.Namespace) -> int:
         rule = client_root / "rules" / "aqg.md"
         if not rule.is_file() or RULE_MARKER not in rule.read_text(encoding="utf-8"):
             problems.append("rule drift/missing: aqg.md")
-    if profile.mcp:
-        mcp = client_root / "mcp.json"
-        if not mcp.is_file() or "aqg-support" not in mcp.read_text(encoding="utf-8"):
-            problems.append("MCP drift/missing: aqg-support")
     if profile.hooks and not args.no_hooks:
         hook_path = client_root / ("settings.json" if profile.hooks_format == "json" else "config.toml")
         if not hook_path.is_file() or HOOK_SENTINEL not in hook_path.read_text(encoding="utf-8"):
@@ -1549,30 +1577,13 @@ def _strip_toml_hooks(client_root: Path) -> bool:
     return True
 
 
-def _strip_mcp(client_root: Path) -> bool:
-    path = client_root / "mcp.json"
-    if not path.exists() and not path.is_symlink():
-        return False
-    config = _read_json(path, {})
-    servers = config.get("mcpServers")
-    if not isinstance(servers, dict) or "aqg-support" not in servers:
-        return False
-    del servers["aqg-support"]
-    if not servers:
-        config.pop("mcpServers", None)
-    _backup_adjacent(path)
-    if config:
-        _atomic_write(path, json.dumps(config, ensure_ascii=False, indent=2) + "\n")
-    else:
-        path.unlink()
-    return True
-
-
 def _uninstall(args: argparse.Namespace) -> int:
     profile = PROFILES[args.client]
     client_root = _client_root(args, profile)
     resolution = _skills_root(args, profile, client_root)
     skills_root = resolution.skills_root
+    if profile.client_id in LEGACY_MCP_CLIENTS:
+        _read_legacy_mcp_config(client_root)
     changed = False
     for target in list(skills_root.glob("aqg-*")):
         marker = _read_marker(target) if target.exists() or target.is_symlink() else None
@@ -1595,7 +1606,8 @@ def _uninstall(args: argparse.Namespace) -> int:
             marker_dir.rmdir()
     changed = _remove_file_if_contains(client_root / "rules" / "aqg.md", RULE_MARKER) or changed
     changed = _remove_file_if_contains(client_root / "aqg-support-report.md", REPORT_MARKER) or changed
-    changed = _strip_mcp(client_root) or changed
+    if profile.client_id in LEGACY_MCP_CLIENTS:
+        changed = _strip_historical_aqg_mcp(client_root) or changed
     changed = _strip_json_hooks(client_root) or changed
     changed = _strip_toml_hooks(client_root) or changed
     print(f"OK: AQG {profile.client_id} support {'uninstalled' if changed else 'not installed'} at {client_root}")
@@ -1667,6 +1679,8 @@ def main(argv: list[str] | None = None) -> int:
             return _verify(args)
         # apply / uninstall mutate managed files -> run inside central-store session(s)
         action = _apply if args.apply else _uninstall
+        if profile.client_id in LEGACY_MCP_CLIENTS:
+            _read_legacy_mcp_config(client_root)
         _open_backups(args, profile, client_root, resolution.skills_root)
         ok = False
         try:

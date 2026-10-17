@@ -20,6 +20,14 @@ MANAGED_MARKER = ".aqg-work-client-managed.json"
 LINK_MARKER_DIR = "managed-links"
 RULE_MARKER = "AQG WORK CLIENT MANAGED RULE"
 REPORT_MARKER = "AQG WORK CLIENT SUPPORT REPORT"
+LEGACY_MCP_DESCRIPTION = "AQG diagnostic connector placeholder; lifecycle gates remain hook/rule driven."
+LEGACY_MCP_PROFILES = (
+    ("codebuddy", ".codebuddy"),
+    ("workbuddy-ai", ".workbuddy-ai"),
+    ("kimi-code", ".kimi-code"),
+    ("qoderwork", ".qoderwork"),
+    ("qoderwake", ".qoderwake"),
+)
 
 
 def _expected_skills() -> list[str]:
@@ -72,7 +80,15 @@ def _create_link(source: Path, target: Path) -> None:
         pytest.skip("directory link fixtures unavailable")
 
 
-def test_codebuddy_full_profile_installs_skills_rules_mcp_and_hooks(tmp_path: Path) -> None:
+def _legacy_mcp_entry(script: str) -> dict[str, object]:
+    return {
+        "command": "python3",
+        "args": [script, "--no-cli"],
+        "description": LEGACY_MCP_DESCRIPTION,
+    }
+
+
+def test_codebuddy_full_profile_installs_skills_rules_and_hooks_without_pseudo_mcp(tmp_path: Path) -> None:
     home = tmp_path / "home"
 
     proc = _run_installer(
@@ -97,8 +113,7 @@ def test_codebuddy_full_profile_installs_skills_rules_mcp_and_hooks(tmp_path: Pa
         f"{name}.json" for name in expected_skills
     ]
     assert RULE_MARKER in (root / "rules" / "aqg.md").read_text(encoding="utf-8")
-    mcp = json.loads((root / "mcp.json").read_text(encoding="utf-8"))
-    assert "aqg-support" in mcp["mcpServers"]
+    assert not (root / "mcp.json").exists()
     settings = json.loads((root / "settings.json").read_text(encoding="utf-8"))
     assert {
         "SessionStart",
@@ -157,15 +172,15 @@ def test_kimi_code_partial_profile_reports_fail_open_hook_degradation(tmp_path: 
     root = home / ".kimi-code"
     assert (root / "config.toml").is_file()
     assert "PreToolUse" in (root / "config.toml").read_text(encoding="utf-8")
-    assert (root / "mcp.json").is_file()
+    assert not (root / "mcp.json").exists()
 
 
 @pytest.mark.parametrize(
     ("client", "root_dir", "expect_skills", "expect_mcp", "expect_hooks"),
     [
         ("workbuddy", ".workbuddy", True, False, False),
-        ("qoderwork", ".qoderwork", True, True, True),
-        ("qoderwake", ".qoderwake", True, True, False),
+        ("qoderwork", ".qoderwork", True, False, True),
+        ("qoderwake", ".qoderwake", True, False, False),
     ],
 )
 def test_degraded_work_profiles_install_only_documented_surfaces(
@@ -584,6 +599,342 @@ def test_uninstall_preserves_user_settings_and_mcp_entries(tmp_path: Path) -> No
     assert mcp == {"mcpServers": {"user-server": {"command": "node", "args": ["server.js"]}}}
 
 
+@pytest.mark.parametrize(("client", "root_dir"), LEGACY_MCP_PROFILES)
+def test_fresh_apply_never_registers_aqg_support_mcp(
+    tmp_path: Path, client: str, root_dir: str
+) -> None:
+    home = tmp_path / "home"
+    common = ("--client", client, "--scope", "user", "--home", str(home), "--aqg-root", str(REPO))
+
+    apply = _run_installer("--apply", *common)
+
+    assert apply.returncode == 0, apply.stdout + apply.stderr
+    root = home / root_dir
+    assert not (root / "mcp.json").exists()
+    report = (root / "aqg-support-report.md").read_text(encoding="utf-8")
+    assert "MCP/connectors: unsupported" in report
+    assert _run_installer("--verify", *common).returncode == 0
+
+
+@pytest.mark.parametrize(("client", "root_dir"), LEGACY_MCP_PROFILES)
+@pytest.mark.parametrize(
+    "doctor_path",
+    (
+        "/Users/example/.deeppattern/agent-quality-gates/scripts/aqg_doctor.py",
+        str(REPO / "scripts" / "aqg_doctor.py"),
+        r"C:\Users\example\.deeppattern\agent-quality-gates\scripts\aqg_doctor.py",
+    ),
+)
+def test_apply_removes_only_exact_historical_aqg_support_entry(
+    tmp_path: Path, client: str, root_dir: str, doctor_path: str
+) -> None:
+    home = tmp_path / "home"
+    root = home / root_dir
+    root.mkdir(parents=True)
+    expected = {
+        "schemaVersion": 7,
+        "mcpServers": {
+            "decision-engine": {"command": "de", "args": ["serve"]},
+            "user-server": {"command": "node", "args": ["server.js"]},
+        },
+    }
+    config = json.loads(json.dumps(expected))
+    config["mcpServers"]["aqg-support"] = _legacy_mcp_entry(doctor_path)
+    (root / "mcp.json").write_text(json.dumps(config, indent=4) + "\n", encoding="utf-8")
+    common = ("--client", client, "--scope", "user", "--home", str(home), "--aqg-root", str(REPO))
+
+    apply = _run_installer("--apply", *common)
+
+    assert apply.returncode == 0, apply.stdout + apply.stderr
+    assert json.loads((root / "mcp.json").read_text(encoding="utf-8")) == expected
+    assert _run_installer("--verify", *common).returncode == 0
+
+
+def test_apply_removes_managed_only_mcp_file_and_repeat_apply_is_idempotent(tmp_path: Path) -> None:
+    home = tmp_path / "home"
+    root = home / ".workbuddy-ai"
+    root.mkdir(parents=True)
+    (root / "mcp.json").write_text(
+        json.dumps(
+            {
+                "mcpServers": {
+                    "aqg-support": _legacy_mcp_entry(
+                        "/old/agent-quality-gates/scripts/aqg_doctor.py"
+                    )
+                }
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    common = (
+        "--client",
+        "workbuddy-ai",
+        "--scope",
+        "user",
+        "--home",
+        str(home),
+        "--aqg-root",
+        str(REPO),
+    )
+
+    assert _run_installer("--apply", *common).returncode == 0
+    assert not (root / "mcp.json").exists()
+    repeat = _run_installer("--apply", *common)
+    assert repeat.returncode == 0, repeat.stdout + repeat.stderr
+    assert "already current" in repeat.stdout
+
+
+def test_verify_rejects_exact_historical_aqg_support_residue(tmp_path: Path) -> None:
+    home = tmp_path / "home"
+    root = home / ".workbuddy-ai"
+    common = (
+        "--client",
+        "workbuddy-ai",
+        "--scope",
+        "user",
+        "--home",
+        str(home),
+        "--aqg-root",
+        str(REPO),
+    )
+    assert _run_installer("--apply", *common).returncode == 0
+    mcp_path = root / "mcp.json"
+    mcp_path.write_text(
+        json.dumps(
+            {
+                "mcpServers": {
+                    "aqg-support": _legacy_mcp_entry(
+                        str(REPO / "scripts" / "aqg_doctor.py")
+                    )
+                }
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    verify = _run_installer("--verify", *common)
+
+    assert verify.returncode == 1
+    assert "MCP drift: historical aqg-support residue" in verify.stderr
+
+
+def test_uninstall_removes_historical_aqg_support_and_preserves_other_config(tmp_path: Path) -> None:
+    home = tmp_path / "home"
+    root = home / ".workbuddy-ai"
+    root.mkdir(parents=True)
+    mcp_path = root / "mcp.json"
+    mcp_path.write_text(
+        json.dumps(
+            {
+                "schemaVersion": 7,
+                "mcpServers": {
+                    "aqg-support": _legacy_mcp_entry(
+                        "/old/agent-quality-gates/scripts/aqg_doctor.py"
+                    ),
+                    "decision-engine": {"command": "de", "args": ["serve"]},
+                },
+            },
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    common = (
+        "--client",
+        "workbuddy-ai",
+        "--scope",
+        "user",
+        "--home",
+        str(home),
+        "--aqg-root",
+        str(REPO),
+    )
+
+    uninstall = _run_installer("--uninstall", *common)
+
+    assert uninstall.returncode == 0, uninstall.stdout + uninstall.stderr
+    assert json.loads(mcp_path.read_text(encoding="utf-8")) == {
+        "schemaVersion": 7,
+        "mcpServers": {"decision-engine": {"command": "de", "args": ["serve"]}},
+    }
+    repeat = _run_installer("--uninstall", *common)
+    assert repeat.returncode == 0, repeat.stdout + repeat.stderr
+    assert "not installed" in repeat.stdout
+    assert json.loads(mcp_path.read_text(encoding="utf-8")) == {
+        "schemaVersion": 7,
+        "mcpServers": {"decision-engine": {"command": "de", "args": ["serve"]}},
+    }
+
+
+@pytest.mark.parametrize(("client", "root_dir"), LEGACY_MCP_PROFILES)
+def test_foreign_same_name_mcp_is_byte_preserved_and_never_claims_installation(
+    tmp_path: Path, client: str, root_dir: str
+) -> None:
+    home = tmp_path / "home"
+    root = home / root_dir
+    root.mkdir(parents=True)
+    mcp_path = root / "mcp.json"
+    foreign_bytes = (
+        b'{\n  "owner": "user",\n  "mcpServers": {\n'
+        b'    "aqg-support": {"command": "custom-aqg", "args": ["serve"], "env": {"KEEP": "yes"}},\n'
+        b'    "decision-engine": {"command": "de", "args": ["serve"]}\n  }\n}\n'
+    )
+    mcp_path.write_bytes(foreign_bytes)
+    common = ("--client", client, "--scope", "user", "--home", str(home), "--aqg-root", str(REPO))
+
+    assert _run_installer("--is-installed", *common).returncode == 1
+    apply = _run_installer("--apply", *common)
+    assert apply.returncode == 0, apply.stdout + apply.stderr
+    assert mcp_path.read_bytes() == foreign_bytes
+    assert _run_installer("--verify", *common).returncode == 0
+    assert mcp_path.read_bytes() == foreign_bytes
+    assert _run_installer("--is-installed", *common).returncode == 0
+    uninstall = _run_installer("--uninstall", *common)
+    assert uninstall.returncode == 0, uninstall.stdout + uninstall.stderr
+    assert mcp_path.read_bytes() == foreign_bytes
+    assert _run_installer("--is-installed", *common).returncode == 1
+
+
+@pytest.mark.parametrize(
+    "foreign_entry",
+    (
+        {
+            "command": "python",
+            "args": ["/old/scripts/aqg_doctor.py", "--no-cli"],
+            "description": LEGACY_MCP_DESCRIPTION,
+        },
+        {
+            "command": "python3",
+            "args": ["scripts/aqg_doctor.py", "--no-cli"],
+            "description": LEGACY_MCP_DESCRIPTION,
+        },
+        {
+            "command": "python3",
+            "args": ["/old/scripts/other.py", "--no-cli"],
+            "description": LEGACY_MCP_DESCRIPTION,
+        },
+        {
+            "command": "python3",
+            "args": ["/old/scripts/aqg_doctor.py", "--no-cli"],
+            "description": "user-managed diagnostic server",
+        },
+        {
+            "command": "python3",
+            "args": ["/old/scripts/aqg_doctor.py", "--no-cli"],
+            "description": LEGACY_MCP_DESCRIPTION,
+            "disabled": False,
+        },
+    ),
+)
+def test_uninstall_preserves_near_match_foreign_aqg_support_bytes(
+    tmp_path: Path, foreign_entry: dict[str, object]
+) -> None:
+    home = tmp_path / "home"
+    root = home / ".workbuddy-ai"
+    root.mkdir(parents=True)
+    mcp_path = root / "mcp.json"
+    original = (json.dumps({"mcpServers": {"aqg-support": foreign_entry}}, indent=3) + "\n").encode()
+    mcp_path.write_bytes(original)
+    common = (
+        "--client",
+        "workbuddy-ai",
+        "--scope",
+        "user",
+        "--home",
+        str(home),
+        "--aqg-root",
+        str(REPO),
+    )
+
+    uninstall = _run_installer("--uninstall", *common)
+
+    assert uninstall.returncode == 0, uninstall.stdout + uninstall.stderr
+    assert mcp_path.read_bytes() == original
+    assert _run_installer("--is-installed", *common).returncode == 1
+
+
+@pytest.mark.parametrize("malformed_servers", ([], None, "not-an-object"))
+def test_apply_rejects_malformed_mcp_servers_before_other_writes(
+    tmp_path: Path, malformed_servers: object
+) -> None:
+    home = tmp_path / "home"
+    root = home / ".workbuddy-ai"
+    root.mkdir(parents=True)
+    mcp_path = root / "mcp.json"
+    original = (json.dumps({"mcpServers": malformed_servers}) + "\n").encode()
+    mcp_path.write_bytes(original)
+    adjacent = root / "settings.json.aqg-work-client.bak"
+    adjacent.write_bytes(b"legacy backup\n")
+
+    proc = _run_installer(
+        "--client",
+        "workbuddy-ai",
+        "--scope",
+        "user",
+        "--home",
+        str(home),
+        "--aqg-root",
+        str(REPO),
+        "--apply",
+    )
+
+    assert proc.returncode == 1
+    assert "mcpServers must be a JSON object" in proc.stderr
+    assert mcp_path.read_bytes() == original
+    assert adjacent.read_bytes() == b"legacy backup\n"
+    assert not (tmp_path / ".aqg-central").exists()
+    assert not (root / "aqg-support-report.md").exists()
+    assert not (root / "rules" / "aqg.md").exists()
+    assert not list((root / "skills").glob("aqg-*"))
+
+
+@pytest.mark.parametrize("malformed_servers", ([], None, "not-an-object"))
+def test_uninstall_rejects_malformed_mcp_servers_before_removing_managed_assets(
+    tmp_path: Path, malformed_servers: object
+) -> None:
+    home = tmp_path / "home"
+    root = home / ".workbuddy-ai"
+    common = (
+        "--client",
+        "workbuddy-ai",
+        "--scope",
+        "user",
+        "--home",
+        str(home),
+        "--aqg-root",
+        str(REPO),
+    )
+    assert _run_installer("--apply", *common).returncode == 0
+    report = root / "aqg-support-report.md"
+    skill_names = sorted(path.name for path in (root / "skills").glob("aqg-*"))
+    (root / "mcp.json").write_text(
+        json.dumps({"mcpServers": malformed_servers}) + "\n", encoding="utf-8"
+    )
+    adjacent = root / "settings.json.aqg-work-client.bak"
+    adjacent.write_bytes(b"legacy backup\n")
+    central = tmp_path / ".aqg-central"
+    central_before = {
+        path.relative_to(central): path.read_bytes()
+        for path in central.rglob("*")
+        if path.is_file()
+    }
+
+    uninstall = _run_installer("--uninstall", *common)
+
+    assert uninstall.returncode == 1
+    assert "mcpServers must be a JSON object" in uninstall.stderr
+    assert adjacent.read_bytes() == b"legacy backup\n"
+    assert {
+        path.relative_to(central): path.read_bytes()
+        for path in central.rglob("*")
+        if path.is_file()
+    } == central_before
+    assert report.is_file()
+    assert sorted(path.name for path in (root / "skills").glob("aqg-*")) == skill_names
+
+
 def test_apply_refuses_unmanaged_skill_collision_before_writing_other_assets(tmp_path: Path) -> None:
     home = tmp_path / "home"
     root = home / ".codebuddy"
@@ -666,7 +1017,7 @@ def test_work_client_migrates_and_removes_legacy_inplace_backups(tmp_path: Path)
 # --------------------------------------------------------------------------
 
 
-def test_workbuddy_ai_full_profile_installs_skills_rules_mcp_and_hooks_independently(
+def test_workbuddy_ai_full_profile_installs_skills_rules_and_hooks_independently(
     tmp_path: Path,
 ) -> None:
     home = tmp_path / "home"
@@ -689,8 +1040,7 @@ def test_workbuddy_ai_full_profile_installs_skills_rules_mcp_and_hooks_independe
     expected_skills = _expected_skills()
     assert sorted(path.name for path in (root / "skills").glob("aqg-*")) == expected_skills
     assert RULE_MARKER in (root / "rules" / "aqg.md").read_text(encoding="utf-8")
-    mcp = json.loads((root / "mcp.json").read_text(encoding="utf-8"))
-    assert "aqg-support" in mcp["mcpServers"]
+    assert not (root / "mcp.json").exists()
     settings = json.loads((root / "settings.json").read_text(encoding="utf-8"))
     assert {
         "SessionStart",
